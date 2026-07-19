@@ -110,10 +110,10 @@ app.post("/api/send-batch", async (req, res) => {
     });
   }
 
-  if (recipients.length > 10) {
+  if (recipients.length > 8) {
     return res.status(400).json({
         success: false,
-        message: "Batch too large. Max 10."
+        message: "Batch too large. Max 8."
     });
   }
 
@@ -140,6 +140,13 @@ app.post("/api/send-batch", async (req, res) => {
   let sent = 0;
   let failed = 0;
 
+  // Convert line breaks in the body to HTML line breaks for standard, professional rendering
+  const formattedHtml = messageBody
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\r?\n/g, "<br>");
+
   // Send all emails in parallel for maximum speed
   const results = await Promise.allSettled(recipients.map(recipient =>
       transporter.sendMail({
@@ -147,7 +154,7 @@ app.post("/api/send-batch", async (req, res) => {
           to: recipient,
           subject: subject,
           text: messageBody,
-          html: `<p>${messageBody}</p>`
+          html: `<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333333;">${formattedHtml}</div>`
       }).then(() => ({ success: true, recipient }))
       .catch(error => {
           console.error("Email failed:", recipient, error);
