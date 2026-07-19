@@ -113,7 +113,7 @@ app.post("/api/send-batch", async (req, res) => {
   if (recipients.length > 9) {
     return res.status(400).json({
         success: false,
-        message: "Batch too large. Max 8."
+        message: "Batch too large. Max 9."
     });
   }
 
@@ -140,28 +140,23 @@ app.post("/api/send-batch", async (req, res) => {
   let sent = 0;
   let failed = 0;
 
-  // Convert line breaks in the body to HTML line breaks for standard, professional rendering
-  const formattedHtml = messageBody
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\r?\n/g, "<br>");
+  // Identify if the body contains HTML tags to render them correctly without escaping
+  const isHtml = /<[a-z][\s\S]*>/i.test(messageBody);
+  const formattedHtml = isHtml ? messageBody : messageBody.replace(/\r?\n/g, "<br>");
+  const textBody = isHtml ? messageBody.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() : messageBody;
 
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
 
   // Send all emails in parallel for maximum speed
   const results = await Promise.allSettled(recipients.map(recipient => {
-      const uniqueMsgId = `<${Date.now()}.${Math.random().toString(36).substring(2, 11)}@gmail.com>`;
       return transporter.sendMail({
           from: `"${cleanSenderName}" <${email}>`,
           to: recipient,
           replyTo: email,
           subject: subject,
-          text: messageBody,
+          text: textBody,
           html: formattedHtml,
           headers: {
-              "Message-ID": uniqueMsgId,
-              "Date": new Date().toUTCString(),
               "MIME-Version": "1.0",
               "Importance": "Normal",
               "X-Priority": "3"
@@ -197,6 +192,9 @@ app.post("/api/stop", (req, res) => {
   // reset after a few seconds so next send works
   setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
 });
+
+// Legacy send function removed (now fully managed by REST batching)
+// Socket connection removed
 
 /* ---------------- START SERVER ---------------- */
 
