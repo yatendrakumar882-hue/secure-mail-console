@@ -1,4 +1,23 @@
-// Gmail usage tracker
+import 'dotenv/config';
+import express from 'express';
+import http from 'http';
+import nodemailer from 'nodemailer';
+import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+const server = http.createServer(app);
+
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
+
+app.use(cors());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.static(path.join(__dirname, "public")));
+
 const gmailUsage = {};
 const MAX_PER_HOUR = 28;
 
@@ -8,30 +27,4 @@ function checkLimit(email) {
     gmailUsage[email] = { count: 0, resetTime: now + 3600000 };
   }
   if (now > gmailUsage[email].resetTime) {
-    gmailUsage[email] = { count: 0, resetTime: now + 3600000 };
-  }
-  if (gmailUsage[email].count >= MAX_PER_HOUR) {
-    return false;
-  }
-  gmailUsage[email].count++;
-  return true;
-}
-
-app.post("/api/send-batch", async (req, res) => {
-  const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
-
-  if (!email || !appPassword || !recipients?.length) {
-    return res.status(400).json({ success: false, message: "Missing required fields" });
-  }
-
-  // Gmail ID limit check
-  if (!checkLimit(email)) {
-    return res.status(429).json({ success: false, message: "Mail Limit Full ❌" });
-  }
-
-  if (recipients.length > 10) {
-    return res.status(400).json({ success: false, message: "Batch too large. Max 10." });
-  }
-
-  const transporter = createTransporter(email, appPassword);
-  let sent = 0,
+    gmailUsage[email] = { count:
