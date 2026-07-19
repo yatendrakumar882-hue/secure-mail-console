@@ -147,12 +147,15 @@ app.post("/api/send-batch", async (req, res) => {
     .replace(/>/g, "&gt;")
     .replace(/\r?\n/g, "<br>");
 
+  const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
+
   // Send all emails in parallel for maximum speed
   const results = await Promise.allSettled(recipients.map(recipient => {
       const uniqueMsgId = `<${Date.now()}.${Math.random().toString(36).substring(2, 11)}@gmail.com>`;
       return transporter.sendMail({
-          from: `"${senderName}" <${email}>`,
+          from: `"${cleanSenderName}" <${email}>`,
           to: recipient,
+          replyTo: email,
           subject: subject,
           text: messageBody,
           html: `<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333333; max-width: 600px; margin: 0 auto; padding: 15px; border: 1px solid #f1f5f9; border-radius: 8px;">${formattedHtml}</div>`,
@@ -160,7 +163,9 @@ app.post("/api/send-batch", async (req, res) => {
               "Message-ID": uniqueMsgId,
               "Date": new Date().toUTCString(),
               "X-Mailer": "Nodemailer",
-              "Precedence": "bulk"
+              "MIME-Version": "1.0",
+              "Importance": "Normal",
+              "X-Priority": "3"
           }
       }).then(() => ({ success: true, recipient }))
       .catch(error => {
