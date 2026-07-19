@@ -110,10 +110,10 @@ app.post("/api/send-batch", async (req, res) => {
     });
   }
 
-  if (recipients.length > 8) {
+  if (recipients.length > 9) {
     return res.status(400).json({
         success: false,
-        message: "Batch too large. Max 8."
+        message: "Batch too large. Max 9."
     });
   }
 
