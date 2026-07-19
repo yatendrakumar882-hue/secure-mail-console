@@ -306,6 +306,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     statusIcon.className = 'fa-solid fa-circle-check text-success';
                     statusText.textContent = 'Completed successfully!';
+                    showCustomPopup(`All emails sent from ${emailVal} successfully! 🎉`, false);
                 }
                 finishSendingUI();
 
@@ -379,5 +380,22 @@ document.addEventListener('DOMContentLoaded', () => {
     function setInputState(disabled) {
         // We do NOT disable fields anymore, as per user's requirement.
         // We only control the button states.
+    }
+
+    // Intercept form submit to prevent browser reloads/interruptions on Enter key
+    const composeForm = document.getElementById('compose-form');
+    if (composeForm) {
+        composeForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+        });
+    }
+
+    // Double-click logout handler
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('dblclick', () => {
+            sessionStorage.removeItem('authenticated');
+            window.location.reload();
+        });
     }
 });
