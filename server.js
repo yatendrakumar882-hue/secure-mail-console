@@ -23,6 +23,7 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 const activeSessions = {};
+const emailHistory = {};
 
 /* ---------------- PASSWORD AUTH ---------------- */
 
@@ -116,6 +117,25 @@ app.post("/api/send-batch", async (req, res) => {
     });
   }
 
+  const senderEmail = email.toLowerCase().trim();
+  const now = Date.now();
+  const oneHourAgo = now - 3600000; // 1 hour in ms
+
+  // Initialize and clean history
+  if (!emailHistory[senderEmail]) {
+    emailHistory[senderEmail] = [];
+  }
+  emailHistory[senderEmail] = emailHistory[senderEmail].filter(ts => ts > oneHourAgo);
+
+  const currentSentCount = emailHistory[senderEmail].length;
+  if (currentSentCount + recipients.length > 28) {
+    return res.status(400).json({
+      success: false,
+      limitExceeded: true,
+      message: `Mail Limit Full ❌ (Sent: ${currentSentCount}/28 in last hour. Cannot send ${recipients.length} more)`
+    });
+  }
+
   const transporter = createTransporter(email, appPassword);
   let sent = 0;
   let failed = 0;
@@ -136,8 +156,12 @@ app.post("/api/send-batch", async (req, res) => {
   ));
 
   for (const result of results) {
-      if (result.status === 'fulfilled' && result.value.success) sent++;
-      else failed++;
+      if (result.status === 'fulfilled' && result.value.success) {
+          sent++;
+          emailHistory[senderEmail].push(Date.now());
+      } else {
+          failed++;
+      }
   }
 
   res.json({
