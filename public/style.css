@@ -41,12 +41,18 @@ body {
 }
 
 .app-header {
-    text-align: center;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
     margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
 }
 
 .app-header h1 {
-    font-size: 2.5rem;
+    font-size: 2rem;
     font-weight: 700;
     color: var(--primary-color);
     background: linear-gradient(135deg, var(--primary-color), #8b5cf6);
@@ -55,6 +61,25 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
+}
+
+.logout-header-btn {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    color: var(--danger-color);
+    background-color: rgba(239, 68, 68, 0.05);
+    user-select: none;
+    transition: all 0.2s;
+    cursor: pointer;
+}
+
+.logout-header-btn:hover {
+    background-color: var(--danger-color);
+    color: white;
+    border-color: var(--danger-color);
 }
 
 .card {
