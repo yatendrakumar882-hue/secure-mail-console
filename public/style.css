@@ -41,18 +41,13 @@ body {
 }
 
 .app-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 1rem;
+    text-align: center;
     margin-bottom: 2rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid var(--border-color);
+    position: relative;
 }
 
 .app-header h1 {
-    font-size: 2rem;
+    font-size: 2.5rem;
     font-weight: 700;
     color: var(--primary-color);
     background: linear-gradient(135deg, var(--primary-color), #8b5cf6);
@@ -64,6 +59,10 @@ body {
 }
 
 .logout-header-btn {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
     padding: 0.5rem 1rem;
     font-size: 0.875rem;
     font-weight: 500;
@@ -80,6 +79,19 @@ body {
     background-color: var(--danger-color);
     color: white;
     border-color: var(--danger-color);
+}
+
+@media (max-width: 768px) {
+    .app-header {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.75rem;
+    }
+    .logout-header-btn {
+        position: static;
+        transform: none;
+    }
 }
 
 .card {
