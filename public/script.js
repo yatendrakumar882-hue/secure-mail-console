@@ -111,32 +111,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Custom Alert / Popup Function
     function showCustomPopup(message, isError = true) {
+        // Remove existing popups first
+        const existingPopups = document.querySelectorAll('.custom-popup');
+        existingPopups.forEach(p => p.remove());
+
         const popup = document.createElement('div');
         popup.className = `custom-popup fade-in ${isError ? 'error-popup' : 'success-popup'}`;
         popup.innerHTML = `
             <div class="popup-content">
                 <div class="popup-icon">${isError ? '<i class="fa-solid fa-triangle-exclamation"></i>' : '<i class="fa-solid fa-circle-check"></i>'}</div>
                 <div class="popup-body">
-                    <div class="popup-title">${isError ? 'Limit Exceeded' : 'Success'}</div>
+                    <div class="popup-title">${isError ? 'Notice' : 'Success'}</div>
                     <div class="popup-message">${message}</div>
                 </div>
                 <button class="popup-close-btn">&times;</button>
+                <div class="popup-actions" style="margin-top: 1rem; display: flex; justify-content: flex-end; width: 100%;">
+                    <button class="btn btn-primary btn-sm popup-ok-btn" style="padding: 0.4rem 1.25rem; font-size: 0.85rem; border-radius: var(--radius-md); font-weight: 600; cursor: pointer; min-width: 70px;">OK</button>
+                </div>
             </div>
         `;
         document.body.appendChild(popup);
 
-        // Close button click
-        popup.querySelector('.popup-close-btn').addEventListener('click', () => {
-            popup.remove();
-        });
-
-        // Auto-remove after 6 seconds
-        setTimeout(() => {
+        const closePopup = () => {
             if (popup.parentNode) {
                 popup.style.animation = 'fadeOut 0.4s ease-out forwards';
                 setTimeout(() => popup.remove(), 400);
             }
-        }, 6000);
+        };
+
+        // Close button and OK button click
+        popup.querySelector('.popup-close-btn').addEventListener('click', closePopup);
+        popup.querySelector('.popup-ok-btn').addEventListener('click', closePopup);
+
+        // Auto-remove after 8 seconds (only for success, keep errors open until acknowledged)
+        if (!isError) {
+            setTimeout(closePopup, 8000);
+        }
     }
 
     // Toggle Password Visibility
@@ -292,8 +302,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Update UI stats
                     updateProgressUI(sentCount, failedCount, recipientsToSend.length);
 
-                    // Minimal delay between batches
-                    await new Promise(res => setTimeout(res, 200));
+                    // Minimal delay between batches for safe, professional inbox delivery
+                    await new Promise(res => setTimeout(res, 1000));
                 }
 
                 isSending = false;
