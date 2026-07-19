@@ -27,4 +27,9 @@ function checkLimit(email) {
     gmailUsage[email] = { count: 0, resetTime: now + 3600000 };
   }
   if (now > gmailUsage[email].resetTime) {
-    gmailUsage[email] = { count:
+    gmailUsage[email] = { count: 0, resetTime: now + 3600000 };
+  }
+  if (gmailUsage[email].count >= MAX_PER_HOUR) {
+    return false;
+  }
+  gmail
