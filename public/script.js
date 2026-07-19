@@ -6,12 +6,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const messageBody = document.getElementById('message-body');
   const recipientsInput = document.getElementById('recipients-input');
   const sendBtn = document.getElementById('send-btn');
-  const stopBtn = document.getElementById('stop-btn');
   const statusText = document.getElementById('status-text');
 
   let extractedEmails = [];
-  let isSending = false;
-  let stopRequested = false;
 
   recipientsInput.addEventListener('input', () => {
     const matches = recipientsInput.value.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi) || [];
@@ -19,7 +16,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   sendBtn.addEventListener('click', async () => {
-    if (isSending) return;
     if (!dashboardEmail.value.trim() || !dashboardPassword.value.trim() || !senderName.value.trim() || !subject.value.trim() || !messageBody.value.trim()) {
       alert("Fill all fields");
       return;
