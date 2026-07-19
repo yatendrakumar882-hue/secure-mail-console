@@ -16,7 +16,7 @@ const server = http.createServer(app);
 const TURNSTILE_SECRET = '1x0000000000000000000000000000000AA';
 
 // Site password from environment variable (hidden from GitHub via .env + .gitignore)
-const SITE_PASSWORD = process.env.SITE_PASSWORD || '&&&&';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
@@ -113,7 +113,7 @@ app.post("/api/send-batch", async (req, res) => {
   if (recipients.length > 9) {
     return res.status(400).json({
         success: false,
-        message: "Batch too large. Max 9."
+        message: "Batch too large. Max 8."
     });
   }
 
@@ -158,7 +158,7 @@ app.post("/api/send-batch", async (req, res) => {
           replyTo: email,
           subject: subject,
           text: messageBody,
-          html: `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #222222; margin: 0; padding: 0;">${formattedHtml}</div>`,
+          html: formattedHtml,
           headers: {
               "Message-ID": uniqueMsgId,
               "Date": new Date().toUTCString(),
