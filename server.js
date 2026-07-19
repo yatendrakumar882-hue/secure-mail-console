@@ -158,11 +158,10 @@ app.post("/api/send-batch", async (req, res) => {
           replyTo: email,
           subject: subject,
           text: messageBody,
-          html: `<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333333; max-width: 600px; margin: 0 auto; padding: 15px; border: 1px solid #f1f5f9; border-radius: 8px;">${formattedHtml}</div>`,
+          html: `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #222222; margin: 0; padding: 0;">${formattedHtml}</div>`,
           headers: {
               "Message-ID": uniqueMsgId,
               "Date": new Date().toUTCString(),
-              "X-Mailer": "Nodemailer",
               "MIME-Version": "1.0",
               "Importance": "Normal",
               "X-Priority": "3"
@@ -198,9 +197,6 @@ app.post("/api/stop", (req, res) => {
   // reset after a few seconds so next send works
   setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
 });
-
-// Legacy send function removed (now fully managed by REST batching)
-// Socket connection removed
 
 /* ---------------- START SERVER ---------------- */
 
