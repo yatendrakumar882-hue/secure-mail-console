@@ -9,13 +9,13 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- Password Gate Overlay -->
+  <!-- Password Gate -->
   <div id="password-gate" class="password-gate">
     <div class="gate-card fade-in">
       <div class="gate-icon"><i class="fa-solid fa-lock"></i></div>
       <h2>Access Protected</h2>
       <p>Enter the password to continue</p>
-      <form id="gate-form" autocomplete="off">
+      <form id="gate-form">
         <div class="form-group">
           <div class="password-wrapper">
             <input type="password" id="gate-password" placeholder="Enter password..." required>
@@ -38,75 +38,62 @@
     </header>
 
     <section id="dashboard-section">
-      <div class="dashboard-header fade-in"><h2><i class="fa-solid fa-paper-plane"></i> Bulk Email Sender</h2></div>
       <div class="dashboard-grid">
-        <!-- Composer -->
-        <div class="card composer-card fade-in delay-1">
+        <!-- Left Column -->
+        <div class="card composer-card">
           <h3><i class="fa-solid fa-pen-to-square"></i> Compose Message</h3>
           <form id="compose-form">
             <div class="form-row">
               <div class="form-group half">
                 <label for="dashboard-email">Your Gmail</label>
-                <input type="email" id="dashboard-email" placeholder="you@gmail.com" required>
+                <input type="email" id="dashboard-email" required>
               </div>
               <div class="form-group half">
                 <label for="dashboard-password">App Password</label>
-                <div class="password-wrapper">
-                  <input type="password" id="dashboard-password" placeholder="16-char app password" required>
-                  <button type="button" id="toggle-password" class="icon-button"><i class="fa-regular fa-eye"></i></button>
-                </div>
+                <input type="password" id="dashboard-password" required>
               </div>
             </div>
             <div class="form-row">
               <div class="form-group half">
                 <label for="sender-name">Sender Name</label>
-                <input type="text" id="sender-name" placeholder="E.g., John Doe" required>
+                <input type="text" id="sender-name" required>
               </div>
               <div class="form-group half">
                 <label for="subject">Email Subject</label>
-                <input type="text" id="subject" placeholder="Enter subject line..." required>
+                <input type="text" id="subject" required>
               </div>
             </div>
             <div class="form-group flex-grow">
-              <label for="message-body">Message Body (Plain Text)</label>
-              <textarea id="message-body" placeholder="Write your email here..." required></textarea>
+              <label for="message-body">Message Body</label>
+              <textarea id="message-body" required></textarea>
             </div>
-            <div class="form-group" style="margin-top:1rem;">
-              <label><i class="fa-solid fa-shield-cat"></i> Spam Protection</label>
-              <div class="cf-turnstile" data-sitekey="1x00000000000000000000AA" data-theme="light"></div>
+            <div class="form-group">
+              <label>Spam Protection</label>
+              <div class="cf-turnstile" data-sitekey="1x00000000000000000000AA"></div>
             </div>
           </form>
         </div>
 
-        <!-- Recipients + Progress -->
+        <!-- Right Column -->
         <div class="right-column">
-          <div class="card recipients-card fade-in delay-2">
-            <div class="card-header-flex">
-              <h3><i class="fa-solid fa-users"></i> Recipients</h3>
-              <span class="badge" id="detected-count">0 found</span>
-            </div>
-            <p class="help-subtext">Paste emails (comma separated, new lines, or Excel copy)</p>
-            <div class="form-group flex-grow">
-              <textarea id="recipients-input" placeholder="john@example.com&#10;jane@example.com"></textarea>
-            </div>
-            <div id="email-validation-error" class="error-message hidden">
-              <i class="fa-solid fa-triangle-exclamation"></i><span>Please enter valid recipients.</span>
-            </div>
+          <div class="card recipients-card">
+            <h3><i class="fa-solid fa-users"></i> Recipients</h3>
+            <textarea id="recipients-input"></textarea>
+            <div id="email-validation-error" class="error-message hidden">Please enter valid recipients.</div>
           </div>
 
-          <div class="card progress-card fade-in delay-3">
+          <div class="card progress-card">
             <h3><i class="fa-solid fa-chart-pie"></i> Progress Monitor</h3>
             <div class="stats-grid">
-              <div class="stat-box neutral"><span class="stat-label">Total</span><span id="stat-total">0</span></div>
-              <div class="stat-box success"><span class="stat-label">Sent</span><span id="stat-sent">0</span></div>
-              <div class="stat-box danger"><span class="stat-label">Failed</span><span id="stat-failed">0</span></div>
-              <div class="stat-box warning"><span class="stat-label">Remaining</span><span id="stat-remaining">0</span></div>
+              <span>Total: <span id="stat-total">0</span></span>
+              <span>Sent: <span id="stat-sent">0</span></span>
+              <span>Failed: <span id="stat-failed">0</span></span>
+              <span>Remaining: <span id="stat-remaining">0</span></span>
             </div>
-            <div class="progress-bar-container"><div class="progress-bar" id="progress-bar" style="width:0%;"></div></div>
-            <div class="status-indicator"><i id="status-icon" class="fa-solid fa-circle-pause text-muted"></i><span id="status-text">Ready to send</span></div>
+            <div class="status-indicator"><span id="status-text">Ready to send</span></div>
             <div class="control-buttons">
-              <button type="button" id="send-btn" class="btn btn-success btn-lg flex-1"><i class="fa-solid fa-paper-plane"></i> Send All</button>
-              <button type="button" id="stop-btn" class="btn btn-danger btn-lg flex-1 hidden"><i class="fa-solid fa-stop"></i> Stop Sending</button>
+              <button id="send-btn" class="btn btn-success">Send All</button>
+              <button id="stop-btn" class="btn btn-danger hidden">Stop</button>
             </div>
           </div>
         </div>
