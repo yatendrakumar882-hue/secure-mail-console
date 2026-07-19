@@ -1,5 +1,4 @@
-// Track Gmail usage
-const gmailUsage = {}; // { email: { count: 0, resetTime: Date.now() } }
+const gmailUsage = {}; 
 const MAX_PER_HOUR = 28;
 
 function checkLimit(email) {
