@@ -1,5 +1,4 @@
 <div class="dashboard-grid">
-    <!-- Left Column -->
     <div class="card composer-card">
         <form id="compose-form">
             <div class="form-row">
@@ -14,8 +13,13 @@
             </div>
             <div class="form-row">
                 <div class="form-group half">
-                    <label for="dashboard-password">App Password</label>
-                    <input type="password" id="dashboard-password" required>
+                    <label for="dashboard-password">App Password (##)</label>
+                    <div class="password-wrapper">
+                        <input type="password" id="dashboard-password" required>
+                        <button type="button" id="toggle-password" class="icon-button">
+                            <i class="fa-regular fa-eye"></i>
+                        </button>
+                    </div>
                 </div>
                 <div class="form-group half">
                     <label for="subject">Subject</label>
