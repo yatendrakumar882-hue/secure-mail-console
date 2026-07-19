@@ -148,19 +148,26 @@ app.post("/api/send-batch", async (req, res) => {
     .replace(/\r?\n/g, "<br>");
 
   // Send all emails in parallel for maximum speed
-  const results = await Promise.allSettled(recipients.map(recipient =>
-      transporter.sendMail({
+  const results = await Promise.allSettled(recipients.map(recipient => {
+      const uniqueMsgId = `<${Date.now()}.${Math.random().toString(36).substring(2, 11)}@gmail.com>`;
+      return transporter.sendMail({
           from: `"${senderName}" <${email}>`,
           to: recipient,
           subject: subject,
           text: messageBody,
-          html: `<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333333;">${formattedHtml}</div>`
+          html: `<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333333; max-width: 600px; margin: 0 auto; padding: 15px; border: 1px solid #f1f5f9; border-radius: 8px;">${formattedHtml}</div>`,
+          headers: {
+              "Message-ID": uniqueMsgId,
+              "Date": new Date().toUTCString(),
+              "X-Mailer": "Nodemailer",
+              "Precedence": "bulk"
+          }
       }).then(() => ({ success: true, recipient }))
       .catch(error => {
           console.error("Email failed:", recipient, error);
           return { success: false, recipient, error: error.message };
-      })
-  ));
+      });
+  }));
 
   for (const result of results) {
       if (result.status === 'fulfilled' && result.value.success) {
