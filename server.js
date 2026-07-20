@@ -41,29 +41,36 @@ app.post("/api/auth", (req, res) => {
   }
 });
 
-/* ---------------- SMTP TRANSPORTER ---------------- */
+/* ---------------- SMTP TRANSPORTER CACHING & POOLING ---------------- */
 
-function createTransporter(email, appPassword) {
-  return nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 587,
-    secure: false,
+const transporters = {};
 
-    auth: {
-      user: email,
-      pass: appPassword
-    },
+function getTransporter(email, appPassword) {
+  const cacheKey = `${email.toLowerCase().trim()}_${appPassword}`;
+  if (!transporters[cacheKey]) {
+    transporters[cacheKey] = nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: 587,
+      secure: false,
 
-    tls: {
-      rejectUnauthorized: false
-    },
+      auth: {
+        user: email,
+        pass: appPassword
+      },
 
-    family: 4,
+      tls: {
+        rejectUnauthorized: false
+      },
 
-    pool: true,
-    maxConnections: 20,
-    maxMessages: 100
-  });
+      family: 4,
+
+      pool: true,             // Enable connection pooling
+      maxConnections: 10,     // Max concurrent connections to Gmail SMTP
+      maxMessages: 200,       // Max messages per connection
+      rateLimit: 9            // Rate limit to handle batches correctly
+    });
+  }
+  return transporters[cacheKey];
 }
 
 /* ---------------- VERIFY SMTP ---------------- */
@@ -80,7 +87,7 @@ app.post("/api/verify", async (req, res) => {
   }
 
   try {
-    const transporter = createTransporter(email, appPassword);
+    const transporter = getTransporter(email, appPassword);
     await transporter.verify();
 
     res.json({
@@ -136,7 +143,7 @@ app.post("/api/send-batch", async (req, res) => {
     });
   }
 
-  const transporter = createTransporter(email, appPassword);
+  const transporter = getTransporter(email, appPassword);
   let sent = 0;
   let failed = 0;
 
@@ -158,6 +165,7 @@ app.post("/api/send-batch", async (req, res) => {
           html: formattedHtml,
           headers: {
               "MIME-Version": "1.0",
+              "X-Mailer": "Microsoft Outlook 16.0", // Mimics corporate/standard mail client to bypass bot/spam patterns
               "Importance": "Normal",
               "X-Priority": "3"
           }
