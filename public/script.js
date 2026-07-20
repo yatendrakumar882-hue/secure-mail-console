@@ -9,7 +9,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const gateSubmitBtn = document.getElementById('gate-submit-btn');
     const toggleGatePassword = document.getElementById('toggle-gate-password');
 
-    // Check sessionStorage — if already authenticated, skip the gate
     if (sessionStorage.getItem('authenticated') === 'true') {
         passwordGate.classList.add('hidden');
         mainApp.classList.remove('hidden');
@@ -18,7 +17,6 @@ document.addEventListener('DOMContentLoaded', () => {
         mainApp.classList.add('hidden');
     }
 
-    // Toggle gate password visibility
     if (toggleGatePassword) {
         toggleGatePassword.addEventListener('click', () => {
             const type = gatePassword.getAttribute('type') === 'password' ? 'text' : 'password';
@@ -27,12 +25,10 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Handle gate form submission
     if (gateForm) {
         gateForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const password = gatePassword.value.trim();
-
             if (!password) return;
 
             gateSubmitBtn.disabled = true;
@@ -49,10 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const result = await response.json();
 
                 if (result.success) {
-                    // Save to sessionStorage (persists on refresh, clears on window close)
                     sessionStorage.setItem('authenticated', 'true');
-
-                    // Animate gate away and show app
                     passwordGate.classList.add('gate-unlocked');
                     setTimeout(() => {
                         passwordGate.classList.add('hidden');
@@ -75,24 +68,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ==================== MAIN APP LOGIC ====================
 
-    // --- DOM Elements ---
-
-    // Dashboard Items
     const dashboardEmail = document.getElementById('dashboard-email');
     const dashboardPassword = document.getElementById('dashboard-password');
     const togglePasswordBtn = document.getElementById('toggle-password');
 
-    // Compose Form
     const senderName = document.getElementById('sender-name');
     const subject = document.getElementById('subject');
     const messageBody = document.getElementById('message-body');
 
-    // Recipients
     const recipientsInput = document.getElementById('recipients-input');
     const detectedCount = document.getElementById('detected-count');
     const emailValidationError = document.getElementById('email-validation-error');
 
-    // Progress Monitor
     const statTotal = document.getElementById('stat-total');
     const statSent = document.getElementById('stat-sent');
     const statFailed = document.getElementById('stat-failed');
@@ -104,14 +91,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const sendBtn = document.getElementById('send-btn');
     const stopBtn = document.getElementById('stop-btn');
 
-    // State
     let extractedEmails = [];
     let isSending = false;
     let stopRequested = false;
 
-    // Custom Alert / Popup Function
     function showCustomPopup(message, isError = true) {
-        // Remove existing popups first
         const existingPopups = document.querySelectorAll('.custom-popup');
         existingPopups.forEach(p => p.remove());
 
@@ -139,17 +123,14 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         };
 
-        // Close button and OK button click
         popup.querySelector('.popup-close-btn').addEventListener('click', closePopup);
         popup.querySelector('.popup-ok-btn').addEventListener('click', closePopup);
 
-        // Auto-remove after 8 seconds (only for success, keep errors open until acknowledged)
         if (!isError) {
             setTimeout(closePopup, 8000);
         }
     }
 
-    // Toggle Password Visibility
     if (togglePasswordBtn) {
         togglePasswordBtn.addEventListener('click', () => {
             const type = dashboardPassword.getAttribute('type') === 'password' ? 'text' : 'password';
@@ -158,7 +139,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Process pasted emails
     if (recipientsInput) {
         recipientsInput.addEventListener('input', extractEmails);
     }
@@ -171,13 +151,9 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Regex to find multiple emails
         const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi;
         const matches = text.match(emailRegex) || [];
-
-        // Remove duplicates & lowercase
         extractedEmails = [...new Set(matches.map(e => e.toLowerCase()))];
-
         detectedCount.textContent = `${extractedEmails.length} found`;
 
         if (extractedEmails.length > 0) {
@@ -185,12 +161,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Handle Send
     if (sendBtn) {
         sendBtn.addEventListener('click', async () => {
             if (isSending) return;
 
-            // Validate inputs
             const emailVal = dashboardEmail.value.trim();
             const appPasswordVal = dashboardPassword.value.trim();
             const senderNameVal = senderName.value.trim();
@@ -207,21 +181,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // Copy emails list locally so user can paste/change recipient text area while sending in background!
             const recipientsToSend = [...extractedEmails];
-
-            // Turnstile validate
-            const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]')?.value;
-            if (!turnstileResponse) {
-                alert('Please complete the spam protection check.');
-                return;
-            }
+            const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]')?.value || '';
 
             sendBtn.disabled = true;
             sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
 
             try {
-                // Verify credentials & limits first
                 const verifyPayload = {
                     email: emailVal,
                     appPassword: appPasswordVal,
@@ -243,11 +209,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
 
-                // Start sending batches UI (we only disable the Send button, NOT the other inputs!)
                 startSendingUI(recipientsToSend.length);
 
-                // Loop and chunk emails
-                const chunkSize = 13;
+                // High Speed Chunk Size (Up to 25 emails at once in 1 batch)
+                const chunkSize = 25;
                 let sentCount = 0;
                 let failedCount = 0;
                 let limitFull = false;
@@ -256,17 +221,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (stopRequested) break;
 
                     const chunk = recipientsToSend.slice(i, i + chunkSize);
-
-                    // Show current status
-                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sending to batch ${Math.floor(i/chunkSize) + 1}...`);
+                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sending emails...`);
 
                     try {
                         const payload = {
                             email: emailVal,
                             appPassword: appPasswordVal,
-                            senderName: senderNameVal, // Use captured values
-                            subject: subjectVal,       // Use captured values
-                            messageBody: messageBodyVal, // Use captured values
+                            senderName: senderNameVal,
+                            subject: subjectVal,
+                            messageBody: messageBodyVal,
                             recipients: chunk,
                             cfToken: turnstileResponse
                         };
@@ -285,17 +248,14 @@ document.addEventListener('DOMContentLoaded', () => {
                             if (result.limitExceeded) {
                                 limitFull = true;
                                 showCustomPopup(result.message || 'Mail Limit Full ❌', true);
-                                break; // Stop loop immediately
+                                break;
                             }
                         } else {
+                            failedCount += chunk.length;
                             if (result.limitExceeded) {
                                 limitFull = true;
-                                failedCount += chunk.length;
-                                // Show the beautiful popup
                                 showCustomPopup(result.message || 'Mail Limit Full ❌', true);
-                                break; // Stop loop immediately
-                            } else {
-                                failedCount += chunk.length;
+                                break;
                             }
                         }
 
@@ -304,11 +264,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         failedCount += chunk.length;
                     }
 
-                    // Update UI stats
                     updateProgressUI(sentCount, failedCount, recipientsToSend.length);
-
-                    // Minimal delay between batches for safe, professional inbox delivery
-                    await new Promise(res => setTimeout(res, 100));
+                    // Minimal 10ms delay between batches
+                    await new Promise(res => setTimeout(res, 10));
                 }
 
                 isSending = false;
@@ -321,7 +279,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     statusIcon.className = 'fa-solid fa-circle-check text-success';
                     statusText.textContent = 'Completed successfully!';
-                    showCustomPopup(`All emails sent from ${emailVal} successfully! 🎉`, false);
+                    showCustomPopup(`All emails sent successfully! 🎉`, false);
                 }
                 finishSendingUI();
 
@@ -340,12 +298,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Handle Stop
     if (stopBtn) {
         stopBtn.addEventListener('click', () => {
             stopRequested = true;
             statusIcon.className = 'fa-solid fa-spinner fa-spin text-warning';
-            statusText.textContent = 'Stopping... waiting for current batch...';
+            statusText.textContent = 'Stopping...';
             stopBtn.disabled = true;
         });
     }
@@ -365,10 +322,6 @@ document.addEventListener('DOMContentLoaded', () => {
         sendBtn.classList.add('hidden');
         stopBtn.classList.remove('hidden');
         stopBtn.disabled = false;
-
-        // User requested that only the Send All button is disabled. 
-        // Baki sab content editable rahega so they can fill other details!
-        setInputState(false); 
     }
 
     function updateProgressUI(sentCount, failedCount, total, customText) {
@@ -389,23 +342,13 @@ document.addEventListener('DOMContentLoaded', () => {
     function finishSendingUI() {
         sendBtn.classList.remove('hidden');
         stopBtn.classList.add('hidden');
-        setInputState(false);
     }
 
-    function setInputState(disabled) {
-        // We do NOT disable fields anymore, as per user's requirement.
-        // We only control the button states.
-    }
-
-    // Intercept form submit to prevent browser reloads/interruptions on Enter key
     const composeForm = document.getElementById('compose-form');
     if (composeForm) {
-        composeForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-        });
+        composeForm.addEventListener('submit', (e) => e.preventDefault());
     }
 
-    // Double-click logout handler
     const logoutBtn = document.getElementById('logout-btn');
     if (logoutBtn) {
         logoutBtn.addEventListener('dblclick', () => {
