@@ -144,7 +144,7 @@ app.post("/api/send-batch", async (req, res) => {
   }
 
   // Enforce safety limits
-  if (recipients.length > 9) {
+  if (recipients.length > 13) {
     return res.status(400).json({
         success: false,
         message: "Batch size limit exceeded. Max 9 recipients per batch."
