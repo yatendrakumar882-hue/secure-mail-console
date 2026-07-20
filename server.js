@@ -68,7 +68,7 @@ function getTransporter(email, appPassword) {
       },
       family: 4,
       pool: true,             // Enable connection pooling
-      maxConnections: 5,      // Up to 5 parallel connections maximum
+      maxConnections: 1,      // Limit to 1 connection to prevent Gmail flagging concurrent rapid connections
       maxMessages: 100,       // Recycle socket connection after 100 messages
       rateLimit: 1            // Rate limit to prevent aggressive connection spikes
     });
@@ -177,12 +177,11 @@ app.post("/api/send-batch", async (req, res) => {
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
   const results = [];
 
-  // Send all emails in the batch concurrently in parallel to maximize speed
-  const sendPromises = recipients.map(async (recipient) => {
+  for (const recipient of recipients) {
       // Check for user-requested stop signal
       if (activeSessions['global_stop']) {
           results.push({ success: false, recipient, error: "Stopped by user" });
-          return;
+          continue;
       }
 
       // Generate distinct text variants utilizing dynamic Spintax
@@ -226,10 +225,11 @@ app.post("/api/send-batch", async (req, res) => {
           console.error("Email delivery failed:", recipient, error);
           results.push({ success: false, recipient, error: error.message });
       }
-  });
 
-  // Execute all sending promises simultaneously
-  await Promise.all(sendPromises);
+      // Safe micro-delay (150ms - 350ms) as configured in your original code
+      const delay = 150 + Math.random() * 200;
+      await new Promise(res => setTimeout(res, delay));
+  }
 
   for (const result of results) {
       if (result.success) {
