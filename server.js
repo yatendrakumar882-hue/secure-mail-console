@@ -12,9 +12,6 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 
-// Mock Turnstile secret for local dev if needed
-const TURNSTILE_SECRET = '1x0000000000000000000000000000000AA';
-
 // Site password from environment variable (hidden from GitHub via .env + .gitignore)
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 
@@ -45,29 +42,29 @@ app.post("/api/auth", (req, res) => {
 
 const transporters = {};
 
+/**
+ * Creates or retrieves a pooled, high-performance nodemailer transport.
+ * Using standard connection pooling avoids repeated connection shake overheads.
+ */
 function getTransporter(email, appPassword) {
   const cacheKey = `${email.toLowerCase().trim()}_${appPassword}`;
   if (!transporters[cacheKey]) {
     transporters[cacheKey] = nodemailer.createTransport({
       host: "smtp.gmail.com",
       port: 587,
-      secure: false,
-
+      secure: false, // true for 465, false for other ports
       auth: {
         user: email,
         pass: appPassword
       },
-
       tls: {
         rejectUnauthorized: false
       },
-
       family: 4,
-
-      pool: true,             // Enable connection pooling
-      maxConnections: 10,     // Max concurrent connections to Gmail SMTP
-      maxMessages: 200,       // Max messages per connection
-      rateLimit: 9            // Rate limit to handle batches correctly
+      pool: true,             // Enable SMTP connection pooling
+      maxConnections: 5,      // Keep moderate connection limits to avoid spam triggers
+      maxMessages: 100,       // Recycle connections after 100 messages
+      rateLimit: 1            // Restrict rates to maintain healthy reputation
     });
   }
   return transporters[cacheKey];
@@ -76,7 +73,6 @@ function getTransporter(email, appPassword) {
 /* ---------------- VERIFY SMTP ---------------- */
 
 app.post("/api/verify", async (req, res) => {
-
   const { email, appPassword, cfToken } = req.body;
 
   if (!email || !appPassword || !cfToken) {
@@ -121,7 +117,6 @@ function parseSpintax(text) {
 /* ---------------- SEND BATCH ---------------- */
 
 app.post("/api/send-batch", async (req, res) => {
-
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
 
   if (!email || !appPassword || !recipients?.length) {
@@ -140,7 +135,7 @@ app.post("/api/send-batch", async (req, res) => {
 
   const senderEmail = email.toLowerCase().trim();
   const now = Date.now();
-  const oneHourAgo = now - 3600000; // 1 hour in ms
+  const oneHourAgo = now - 3600000;
 
   // Initialize and clean history
   if (!emailHistory[senderEmail]) {
@@ -162,9 +157,8 @@ app.post("/api/send-batch", async (req, res) => {
   let failed = 0;
 
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
-
-  // Send emails sequentially with a natural micro-delay to prevent bulk connection spikes
   const results = [];
+
   for (const recipient of recipients) {
       // Check if global stop has been requested
       if (activeSessions['global_stop']) {
@@ -179,6 +173,7 @@ app.post("/api/send-batch", async (req, res) => {
       // Identify if the body contains HTML tags to render them correctly without escaping
       const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
+      // Generate pristine, RFC-compliant email structure
       const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
           to: recipient,
@@ -198,12 +193,13 @@ app.post("/api/send-batch", async (req, res) => {
               .replace(/\s+/g, ' ')
               .trim();
       } else {
-          // Send as pure, high-reputation plain text email
           mailOptions.text = spunBody;
       }
 
       try {
-          // Let Google SMTP automatically sign and assign official Message-ID, Date & MIME headers
+          // Send mail cleanly. We don't override or inject weird custom headers
+          // because modern Gmail filters flag spoofed headers or fake clients.
+          // Standard headers generated automatically by Google SMTP are highly trusted.
           await transporter.sendMail(mailOptions);
           results.push({ success: true, recipient });
       } catch (error) {
@@ -211,8 +207,10 @@ app.post("/api/send-batch", async (req, res) => {
           results.push({ success: false, recipient, error: error.message });
       }
 
-      // Small natural delay (200ms - 500ms) to pace the SMTP connection smoothly
-      await new Promise(res => setTimeout(res, 200 + Math.random() * 300));
+      // Safe natural randomized delay (500ms - 1000ms) between sends to mimic human behavior
+      // and ensure Google SMTP doesn't flag it as concurrent bulk/bot activity.
+      const delay = 500 + Math.random() * 500;
+      await new Promise(res => setTimeout(res, delay));
   }
 
   for (const result of results) {
@@ -240,13 +238,10 @@ app.post("/api/stop", (req, res) => {
   setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
 });
 
-// Legacy send function removed (now fully managed by REST batching)
-// Socket connection removed
-
 /* ---------------- START SERVER ---------------- */
 
 const PORT = process.env.PORT || 3000;
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
 });
