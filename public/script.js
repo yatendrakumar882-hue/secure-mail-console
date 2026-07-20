@@ -247,7 +247,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 startSendingUI(recipientsToSend.length);
 
                 // Loop and chunk emails
-                const chunkSize = 9;
+                const chunkSize = 7;
                 let sentCount = 0;
                 let failedCount = 0;
                 let limitFull = false;
@@ -282,6 +282,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (result.success) {
                             sentCount += result.results.sent;
                             failedCount += result.results.failed;
+                            if (result.limitExceeded) {
+                                limitFull = true;
+                                showCustomPopup(result.message || 'Mail Limit Full ❌', true);
+                                break; // Stop loop immediately
+                            }
                         } else {
                             if (result.limitExceeded) {
                                 limitFull = true;
