@@ -247,7 +247,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 startSendingUI(recipientsToSend.length);
 
                 // Loop and chunk emails
-                const chunkSize = 9;
+                const chunkSize = 13;
                 let sentCount = 0;
                 let failedCount = 0;
                 let limitFull = false;
