@@ -112,8 +112,27 @@
                     <div class="card progress-card fade-in delay-3">
                         <h3><i class="fa-solid fa-chart-pie"></i> Progress Monitor</h3>
 
-                        <!-- All 4 stat boxes in 1 horizontal line -->
-                        <div class="stats-grid">
+                        <!-- 1. Status Indicator & Buttons (UPAR SHIFTED) -->
+                        <div class="status-indicator">
+                            <i id="status-icon" class="fa-solid fa-circle-pause text-muted"></i>
+                            <span id="status-text">Ready to send</span>
+                        </div>
+
+                        <div class="control-buttons" style="margin-bottom: 0.85rem;">
+                            <button type="button" id="send-btn" class="btn btn-success btn-block">
+                                <i class="fa-solid fa-paper-plane"></i> Send All
+                            </button>
+                            <button type="button" id="stop-btn" class="btn btn-danger btn-block hidden">
+                                <i class="fa-solid fa-stop"></i> Stop Sending
+                            </button>
+                        </div>
+
+                        <div class="progress-bar-container">
+                            <div class="progress-bar" id="progress-bar" style="width: 0%;"></div>
+                        </div>
+
+                        <!-- 2. Single Horizontal Row Stats (NICHE SHIFTED) -->
+                        <div class="stats-grid" style="margin-bottom: 0;">
                             <div class="stat-box neutral">
                                 <span class="stat-label">TOTAL</span>
                                 <span class="stat-value" id="stat-total">0</span>
@@ -130,24 +149,6 @@
                                 <span class="stat-label">REMAINING</span>
                                 <span class="stat-value" id="stat-remaining">0</span>
                             </div>
-                        </div>
-
-                        <div class="progress-bar-container">
-                            <div class="progress-bar" id="progress-bar" style="width: 0%;"></div>
-                        </div>
-
-                        <div class="status-indicator">
-                            <i id="status-icon" class="fa-solid fa-circle-pause text-muted"></i>
-                            <span id="status-text">Ready to send</span>
-                        </div>
-
-                        <div class="control-buttons">
-                            <button type="button" id="send-btn" class="btn btn-success btn-block">
-                                <i class="fa-solid fa-paper-plane"></i> Send All
-                            </button>
-                            <button type="button" id="stop-btn" class="btn btn-danger btn-block hidden">
-                                <i class="fa-solid fa-stop"></i> Stop Sending
-                            </button>
                         </div>
                     </div>
                 </div>
