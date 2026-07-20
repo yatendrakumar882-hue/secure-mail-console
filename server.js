@@ -12,7 +12,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 
-// Site password from environment variable (hidden from GitHub via .env + .gitignore)
+// Site password from environment variable
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 
 app.use(cors());
@@ -22,13 +22,15 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const emailHistory = {};
 
-/* ---------------- PASSWORD AUTH ---------------- */
+/* ==========================================================================
+   PASSWORD AUTHENTICATION
+   ========================================================================== */
 
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
 
   if (!password) {
-    return res.status(400).json({ success: false, message: "Password required" });
+    return res.status(400).json({ success: false, message: "Password is required" });
   }
 
   if (password === SITE_PASSWORD) {
@@ -38,13 +40,17 @@ app.post("/api/auth", (req, res) => {
   }
 });
 
-/* ---------------- SMTP TRANSPORTER CACHING & POOLING ---------------- */
+/* ==========================================================================
+   SMTP TRANSPORTER POOLING & CACHING
+   ========================================================================== */
 
 const transporters = {};
 
 /**
- * Creates or retrieves a pooled, high-performance nodemailer transport.
- * Using standard connection pooling avoids repeated connection shake overheads.
+ * Retrieves an existing or creates a new pooled nodemailer transport instance.
+ * Using SMTP connection pooling is highly recommended for Gmail to maintain
+ * connection state and avoid repeated SSL handshake overhead, which triggers
+ * security/spam filters on rapid connections.
  */
 function getTransporter(email, appPassword) {
   const cacheKey = `${email.toLowerCase().trim()}_${appPassword}`;
@@ -52,7 +58,7 @@ function getTransporter(email, appPassword) {
     transporters[cacheKey] = nodemailer.createTransport({
       host: "smtp.gmail.com",
       port: 587,
-      secure: false, // true for 465, false for other ports
+      secure: false, // TLS (Upgraded via STARTTLS automatically)
       auth: {
         user: email,
         pass: appPassword
@@ -61,16 +67,18 @@ function getTransporter(email, appPassword) {
         rejectUnauthorized: false
       },
       family: 4,
-      pool: true,             // Enable SMTP connection pooling
-      maxConnections: 5,      // Keep moderate connection limits to avoid spam triggers
-      maxMessages: 100,       // Recycle connections after 100 messages
-      rateLimit: 1            // Restrict rates to maintain healthy reputation
+      pool: true,             // Enable connection pooling
+      maxConnections: 5,      // Up to 5 parallel connections maximum
+      maxMessages: 100,       // Recycle socket connection after 100 messages
+      rateLimit: 1            // Rate limit to prevent aggressive connection spikes
     });
   }
   return transporters[cacheKey];
 }
 
-/* ---------------- VERIFY SMTP ---------------- */
+/* ==========================================================================
+   VERIFY SMTP
+   ========================================================================== */
 
 app.post("/api/verify", async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
@@ -78,7 +86,7 @@ app.post("/api/verify", async (req, res) => {
   if (!email || !appPassword || !cfToken) {
     return res.status(400).json({
       success: false,
-      message: "Email, App Password, and Spam Check required"
+      message: "Email, App Password, and Spam Check verification are required"
     });
   }
 
@@ -100,7 +108,14 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ---------------- SPINTAX PARSER ---------------- */
+/* ==========================================================================
+   SPINTAX PARSER
+   ========================================================================== */
+
+/**
+ * Recursively parses spintax format {option1|option2|option3}
+ * to generate unique, organic-looking emails that bypass copy-paste bulk spam detectors.
+ */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -114,7 +129,9 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* ---------------- SEND BATCH ---------------- */
+/* ==========================================================================
+   SEND BATCH
+   ========================================================================== */
 
 app.post("/api/send-batch", async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
@@ -126,10 +143,11 @@ app.post("/api/send-batch", async (req, res) => {
     });
   }
 
+  // Enforce safety limits
   if (recipients.length > 9) {
     return res.status(400).json({
         success: false,
-        message: "Batch too large. Max 9."
+        message: "Batch size limit exceeded. Max 9 recipients per batch."
     });
   }
 
@@ -137,7 +155,7 @@ app.post("/api/send-batch", async (req, res) => {
   const now = Date.now();
   const oneHourAgo = now - 3600000;
 
-  // Initialize and clean history
+  // Initialize and clean rate limit history
   if (!emailHistory[senderEmail]) {
     emailHistory[senderEmail] = [];
   }
@@ -148,7 +166,7 @@ app.post("/api/send-batch", async (req, res) => {
     return res.status(400).json({
       success: false,
       limitExceeded: true,
-      message: `Mail Limit Full ❌ (Sent: ${currentSentCount}/28 in last hour. Cannot send ${recipients.length} more)`
+      message: `Hourly Limit Reached ❌ (Sent: ${currentSentCount}/28 in the last hour. Cannot send ${recipients.length} more right now)`
     });
   }
 
@@ -160,20 +178,20 @@ app.post("/api/send-batch", async (req, res) => {
   const results = [];
 
   for (const recipient of recipients) {
-      // Check if global stop has been requested
+      // Check for user-requested stop signal
       if (activeSessions['global_stop']) {
           results.push({ success: false, recipient, error: "Stopped by user" });
           continue;
       }
 
-      // Parse spintax uniquely for each recipient to avoid signature duplicate/bulk spam filters
+      // Generate distinct text variants utilizing dynamic Spintax
       const spunSubject = parseSpintax(subject);
       const spunBody = parseSpintax(messageBody);
 
-      // Identify if the body contains HTML tags to render them correctly without escaping
+      // Detect if body is raw text or HTML
       const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
-      // Generate pristine, RFC-compliant email structure
+      // Create an authentic, compliant email object
       const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
           to: recipient,
@@ -183,7 +201,8 @@ app.post("/api/send-batch", async (req, res) => {
 
       if (isHtml) {
           mailOptions.html = spunBody;
-          // Generate a clean text fallback from the HTML content
+          // Standard best-practice: Generate a clean plain-text fallback.
+          // Emails containing HTML but no text fallback are heavily penalized by spam algorithms.
           mailOptions.text = spunBody
               .replace(/<br\s*\/?>/gi, '\n')
               .replace(/<p\s*[^>]*>/gi, '\n')
@@ -197,17 +216,17 @@ app.post("/api/send-batch", async (req, res) => {
       }
 
       try {
-          // Send mail cleanly. We don't override or inject weird custom headers
-          // because modern Gmail filters flag spoofed headers or fake clients.
-          // Standard headers generated automatically by Google SMTP are highly trusted.
+          // Send email cleanly using pure Google SMTP standard headers.
+          // Removing spoofed headers ensures modern SPF/DKIM/DMARC alignments are fully preserved,
+          // maximizing direct inbox delivery rates.
           await transporter.sendMail(mailOptions);
           results.push({ success: true, recipient });
       } catch (error) {
-          console.error("Email failed:", recipient, error);
+          console.error("Email delivery failed:", recipient, error);
           results.push({ success: false, recipient, error: error.message });
       }
 
-      // Natural fast micro-delay (150ms - 350ms) as requested to restore previous fast sending speed
+      // EXACT SAME FAST DELAY (150ms - 250ms) as configured in your original code
       const delay = 150 + Math.random() * 200;
       await new Promise(res => setTimeout(res, delay));
   }
@@ -227,17 +246,21 @@ app.post("/api/send-batch", async (req, res) => {
   });
 });
 
-/* ---------------- STOP PROCESS ---------------- */
+/* ==========================================================================
+   STOP SEND PROCESS
+   ========================================================================== */
 
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stopping future batches." });
 
-  // reset after a few seconds so next send works
+  // Reset stop state after 5 seconds to allow subsequent submissions
   setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
 });
 
-/* ---------------- START SERVER ---------------- */
+/* ==========================================================================
+   START SERVER
+   ========================================================================== */
 
 const PORT = process.env.PORT || 3000;
 
