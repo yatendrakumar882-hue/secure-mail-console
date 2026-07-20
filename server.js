@@ -209,39 +209,22 @@ app.post("/api/send-batch", async (req, res) => {
       // Detect if body is raw text or HTML
       const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
-      // Parse domain to ensure strict Message-ID alignment with the sending domain.
-      // This is a major factor in modern email deliverability (prevents mismatch spam flags).
-      const domain = email.includes('@') ? email.split('@')[1] : 'gmail.com';
-      const msgIdHost = domain.toLowerCase() === 'gmail.com' ? 'mail.gmail.com' : domain;
-      const customMessageId = `<${uniqueId}-${Date.now()}@${msgIdHost}>`;
-
-      // Create an authentic, compliant email object with perfect Message-ID Alignment and standard headers
+      // Create an authentic, organic email object with no suspicious bulk headers
       const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
           to: recipient,
           replyTo: email,
-          subject: spunSubject,
-          messageId: customMessageId,
-          headers: {
-              'Message-ID': customMessageId,
-              'X-Entity-Ref-ID': uniqueId,
-              'X-Priority': '3', // Normal Priority
-              'X-MSMail-Priority': 'Normal',
-              'Importance': 'normal'
-          }
+          subject: spunSubject
       };
 
-      // Compliance and high deliverability footer with standard trusted reference links
+      // Ensure every single email body is completely unique to avoid duplicate template signature matching
+      // We append an invisible HTML comment containing a unique transaction hash
+      const invisibleHash = `<!-- Ref: #${uniqueId} -->`;
+
       if (isHtml) {
-          // Append a clean, natural visible footer inside HTML with a trusted safety center link
-          const visibleFooter = `
-            <br><br>
-            <div style="font-size: 11px; color: #7f8c8d; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; border-top: 1px solid #eeeeee; padding-top: 12px; margin-top: 24px; line-height: 1.6;">
-              <span style="font-weight: 600; color: #34495e;">Ref: #${uniqueId}</span><br>
-              <span style="color: #95a5a6;">Verified secure transmission. For guidelines and support, visit the <a href="https://support.google.com/mail" target="_blank" style="color: #3498db; text-decoration: none; font-weight: 500;">Google Mail Help Center</a>.</span>
-            </div>
-          `;
-          mailOptions.html = spunBody + visibleFooter;
+          // Clean, beautiful, minimalist signature containing only the clean Ref code at the bottom (no external links)
+          const visibleFooter = `<br><br><span style="font-size: 11px; color: #95a5a6; font-family: sans-serif;">(Ref: #${uniqueId})</span>`;
+          mailOptions.html = spunBody + visibleFooter + invisibleHash;
 
           // Standard best-practice: Generate a clean plain-text fallback.
           const textFallback = spunBody
@@ -252,9 +235,9 @@ app.post("/api/send-batch", async (req, res) => {
               .replace(/&nbsp;/gi, ' ')
               .replace(/\s+/g, ' ')
               .trim();
-          mailOptions.text = `${textFallback}\n\n--\nRef: #${uniqueId}\nVerified secure transmission. Support Center: https://support.google.com/mail`;
+          mailOptions.text = `${textFallback}\n\n(Ref: #${uniqueId})`;
       } else {
-          mailOptions.text = `${spunBody}\n\n--\nRef: #${uniqueId}\nVerified secure transmission. Support Center: https://support.google.com/mail`;
+          mailOptions.text = `${spunBody}\n\n(Ref: #${uniqueId})`;
       }
 
       // High-reliability automatic retry loop to handle transient SMTP hiccups
