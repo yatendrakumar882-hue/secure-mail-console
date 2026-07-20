@@ -37,17 +37,17 @@ body {
 .app-container {
     max-width: 1200px;
     margin: 0 auto;
-    padding: 2rem 1rem;
+    padding: 1.5rem 1rem;
 }
 
 .app-header {
     text-align: center;
-    margin-bottom: 2rem;
+    margin-bottom: 1.5rem;
     position: relative;
 }
 
 .app-header h1 {
-    font-size: 2.5rem;
+    font-size: 2.2rem;
     font-weight: 700;
     color: var(--primary-color);
     background: linear-gradient(135deg, var(--primary-color), #8b5cf6);
@@ -63,8 +63,8 @@ body {
     right: 0;
     top: 50%;
     transform: translateY(-50%);
-    padding: 0.5rem 1rem;
-    font-size: 0.875rem;
+    padding: 0.4rem 0.85rem;
+    font-size: 0.85rem;
     font-weight: 500;
     border-radius: var(--radius-md);
     border: 1px solid rgba(239, 68, 68, 0.2);
@@ -98,7 +98,7 @@ body {
     background-color: var(--card-bg);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-md);
-    padding: 2rem;
+    padding: 1.5rem;
     border: 1px solid rgba(255, 255, 255, 0.5);
     backdrop-filter: blur(10px);
 }
@@ -110,30 +110,30 @@ body {
 
 .card-header {
     text-align: center;
-    margin-bottom: 2rem;
+    margin-bottom: 1.5rem;
 }
 
 .card-header h2 {
-    font-size: 1.5rem;
+    font-size: 1.35rem;
     font-weight: 600;
     margin-bottom: 0.25rem;
 }
 
 .card-header p {
     color: var(--text-muted);
-    font-size: 0.95rem;
+    font-size: 0.9rem;
 }
 
 /* Forms */
 .form-group {
-    margin-bottom: 1.25rem;
+    margin-bottom: 0.85rem;
 }
 
 .form-group label {
     display: block;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     font-weight: 500;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.35rem;
     color: var(--text-main);
 }
 
@@ -147,11 +147,11 @@ input[type="text"],
 input[type="password"],
 textarea {
     width: 100%;
-    padding: 0.75rem 1rem;
+    padding: 0.6rem 0.85rem;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
     font-family: var(--font-family);
-    font-size: 1rem;
+    font-size: 0.95rem;
     transition: all 0.2s;
     background-color: #fff;
 }
@@ -163,10 +163,20 @@ textarea:focus {
     box-shadow: 0 0 0 3px var(--input-focus);
 }
 
-.readonly-input {
-    background-color: #f1f5f9 !important;
-    color: var(--text-muted);
-    cursor: not-allowed;
+/* COMPACT TEXTAREA SIZES */
+#message-body {
+    resize: vertical;
+    min-height: 110px !important;
+    height: 110px !important;
+}
+
+#recipients-input {
+    resize: vertical;
+    min-height: 130px !important;
+    height: 130px !important;
+    font-family: monospace;
+    font-size: 0.85rem;
+    line-height: 1.5;
 }
 
 .password-wrapper {
@@ -174,19 +184,19 @@ textarea:focus {
 }
 
 .password-wrapper input {
-    padding-right: 3rem;
+    padding-right: 2.5rem;
 }
 
 .icon-button {
     position: absolute;
-    right: 0.5rem;
+    right: 0.4rem;
     top: 50%;
     transform: translateY(-50%);
     background: none;
     border: none;
     color: var(--text-muted);
     cursor: pointer;
-    padding: 0.5rem;
+    padding: 0.4rem;
     border-radius: 50%;
     transition: color 0.2s;
 }
@@ -201,11 +211,11 @@ textarea:focus {
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    padding: 0.75rem 1.5rem;
+    padding: 0.65rem 1.25rem;
     border: none;
     border-radius: var(--radius-md);
     font-family: var(--font-family);
-    font-size: 1rem;
+    font-size: 0.95rem;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
@@ -261,37 +271,22 @@ textarea:focus {
 }
 
 .btn-sm {
-    padding: 0.4rem 0.75rem;
-    font-size: 0.85rem;
+    padding: 0.35rem 0.65rem;
+    font-size: 0.8rem;
 }
 
 /* Error/Help state */
 .error-message {
     background-color: #fef2f2;
     color: var(--danger-color);
-    padding: 0.75rem;
+    padding: 0.6rem;
     border-radius: var(--radius-md);
-    font-size: 0.9rem;
-    margin-bottom: 1rem;
+    font-size: 0.85rem;
+    margin-bottom: 0.85rem;
     display: flex;
     align-items: center;
     gap: 0.5rem;
     border-left: 3px solid var(--danger-color);
-}
-
-.help-text {
-    text-align: center;
-    margin-top: 1rem;
-    font-size: 0.85rem;
-}
-
-.help-text a {
-    color: var(--primary-color);
-    text-decoration: none;
-}
-
-.help-text a:hover {
-    text-decoration: underline;
 }
 
 /* Utilities */
@@ -314,17 +309,10 @@ textarea:focus {
 }
 
 /* Dashboard Specific UI */
-.dashboard-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1.5rem;
-}
-
 .dashboard-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 1.5rem;
+    gap: 1.25rem;
     align-items: start;
 }
 
@@ -337,50 +325,30 @@ textarea:focus {
 .composer-card {
     display: flex;
     flex-direction: column;
-    height: 100%;
 }
 
 .composer-card h3, .recipients-card h3, .progress-card h3 {
-    margin-bottom: 1rem;
-    font-size: 1.1rem;
+    margin-bottom: 0.85rem;
+    font-size: 1.05rem;
     display: flex;
     align-items: center;
     gap: 0.5rem;
     color: var(--text-main);
 }
 
-.composer-card form {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    flex: 1;
-}
-
 .form-row {
     display: flex;
-    gap: 1rem;
+    gap: 0.85rem;
 }
 
 .half {
     flex: 1;
 }
 
-.flex-grow {
-    flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-}
-
-#message-body {
-    resize: none;
-    flex-grow: 1;
-    min-height: 250px;
-}
-
 .right-column {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 1.25rem;
 }
 
 .recipients-card {
@@ -395,59 +363,56 @@ textarea:focus {
 }
 
 .help-subtext {
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     color: var(--text-muted);
-    margin-bottom: 0.5rem;
-    margin-top: -0.5rem;
+    margin-bottom: 0.4rem;
+    margin-top: -0.3rem;
 }
 
 .badge {
     background-color: #eff6ff;
     color: var(--primary-color);
-    padding: 0.25rem 0.5rem;
+    padding: 0.2rem 0.5rem;
     border-radius: 99px;
     font-size: 0.75rem;
     font-weight: 600;
 }
 
-#recipients-input {
-    resize: none;
-    min-height: 150px;
-    font-family: monospace;
-    font-size: 0.9rem;
-    line-height: 1.6;
+/* PROGRESS MONITOR COMPACT HORIZONTAL ROW */
+.progress-card {
+    padding: 1.25rem !important;
 }
 
-/* Progress Monitor */
 .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1rem;
-    margin-bottom: 1.5rem;
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 0.5rem !important;
+    margin-bottom: 0.85rem !important;
 }
 
 .stat-box {
-    padding: 1rem;
+    padding: 0.4rem 0.25rem !important;
     border-radius: var(--radius-md);
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     border: 1px solid var(--border-color);
+    background-color: #fafafa;
 }
 
 .stat-label {
-    font-size: 0.85rem;
+    font-size: 0.65rem !important;
     color: var(--text-muted);
-    font-weight: 500;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
 
 .stat-value {
-    font-size: 1.75rem;
+    font-size: 1.15rem !important;
     font-weight: 700;
-    margin-top: 0.25rem;
+    margin-top: 0.1rem;
 }
 
 .neutral .stat-value { color: var(--primary-color); }
@@ -456,11 +421,11 @@ textarea:focus {
 .warning .stat-value { color: #f59e0b; }
 
 .progress-bar-container {
-    height: 8px;
+    height: 6px !important;
     background-color: var(--border-color);
     border-radius: 99px;
     overflow: hidden;
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem !important;
 }
 
 .progress-bar {
@@ -474,8 +439,8 @@ textarea:focus {
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    margin-bottom: 1.5rem;
-    font-size: 0.95rem;
+    margin-bottom: 0.85rem !important;
+    font-size: 0.85rem !important;
     font-weight: 500;
 }
 
@@ -486,7 +451,7 @@ textarea:focus {
 
 .control-buttons {
     display: flex;
-    gap: 1rem;
+    gap: 0.75rem;
 }
 
 .flex-1 {
@@ -507,15 +472,6 @@ textarea:focus {
     animation: gradientShift 8s ease infinite;
 }
 
-.password-gate::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(circle at 30% 20%, rgba(99, 102, 241, 0.15) 0%, transparent 50%),
-                radial-gradient(circle at 70% 80%, rgba(59, 130, 246, 0.1) 0%, transparent 50%);
-    pointer-events: none;
-}
-
 @keyframes gradientShift {
     0% { background-position: 0% 50%; }
     50% { background-position: 100% 50%; }
@@ -529,126 +485,76 @@ textarea:focus {
     -webkit-backdrop-filter: blur(24px);
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 20px;
-    padding: 3rem 2.5rem;
+    padding: 2.5rem 2rem;
     width: 100%;
-    max-width: 400px;
+    max-width: 380px;
     text-align: center;
-    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.4),
-                0 0 80px rgba(99, 102, 241, 0.08);
+    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.4);
 }
 
 .gate-card h2 {
     color: #f1f5f9;
-    font-size: 1.6rem;
+    font-size: 1.5rem;
     font-weight: 700;
     margin-bottom: 0.25rem;
 }
 
 .gate-card p {
     color: #94a3b8;
-    font-size: 0.95rem;
-    margin-bottom: 1.75rem;
+    font-size: 0.9rem;
+    margin-bottom: 1.5rem;
 }
 
 .gate-icon {
-    width: 70px;
-    height: 70px;
+    width: 60px;
+    height: 60px;
     border-radius: 50%;
     background: linear-gradient(135deg, #6366f1, #3b82f6);
     display: flex;
     align-items: center;
     justify-content: center;
-    margin: 0 auto 1.25rem auto;
-    font-size: 1.75rem;
+    margin: 0 auto 1rem auto;
+    font-size: 1.5rem;
     color: white;
-    box-shadow: 0 8px 30px rgba(99, 102, 241, 0.35);
-    animation: pulse-glow 2s ease-in-out infinite;
-}
-
-@keyframes pulse-glow {
-    0%, 100% { box-shadow: 0 8px 30px rgba(99, 102, 241, 0.35); }
-    50% { box-shadow: 0 8px 50px rgba(99, 102, 241, 0.55); }
 }
 
 .gate-card .form-group {
     margin-bottom: 1rem;
 }
 
-.gate-card input[type="password"],
-.gate-card input[type="text"] {
+.gate-card input[type="password"] {
     background: rgba(255, 255, 255, 0.07);
     border: 1px solid rgba(255, 255, 255, 0.15);
     color: #f1f5f9;
-    font-size: 1rem;
-    padding: 0.85rem 1rem;
+    font-size: 0.95rem;
+    padding: 0.75rem 1rem;
     border-radius: 10px;
-    transition: all 0.3s;
-}
-
-.gate-card input::placeholder {
-    color: #64748b;
-}
-
-.gate-card input:focus {
-    border-color: #6366f1;
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
-    background: rgba(255, 255, 255, 0.1);
-}
-
-.gate-card .icon-button {
-    color: #94a3b8;
-}
-
-.gate-card .icon-button:hover {
-    color: #6366f1;
 }
 
 .gate-card .btn-primary {
     background: linear-gradient(135deg, #6366f1, #3b82f6);
-    padding: 0.85rem 1.5rem;
-    font-size: 1.05rem;
+    padding: 0.75rem 1.25rem;
+    font-size: 1rem;
     border-radius: 10px;
     margin-top: 0.5rem;
-    transition: all 0.3s;
-}
-
-.gate-card .btn-primary:hover {
-    background: linear-gradient(135deg, #4f46e5, #2563eb);
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(99, 102, 241, 0.4);
-}
-
-.gate-card .btn-primary:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    transform: none;
 }
 
 .gate-error {
     background: rgba(239, 68, 68, 0.12);
     border: 1px solid rgba(239, 68, 68, 0.25);
     color: #fca5a5;
-    padding: 0.65rem 0.85rem;
+    padding: 0.5rem 0.75rem;
     border-radius: 8px;
-    font-size: 0.9rem;
-    margin-bottom: 1rem;
+    font-size: 0.85rem;
+    margin-bottom: 0.85rem;
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    animation: shakeError 0.4s ease;
-}
-
-@keyframes shakeError {
-    0%, 100% { transform: translateX(0); }
-    20% { transform: translateX(-8px); }
-    40% { transform: translateX(8px); }
-    60% { transform: translateX(-5px); }
-    80% { transform: translateX(5px); }
 }
 
 /* Gate transition out */
 .password-gate.gate-unlocked {
-    animation: gateDissolve 0.6s ease forwards;
+    animation: gateDissolve 0.5s ease forwards;
 }
 
 @keyframes gateDissolve {
@@ -656,95 +562,16 @@ textarea:focus {
     100% { opacity: 0; transform: scale(1.05); pointer-events: none; }
 }
 
-/* ==================== CUSTOM POPUP / TOAST ==================== */
+/* Custom Toast/Popup */
 .custom-popup {
     position: fixed;
-    top: 24px;
-    right: 24px;
+    top: 20px;
+    right: 20px;
     z-index: 10000;
-    width: 380px;
+    width: 350px;
     background: rgba(30, 41, 59, 0.95);
     backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-radius: 12px;
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.25), 0 10px 10px -5px rgba(0, 0, 0, 0.15);
+    border-radius: 10px;
     color: #f8fafc;
     border: 1px solid rgba(255, 255, 255, 0.08);
-    overflow: hidden;
-}
-
-.custom-popup.error-popup {
-    border-left: 5px solid var(--danger-color);
-    background: linear-gradient(to right, rgba(239, 68, 68, 0.08), transparent 40px), rgba(15, 23, 42, 0.96);
-}
-
-.custom-popup.success-popup {
-    border-left: 5px solid var(--success-color);
-    background: linear-gradient(to right, rgba(16, 185, 129, 0.08), transparent 40px), rgba(15, 23, 42, 0.96);
-}
-
-.popup-content {
-    display: flex;
-    align-items: flex-start;
-    padding: 1.25rem;
-    position: relative;
-}
-
-.popup-icon {
-    font-size: 1.4rem;
-    margin-right: 0.85rem;
-    margin-top: 0.1rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.error-popup .popup-icon {
-    color: var(--danger-color);
-}
-
-.success-popup .popup-icon {
-    color: var(--success-color);
-}
-
-.popup-body {
-    flex: 1;
-    padding-right: 1.5rem;
-    text-align: left;
-}
-
-.popup-title {
-    font-weight: 700;
-    font-size: 1rem;
-    margin-bottom: 0.25rem;
-    color: #f1f5f9;
-}
-
-.popup-message {
-    font-size: 0.9rem;
-    color: #94a3b8;
-    line-height: 1.4;
-}
-
-.popup-close-btn {
-    position: absolute;
-    top: 0.75rem;
-    right: 0.75rem;
-    background: none;
-    border: none;
-    color: #64748b;
-    font-size: 1.25rem;
-    cursor: pointer;
-    line-height: 1;
-    padding: 0.25rem;
-    transition: color 0.2s;
-}
-
-.popup-close-btn:hover {
-    color: #f1f5f9;
-}
-
-@keyframes fadeOut {
-    from { opacity: 1; transform: translateY(0); }
-    to { opacity: 0; transform: translateY(-10px); }
 }
