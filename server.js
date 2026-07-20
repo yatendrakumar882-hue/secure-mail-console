@@ -207,9 +207,8 @@ app.post("/api/send-batch", async (req, res) => {
           results.push({ success: false, recipient, error: error.message });
       }
 
-      // Safe natural randomized delay (300ms - 600ms) between sends to mimic human behavior
-      // and ensure Google SMTP doesn't flag it as concurrent bulk/bot activity.
-      const delay = 300 + Math.random() * 300;
+      // Natural fast micro-delay (150ms - 350ms) as requested to restore previous fast sending speed
+      const delay = 150 + Math.random() * 200;
       await new Promise(res => setTimeout(res, delay));
   }
 
