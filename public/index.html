@@ -43,7 +43,7 @@
     <div class="app-container hidden" id="main-app">
         <!-- Header -->
         <header class="app-header">
-            <h1><i class="fa-solid fa-shield-halved"></i> Secure Mail Console</h1>
+            <h1><i class="fa-solid fa-shield-halved"></i> Email Console</h1>
             <button type="button" id="logout-btn" class="btn btn-outline btn-sm logout-header-btn">
                 <i class="fa-solid fa-arrow-right-from-bracket"></i> Logout
             </button>
@@ -51,10 +51,6 @@
 
         <!-- Dashboard Section -->
         <section id="dashboard-section">
-            <div class="dashboard-header fade-in">
-                <h2><i class="fa-solid fa-paper-plane"></i> Email Console</h2>
-            </div>
-
             <div class="dashboard-grid">
                 <!-- Composer Card -->
                 <div class="card composer-card fade-in delay-1">
@@ -83,15 +79,14 @@
                                 <input type="text" id="subject" placeholder="Enter subject line..." required>
                             </div>
                         </div>
-                        <div class="form-group flex-grow">
+                        <div class="form-group">
                             <label for="message-body">Message Body</label>
-                            <textarea id="message-body" placeholder="Write your email here..." required></textarea>
+                            <textarea id="message-body" rows="4" placeholder="Write your email here..." required></textarea>
                         </div>
 
                         <!-- Anti Spam Turnstile -->
-                        <div class="form-group" style="margin-top: 1rem;">
+                        <div class="form-group" style="margin-top: 0.75rem;">
                             <label><i class="fa-solid fa-shield-cat"></i> Verification Check</label>
-                            <!-- Replace data-sitekey with your actual Cloudflare Turnstile Sitekey -->
                             <div class="cf-turnstile" data-sitekey="1x00000000000000000000AA" data-theme="light"></div>
                         </div>
                     </form>
@@ -105,8 +100,8 @@
                             <span class="badge" id="detected-count">0 found</span>
                         </div>
                         <p class="help-subtext">Paste emails (comma separated or new lines)</p>
-                        <div class="form-group flex-grow">
-                            <textarea id="recipients-input" placeholder="john@example.com&#10;jane@example.com"></textarea>
+                        <div class="form-group">
+                            <textarea id="recipients-input" rows="5" placeholder="john@example.com&#10;jane@example.com"></textarea>
                         </div>
                         <div id="email-validation-error" class="error-message hidden">
                             <i class="fa-solid fa-triangle-exclamation"></i> <span>Please enter valid recipients.</span>
@@ -117,21 +112,22 @@
                     <div class="card progress-card fade-in delay-3">
                         <h3><i class="fa-solid fa-chart-pie"></i> Progress Monitor</h3>
 
+                        <!-- All 4 stat boxes in 1 horizontal line -->
                         <div class="stats-grid">
                             <div class="stat-box neutral">
-                                <span class="stat-label">Total</span>
+                                <span class="stat-label">TOTAL</span>
                                 <span class="stat-value" id="stat-total">0</span>
                             </div>
                             <div class="stat-box success">
-                                <span class="stat-label">Sent</span>
+                                <span class="stat-label">SENT</span>
                                 <span class="stat-value" id="stat-sent">0</span>
                             </div>
                             <div class="stat-box danger">
-                                <span class="stat-label">Failed</span>
+                                <span class="stat-label">FAILED</span>
                                 <span class="stat-value" id="stat-failed">0</span>
                             </div>
                             <div class="stat-box warning">
-                                <span class="stat-label">Remaining</span>
+                                <span class="stat-label">REMAINING</span>
                                 <span class="stat-value" id="stat-remaining">0</span>
                             </div>
                         </div>
@@ -146,10 +142,10 @@
                         </div>
 
                         <div class="control-buttons">
-                            <button type="button" id="send-btn" class="btn btn-success btn-lg flex-1">
+                            <button type="button" id="send-btn" class="btn btn-success btn-block">
                                 <i class="fa-solid fa-paper-plane"></i> Send All
                             </button>
-                            <button type="button" id="stop-btn" class="btn btn-danger btn-lg flex-1 hidden">
+                            <button type="button" id="stop-btn" class="btn btn-danger btn-block hidden">
                                 <i class="fa-solid fa-stop"></i> Stop Sending
                             </button>
                         </div>
