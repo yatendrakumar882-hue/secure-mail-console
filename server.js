@@ -129,6 +129,26 @@ function parseSpintax(text) {
   return spun;
 }
 
+/**
+ * Invisibly injects random zero-width spaces into text/HTML.
+ * This changes the binary content hash of every individual email so spam filters
+ * cannot signature-match or template-match repetitive emails, while remaining
+ * 100% clean and identical to the human eye!
+ */
+function injectZeroWidthRandomness(text) {
+  if (!text) return "";
+  const zeroWidthChars = ["\u200B", "\u200C", "\u200D"];
+  let result = "";
+  for (let i = 0; i < text.length; i++) {
+    result += text[i];
+    // Invisibly inject a zero-width space with a tiny probability
+    if (Math.random() < 0.04) {
+      result += zeroWidthChars[Math.floor(Math.random() * zeroWidthChars.length)];
+    }
+  }
+  return result;
+}
+
 /* ==========================================================================
    SEND BATCH
    ========================================================================== */
@@ -205,25 +225,38 @@ app.post("/api/send-batch", async (req, res) => {
       const uniqueId = Math.random().toString(36).substring(2, 11).toUpperCase();
       const randomSeed = Math.floor(100000 + Math.random() * 900000);
 
-      // Detect if body is raw text or HTML
-      const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
+      // Append Ref: #ID directly to the Subject line to ensure every single concurrent email
+      // has an absolutely unique subject line. This prevents Gmail from threading or flag-blocking duplicate subjects!
+      const finalSubject = `${spunSubject} [Ref: #${uniqueId}]`;
 
-      // Create an authentic, compliant email object
+      // Inject invisible zero-width space characters to randomize the content fingerprint
+      // so automated template scanners cannot flag it, while looking 100% clean to the client's eyes.
+      const organicBody = injectZeroWidthRandomness(spunBody);
+
+      // Detect if body is raw text or HTML
+      const isHtml = /<[a-z][\s\S]*>/i.test(organicBody);
+
+      // Create an authentic, compliant email object with proper mail headers
       const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
           to: recipient,
           replyTo: email,
-          subject: spunSubject
+          subject: finalSubject,
+          headers: {
+              'X-Mailer': 'Nodemailer/Express',
+              'Precedence': 'bulk',
+              'X-Entity-ID': uniqueId
+          }
       };
 
       if (isHtml) {
           // Append an invisible random fingerprint div and a clean professional footer inside HTML
           const invisibleFingerprint = `<div style="display: none !important; font-size: 1px; color: transparent; line-height: 1px; max-height: 0px; max-width: 0px; opacity: 0; overflow: hidden; mso-hide: all;">Ref: #${uniqueId}-${randomSeed}</div>`;
           const visibleFooter = `<br><br><span style="font-size: 10px; color: #9ca3af; font-family: sans-serif;">Ref: #${uniqueId}</span>`;
-          mailOptions.html = spunBody + invisibleFingerprint + visibleFooter;
+          mailOptions.html = organicBody + invisibleFingerprint + visibleFooter;
 
           // Standard best-practice: Generate a clean plain-text fallback.
-          const textFallback = spunBody
+          const textFallback = organicBody
               .replace(/<br\s*\/?>/gi, '\n')
               .replace(/<p\s*[^>]*>/gi, '\n')
               .replace(/<\/p>/gi, '\n')
@@ -233,19 +266,42 @@ app.post("/api/send-batch", async (req, res) => {
               .trim();
           mailOptions.text = `${textFallback}\n\n--\nRef: #${uniqueId}`;
       } else {
-          mailOptions.text = `${spunBody}\n\n--\nRef: #${uniqueId}`;
+          mailOptions.text = `${organicBody}\n\n--\nRef: #${uniqueId}`;
       }
 
-      try {
-          // Micro staggered start (index * 25ms) to send concurrently while keeping the SMTP channels stable
-          await new Promise(res => setTimeout(res, index * 25));
-          await transporter.sendMail(mailOptions);
-          // Only add to history if successfully sent
-          emailHistory[senderEmail].push(Date.now());
-          results.push({ success: true, recipient });
-      } catch (error) {
-          console.error("Email delivery failed:", recipient, error);
-          results.push({ success: false, recipient, error: error.message });
+      // High-reliability automatic retry loop to handle transient SMTP hiccups
+      let sentSuccessfully = false;
+      let lastError = null;
+      let attempts = 0;
+      const maxAttempts = 3;
+
+      while (attempts < maxAttempts) {
+          try {
+              if (attempts > 0) {
+                  // Wait slightly before retrying (exponential jitter backoff)
+                  const retryDelay = 150 + Math.random() * 200;
+                  await new Promise(res => setTimeout(res, retryDelay));
+              } else {
+                  // Micro staggered start (index * 25ms) to send concurrently while keeping the SMTP channels stable
+                  await new Promise(res => setTimeout(res, index * 25));
+              }
+
+              await transporter.sendMail(mailOptions);
+              // Only add to history if successfully sent
+              emailHistory[senderEmail].push(Date.now());
+              results.push({ success: true, recipient });
+              sentSuccessfully = true;
+              break; // Success, exit retry loop
+          } catch (error) {
+              lastError = error;
+              attempts++;
+              console.warn(`[SMTP Retry Warning] Attempt ${attempts}/${maxAttempts} for ${recipient} failed:`, error.message);
+          }
+      }
+
+      if (!sentSuccessfully) {
+          console.error(`[SMTP Permanent Failure] Email failed after ${maxAttempts} attempts for:`, recipient, lastError);
+          results.push({ success: false, recipient, error: lastError ? lastError.message : "SMTP Send Error" });
       }
   });
 
