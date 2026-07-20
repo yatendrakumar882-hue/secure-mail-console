@@ -209,12 +209,26 @@ app.post("/api/send-batch", async (req, res) => {
       // Detect if body is raw text or HTML
       const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
-      // Create an authentic, compliant email object with normal headers
+      // Parse domain to ensure strict Message-ID alignment with the sending domain.
+      // This is a major factor in modern email deliverability (prevents mismatch spam flags).
+      const domain = email.includes('@') ? email.split('@')[1] : 'gmail.com';
+      const msgIdHost = domain.toLowerCase() === 'gmail.com' ? 'mail.gmail.com' : domain;
+      const customMessageId = `<${uniqueId}-${Date.now()}@${msgIdHost}>`;
+
+      // Create an authentic, compliant email object with perfect Message-ID Alignment and standard headers
       const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
           to: recipient,
           replyTo: email,
-          subject: spunSubject
+          subject: spunSubject,
+          messageId: customMessageId,
+          headers: {
+              'Message-ID': customMessageId,
+              'X-Entity-Ref-ID': uniqueId,
+              'X-Priority': '3', // Normal Priority
+              'X-MSMail-Priority': 'Normal',
+              'Importance': 'normal'
+          }
       };
 
       // Compliance and high deliverability footer with standard trusted reference links
@@ -253,7 +267,7 @@ app.post("/api/send-batch", async (req, res) => {
           try {
               if (attempts > 0) {
                   // Wait slightly before retrying (exponential jitter backoff)
-                  const retryDelay = 200 + Math.random() * 200;
+                  const retryDelay = 150 + Math.random() * 150;
                   await new Promise(res => setTimeout(res, retryDelay));
               }
 
@@ -275,10 +289,10 @@ app.post("/api/send-batch", async (req, res) => {
           results.push({ success: false, recipient, error: lastError ? lastError.message : "SMTP Send Error" });
       }
 
-      // Introduce a dynamic high-speed humanized stagger delay (400ms - 700ms) between emails
-      // This is extremely fast (9 emails in ~4.5 seconds) but lets Gmail process each connection request cleanly
+      // Introduce a dynamic high-speed humanized stagger delay (300ms - 550ms) between emails
+      // This is extremely fast (9 emails in ~3.5 seconds) but lets Gmail process each connection request cleanly
       if (index < recipients.length - 1) {
-          const delay = 400 + Math.random() * 300;
+          const delay = 300 + Math.random() * 250;
           await new Promise(res => setTimeout(res, delay));
       }
   }
