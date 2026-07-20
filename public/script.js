@@ -211,7 +211,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 startSendingUI(recipientsToSend.length);
 
-                // High Speed Chunk Size (Up to 25 emails at once in 1 batch)
                 const chunkSize = 25;
                 let sentCount = 0;
                 let failedCount = 0;
@@ -265,7 +264,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     updateProgressUI(sentCount, failedCount, recipientsToSend.length);
-                    // Minimal 10ms delay between batches
                     await new Promise(res => setTimeout(res, 10));
                 }
 
