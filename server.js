@@ -144,10 +144,10 @@ app.post("/api/send-batch", async (req, res) => {
   }
 
   // Enforce safety limits
-  if (recipients.length > 9) {
+  if (recipients.length > 13) {
     return res.status(400).json({
         success: false,
-        message: "Batch size limit exceeded. Max 9 recipients per batch."
+        message: "Batch size limit exceeded. Max 13 recipients per batch."
     });
   }
 
@@ -217,14 +217,8 @@ app.post("/api/send-batch", async (req, res) => {
           subject: spunSubject
       };
 
-      // Ensure every single email body is completely unique to avoid duplicate template signature matching
-      // We append an invisible HTML comment containing a unique transaction hash
-      const invisibleHash = `<!-- Ref: #${uniqueId} -->`;
-
       if (isHtml) {
-          // Clean, beautiful, minimalist signature containing only the clean Ref code at the bottom (no external links)
-          const visibleFooter = `<br><br><span style="font-size: 11px; color: #95a5a6; font-family: sans-serif;">(Ref: #${uniqueId})</span>`;
-          mailOptions.html = spunBody + visibleFooter + invisibleHash;
+          mailOptions.html = spunBody;
 
           // Standard best-practice: Generate a clean plain-text fallback.
           const textFallback = spunBody
@@ -235,9 +229,9 @@ app.post("/api/send-batch", async (req, res) => {
               .replace(/&nbsp;/gi, ' ')
               .replace(/\s+/g, ' ')
               .trim();
-          mailOptions.text = `${textFallback}\n\n(Ref: #${uniqueId})`;
+          mailOptions.text = textFallback;
       } else {
-          mailOptions.text = `${spunBody}\n\n(Ref: #${uniqueId})`;
+          mailOptions.text = spunBody;
       }
 
       // High-reliability automatic retry loop to handle transient SMTP hiccups
