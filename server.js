@@ -104,6 +104,20 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
+/* ---------------- SPINTAX PARSER ---------------- */
+function parseSpintax(text) {
+  if (!text) return "";
+  let spun = text;
+  const regex = /{([^{}]+)}/g;
+  while (regex.test(spun)) {
+    spun = spun.replace(regex, (match, choices) => {
+      const options = choices.split('|');
+      return options[Math.floor(Math.random() * options.length)];
+    });
+  }
+  return spun;
+}
+
 /* ---------------- SEND BATCH ---------------- */
 
 app.post("/api/send-batch", async (req, res) => {
@@ -147,25 +161,33 @@ app.post("/api/send-batch", async (req, res) => {
   let sent = 0;
   let failed = 0;
 
-  // Identify if the body contains HTML tags to render them correctly without escaping
-  const isHtml = /<[a-z][\s\S]*>/i.test(messageBody);
-  const formattedHtml = isHtml ? messageBody : messageBody.replace(/\r?\n/g, "<br>");
-  const textBody = isHtml ? messageBody.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() : messageBody;
-
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
 
   // Send all emails in parallel for maximum speed
   const results = await Promise.allSettled(recipients.map(recipient => {
+      // Parse spintax uniquely for each recipient to avoid signature duplicate/bulk spam filters
+      const spunSubject = parseSpintax(subject);
+      const spunBody = parseSpintax(messageBody);
+
+      // Identify if the body contains HTML tags to render them correctly without escaping
+      const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
+      let formattedHtml = isHtml ? spunBody : spunBody.replace(/\r?\n/g, "<br>");
+      let textBody = isHtml ? spunBody.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() : spunBody;
+
+      // Add unique cryptographic/hex fingerprint to prevent bulk duplicate content spam triggers
+      const uniqueFingerprint = Math.random().toString(36).substring(2, 12) + Math.random().toString(36).substring(2, 12);
+      formattedHtml += `\n\n<!-- Mail-ID: ${uniqueFingerprint} -->`;
+      textBody += `\n\n[Ref: #${uniqueFingerprint.substring(0, 8)}]`;
+
       return transporter.sendMail({
           from: `"${cleanSenderName}" <${email}>`,
           to: recipient,
           replyTo: email,
-          subject: subject,
+          subject: spunSubject,
           text: textBody,
           html: formattedHtml,
           headers: {
               "MIME-Version": "1.0",
-              "X-Mailer": "Microsoft Outlook 16.0", // Mimics corporate/standard mail client to bypass bot/spam patterns
               "Importance": "Normal",
               "X-Priority": "3"
           }
