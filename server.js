@@ -64,35 +64,26 @@ app.post("/api/auth", (req, res) => {
 });
 
 /* ==========================================================================
-   SMTP TRANSPORTER POOLING (Fast & Trusted)
+   HIGH-RELIABILITY TRANSPORTER CREATOR
    ========================================================================== */
-const transporters = {};
-
-function getTransporter(email, appPassword) {
-  const cacheKey = `${email.toLowerCase().trim()}_${appPassword}`;
-  if (!transporters[cacheKey]) {
-    transporters[cacheKey] = nodemailer.createTransport({
-      host: "smtp.gmail.com",
-      port: 587,
-      secure: false, // STARTTLS
-      auth: {
-        user: email,
-        pass: appPassword
-      },
-      tls: {
-        rejectUnauthorized: true
-      },
-      family: 4,
-      pool: true,             // Enable pooling for fast execution
-      maxConnections: 3,      // Balanced connections
-      maxMessages: 300
-    });
-  }
-  return transporters[cacheKey];
+function createTransporter(email, appPassword) {
+  return nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 465,
+    secure: true, // Direct SSL for high stability & bypass TLS handshake errors
+    auth: {
+      user: email,
+      pass: appPassword
+    },
+    authMethod: 'PLAIN',
+    connectionTimeout: 10000, // 10s timeout
+    greetingTimeout: 10000,
+    socketTimeout: 10000
+  });
 }
 
 /* ==========================================================================
-   VERIFY SMTP
+   VERIFY SMTP CREDENTIALS
    ========================================================================== */
 app.post("/api/verify", async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
@@ -112,7 +103,7 @@ app.post("/api/verify", async (req, res) => {
   }
 
   try {
-    const transporter = getTransporter(email, appPassword);
+    const transporter = createTransporter(email, appPassword);
     await transporter.verify();
 
     res.json({
@@ -120,10 +111,10 @@ app.post("/api/verify", async (req, res) => {
       message: "SMTP verified successfully"
     });
   } catch (error) {
-    console.error("SMTP Verify Error:", error);
+    console.error("SMTP Verify Failure:", error.message);
     res.status(401).json({
       success: false,
-      message: "SMTP Authentication Failed."
+      message: `Verification Failed: ${error.message}`
     });
   }
 });
@@ -145,7 +136,7 @@ function parseSpintax(text) {
 }
 
 /* ==========================================================================
-   SINGLE MAIL SEND ENDPOINT (Real-time Progress & Inbox Optimized)
+   SINGLE MAIL SEND ENDPOINT (With Retry & Fail-safe)
    ========================================================================== */
 app.post("/api/send-single", async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient } = req.body;
@@ -179,15 +170,14 @@ app.post("/api/send-single", async (req, res) => {
     return res.json({ success: false, error: "Stopped by user" });
   }
 
-  const transporter = getTransporter(email, appPassword);
   const cleanSenderName = (senderName || "").replace(/["\r\n]/g, "").trim();
-
   const spunSubject = parseSpintax(subject);
   let spunBody = parseSpintax(messageBody);
   const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
   const domain = senderEmail.split('@')[1] || 'gmail.com';
-  const messageId = `<${Date.now()}.${Math.random().toString(36).substring(2, 9)}@${domain}>`;
+  const randomStr = Math.random().toString(36).substring(2, 9);
+  const messageId = `<${Date.now()}.${randomStr}@${domain}>`;
 
   const mailOptions = {
     from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
@@ -196,8 +186,10 @@ app.post("/api/send-single", async (req, res) => {
     subject: spunSubject,
     headers: {
       'Message-ID': messageId,
-      'X-Mailer': 'Secure Console Mailer',
-      'Date': new Date().toUTCString()
+      'X-Mailer': 'Secure Mail Console',
+      'Date': new Date().toUTCString(),
+      'X-Priority': '3',
+      'Importance': 'Normal'
     }
   };
 
@@ -215,13 +207,33 @@ app.post("/api/send-single", async (req, res) => {
     mailOptions.text = spunBody;
   }
 
-  try {
-    await transporter.sendMail(mailOptions);
-    emailHistory[senderEmail].push(Date.now());
-    return res.json({ success: true, recipient });
-  } catch (error) {
-    return res.status(500).json({ success: false, recipient, error: error.message });
+  const transporter = createTransporter(email, appPassword);
+
+  // Auto Retry Loop (Max 2 Attempts for High Deliverability)
+  let attempts = 0;
+  let lastError = null;
+
+  while (attempts < 2) {
+    try {
+      await transporter.sendMail(mailOptions);
+      emailHistory[senderEmail].push(Date.now());
+      return res.json({ success: true, recipient });
+    } catch (error) {
+      lastError = error;
+      attempts++;
+      console.warn(`Attempt ${attempts} failed for ${recipient}: ${error.message}`);
+      if (attempts < 2) {
+        await new Promise(r => setTimeout(r, 1000)); // Delay 1 sec before retrying
+      }
+    }
   }
+
+  console.error(`[SEND FAILED] Recipient: ${recipient} | Error:`, lastError?.message);
+  return res.status(500).json({ 
+    success: false, 
+    recipient, 
+    error: lastError ? lastError.message : "SMTP Send Failed" 
+  });
 });
 
 /* ==========================================================================
