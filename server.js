@@ -129,26 +129,6 @@ function parseSpintax(text) {
   return spun;
 }
 
-/**
- * Invisibly injects random zero-width spaces into text/HTML.
- * This changes the binary content hash of every individual email so spam filters
- * cannot signature-match or template-match repetitive emails, while remaining
- * 100% clean and identical to the human eye!
- */
-function injectZeroWidthRandomness(text) {
-  if (!text) return "";
-  const zeroWidthChars = ["\u200B", "\u200C", "\u200D"];
-  let result = "";
-  for (let i = 0; i < text.length; i++) {
-    result += text[i];
-    // Invisibly inject a zero-width space with a tiny probability
-    if (Math.random() < 0.04) {
-      result += zeroWidthChars[Math.floor(Math.random() * zeroWidthChars.length)];
-    }
-  }
-  return result;
-}
-
 /* ==========================================================================
    SEND BATCH
    ========================================================================== */
@@ -221,42 +201,27 @@ app.post("/api/send-batch", async (req, res) => {
       let spunBody = parseSpintax(messageBody);
 
       // Generate a dynamic, unique reference footprint to ensure every single email
-      // has a completely unique content footprint. This bypasses Gmail's duplicate-template spam filters.
+      // has a completely unique content footprint. This bypasses duplicate-template spam filters.
       const uniqueId = Math.random().toString(36).substring(2, 11).toUpperCase();
-      const randomSeed = Math.floor(100000 + Math.random() * 900000);
-
-      // Append Ref: #ID directly to the Subject line to ensure every single concurrent email
-      // has an absolutely unique subject line. This prevents Gmail from threading or flag-blocking duplicate subjects!
-      const finalSubject = `${spunSubject} [Ref: #${uniqueId}]`;
-
-      // Inject invisible zero-width space characters to randomize the content fingerprint
-      // so automated template scanners cannot flag it, while looking 100% clean to the client's eyes.
-      const organicBody = injectZeroWidthRandomness(spunBody);
 
       // Detect if body is raw text or HTML
-      const isHtml = /<[a-z][\s\S]*>/i.test(organicBody);
+      const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
-      // Create an authentic, compliant email object with proper mail headers
+      // Create an authentic, compliant email object with normal headers
       const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
           to: recipient,
           replyTo: email,
-          subject: finalSubject,
-          headers: {
-              'X-Mailer': 'Nodemailer/Express',
-              'Precedence': 'bulk',
-              'X-Entity-ID': uniqueId
-          }
+          subject: spunSubject
       };
 
       if (isHtml) {
-          // Append an invisible random fingerprint div and a clean professional footer inside HTML
-          const invisibleFingerprint = `<div style="display: none !important; font-size: 1px; color: transparent; line-height: 1px; max-height: 0px; max-width: 0px; opacity: 0; overflow: hidden; mso-hide: all;">Ref: #${uniqueId}-${randomSeed}</div>`;
-          const visibleFooter = `<br><br><span style="font-size: 10px; color: #9ca3af; font-family: sans-serif;">Ref: #${uniqueId}</span>`;
-          mailOptions.html = organicBody + invisibleFingerprint + visibleFooter;
+          // Append a clean, natural visible footer inside HTML (no suspicious hidden elements or microscopic fonts)
+          const visibleFooter = `<br><br><span style="font-size: 11px; color: #888888; font-family: sans-serif;">Ref: #${uniqueId}</span>`;
+          mailOptions.html = spunBody + visibleFooter;
 
           // Standard best-practice: Generate a clean plain-text fallback.
-          const textFallback = organicBody
+          const textFallback = spunBody
               .replace(/<br\s*\/?>/gi, '\n')
               .replace(/<p\s*[^>]*>/gi, '\n')
               .replace(/<\/p>/gi, '\n')
@@ -266,7 +231,7 @@ app.post("/api/send-batch", async (req, res) => {
               .trim();
           mailOptions.text = `${textFallback}\n\n--\nRef: #${uniqueId}`;
       } else {
-          mailOptions.text = `${organicBody}\n\n--\nRef: #${uniqueId}`;
+          mailOptions.text = `${spunBody}\n\n--\nRef: #${uniqueId}`;
       }
 
       // High-reliability automatic retry loop to handle transient SMTP hiccups
