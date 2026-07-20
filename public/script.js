@@ -246,8 +246,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Start sending batches UI (we only disable the Send button, NOT the other inputs!)
                 startSendingUI(recipientsToSend.length);
 
-                // Loop and chunk emails (Set to 13 per batch)
-                const chunkSize = 13;
+                // Loop and chunk emails
+                const chunkSize = 7;
                 let sentCount = 0;
                 let failedCount = 0;
                 let limitFull = false;
@@ -264,9 +264,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         const payload = {
                             email: emailVal,
                             appPassword: appPasswordVal,
-                            senderName: senderNameVal, 
-                            subject: subjectVal,       
-                            messageBody: messageBodyVal, 
+                            senderName: senderNameVal, // Use captured values
+                            subject: subjectVal,       // Use captured values
+                            messageBody: messageBodyVal, // Use captured values
                             recipients: chunk,
                             cfToken: turnstileResponse
                         };
@@ -302,7 +302,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Update UI stats
                     updateProgressUI(sentCount, failedCount, recipientsToSend.length);
 
-                    // Fast micro-delay between batches (100ms) for high-speed delivery
+                    // Minimal delay between batches for safe, professional inbox delivery
                     await new Promise(res => setTimeout(res, 100));
                 }
 
@@ -385,6 +385,11 @@ document.addEventListener('DOMContentLoaded', () => {
         sendBtn.classList.remove('hidden');
         stopBtn.classList.add('hidden');
         setInputState(false);
+    }
+
+    function setInputState(disabled) {
+        // We do NOT disable fields anymore, as per user's requirement.
+        // We only control the button states.
     }
 
     // Intercept form submit to prevent browser reloads/interruptions on Enter key
