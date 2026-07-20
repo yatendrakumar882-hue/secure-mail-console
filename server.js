@@ -163,43 +163,84 @@ app.post("/api/send-batch", async (req, res) => {
 
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
 
-  // Send all emails in parallel for maximum speed
-  const results = await Promise.allSettled(recipients.map(recipient => {
+  // Send emails sequentially with a natural micro-delay to prevent bulk connection spikes
+  const results = [];
+  for (const recipient of recipients) {
+      // Check if global stop has been requested
+      if (activeSessions['global_stop']) {
+          results.push({ success: false, recipient, error: "Stopped by user" });
+          continue;
+      }
+
       // Parse spintax uniquely for each recipient to avoid signature duplicate/bulk spam filters
       const spunSubject = parseSpintax(subject);
       const spunBody = parseSpintax(messageBody);
 
       // Identify if the body contains HTML tags to render them correctly without escaping
       const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
-      let formattedHtml = isHtml ? spunBody : spunBody.replace(/\r?\n/g, "<br>");
-      let textBody = isHtml ? spunBody.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() : spunBody;
-
-      // Add unique cryptographic/hex fingerprint to prevent bulk duplicate content spam triggers
+      
       const uniqueFingerprint = Math.random().toString(36).substring(2, 12) + Math.random().toString(36).substring(2, 12);
-      formattedHtml += `\n\n<!-- Mail-ID: ${uniqueFingerprint} -->`;
-      textBody += `\n\n[Ref: #${uniqueFingerprint.substring(0, 8)}]`;
+      
+      let formattedHtml;
+      if (isHtml) {
+        // Embed a professional clean transactional footer instead of raw spam-triggering comment tags
+        const footerHtml = `<div style="font-size: 9px; color: #999999; margin-top: 25px; border-top: 1px solid #f0f0f0; padding-top: 12px; font-family: Arial, sans-serif;">Ref ID: TXN-${uniqueFingerprint.toUpperCase()}</div>`;
+        if (spunBody.includes("</body>")) {
+          formattedHtml = spunBody.replace("</body>", `${footerHtml}</body>`);
+        } else {
+          formattedHtml = spunBody + footerHtml;
+        }
+      } else {
+        formattedHtml = `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222222; margin: 0; padding: 10px 0;">
+            <div style="margin-bottom: 25px; white-space: pre-wrap;">${spunBody}</div>
+            <hr style="border: 0; border-top: 1px solid #eaeaea; margin: 25px 0 15px 0;" />
+            <div style="font-size: 11px; color: #888888; font-family: Arial, sans-serif;">
+              Secure communication reference: TXN-${uniqueFingerprint.toUpperCase()}
+            </div>
+          </div>
+        `;
+      }
 
-      return transporter.sendMail({
-          from: `"${cleanSenderName}" <${email}>`,
-          to: recipient,
-          replyTo: email,
-          subject: spunSubject,
-          text: textBody,
-          html: formattedHtml,
-          headers: {
-              "MIME-Version": "1.0",
-              "Importance": "Normal",
-              "X-Priority": "3"
-          }
-      }).then(() => ({ success: true, recipient }))
-      .catch(error => {
+      let textBody;
+      if (isHtml) {
+        textBody = spunBody.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() + `\n\nRef ID: TXN-${uniqueFingerprint.toUpperCase()}`;
+      } else {
+        textBody = spunBody + `\n\nSecure communication reference: TXN-${uniqueFingerprint.toUpperCase()}`;
+      }
+
+      const domain = email.split('@')[1] || 'gmail.com';
+      const msgId = `<${uniqueFingerprint}@${domain}>`;
+
+      try {
+          await transporter.sendMail({
+              from: `"${cleanSenderName}" <${email}>`,
+              to: recipient,
+              replyTo: email,
+              subject: spunSubject,
+              text: textBody,
+              html: formattedHtml,
+              messageId: msgId,
+              date: new Date(),
+              headers: {
+                  "MIME-Version": "1.0",
+                  "Importance": "Normal",
+                  "X-Priority": "3",
+                  "X-Mailer": "Microsoft Outlook 16.0"
+              }
+          });
+          results.push({ success: true, recipient });
+      } catch (error) {
           console.error("Email failed:", recipient, error);
-          return { success: false, recipient, error: error.message };
-      });
-  }));
+          results.push({ success: false, recipient, error: error.message });
+      }
+
+      // Small randomized delay (150ms - 350ms) to look human-like and bypass automated bulk spam patterns
+      await new Promise(res => setTimeout(res, 150 + Math.random() * 200));
+  }
 
   for (const result of results) {
-      if (result.status === 'fulfilled' && result.value.success) {
+      if (result.success) {
           sent++;
           emailHistory[senderEmail].push(Date.now());
       } else {
