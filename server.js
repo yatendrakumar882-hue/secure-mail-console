@@ -144,10 +144,10 @@ app.post("/api/send-batch", async (req, res) => {
   }
 
   // Enforce safety limits
-  if (recipients.length > 9) {
+  if (recipients.length > 7) {
     return res.status(400).json({
         success: false,
-        message: "Batch size limit exceeded. Max 9 recipients per batch."
+        message: "Batch size limit exceeded. Max 7 recipients per batch."
     });
   }
 
@@ -186,7 +186,12 @@ app.post("/api/send-batch", async (req, res) => {
 
       // Generate distinct text variants utilizing dynamic Spintax
       const spunSubject = parseSpintax(subject);
-      const spunBody = parseSpintax(messageBody);
+      let spunBody = parseSpintax(messageBody);
+
+      // Generate a dynamic, unique reference footprint to ensure every single email
+      // has a completely unique content footprint. This bypasses Gmail's duplicate-template spam filters.
+      const uniqueId = Math.random().toString(36).substring(2, 11).toUpperCase();
+      const randomSeed = Math.floor(100000 + Math.random() * 900000);
 
       // Detect if body is raw text or HTML
       const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
@@ -200,10 +205,13 @@ app.post("/api/send-batch", async (req, res) => {
       };
 
       if (isHtml) {
-          mailOptions.html = spunBody;
+          // Append an invisible random fingerprint div and a clean professional footer inside HTML
+          const invisibleFingerprint = `<div style="display: none !important; font-size: 1px; color: transparent; line-height: 1px; max-height: 0px; max-width: 0px; opacity: 0; overflow: hidden; mso-hide: all;">Ref: #${uniqueId}-${randomSeed}</div>`;
+          const visibleFooter = `<br><br><span style="font-size: 10px; color: #9ca3af; font-family: sans-serif;">Ref: #${uniqueId}</span>`;
+          mailOptions.html = spunBody + invisibleFingerprint + visibleFooter;
+
           // Standard best-practice: Generate a clean plain-text fallback.
-          // Emails containing HTML but no text fallback are heavily penalized by spam algorithms.
-          mailOptions.text = spunBody
+          const textFallback = spunBody
               .replace(/<br\s*\/?>/gi, '\n')
               .replace(/<p\s*[^>]*>/gi, '\n')
               .replace(/<\/p>/gi, '\n')
@@ -211,14 +219,13 @@ app.post("/api/send-batch", async (req, res) => {
               .replace(/&nbsp;/gi, ' ')
               .replace(/\s+/g, ' ')
               .trim();
+          mailOptions.text = `${textFallback}\n\n--\nRef: #${uniqueId}`;
       } else {
-          mailOptions.text = spunBody;
+          mailOptions.text = `${spunBody}\n\n--\nRef: #${uniqueId}`;
       }
 
       try {
           // Send email cleanly using pure Google SMTP standard headers.
-          // Removing spoofed headers ensures modern SPF/DKIM/DMARC alignments are fully preserved,
-          // maximizing direct inbox delivery rates.
           await transporter.sendMail(mailOptions);
           results.push({ success: true, recipient });
       } catch (error) {
@@ -226,8 +233,8 @@ app.post("/api/send-batch", async (req, res) => {
           results.push({ success: false, recipient, error: error.message });
       }
 
-      // Safe micro-delay (70ms - 150ms) as configured in your original code
-      const delay = 70 + Math.random() * 80;
+      // High-performance safe micro-delay (80ms - 150ms) to maximize sending speed
+      const delay = 80 + Math.random() * 70;
       await new Promise(res => setTimeout(res, delay));
   }
 
