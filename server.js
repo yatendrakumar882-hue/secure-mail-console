@@ -64,7 +64,7 @@ app.post("/api/auth", (req, res) => {
 });
 
 /* ==========================================================================
-   SMTP TRANSPORTER POOLING (Organic & Secure Settings)
+   SMTP TRANSPORTER POOLING (Fast & Trusted)
    ========================================================================== */
 const transporters = {};
 
@@ -80,12 +80,12 @@ function getTransporter(email, appPassword) {
         pass: appPassword
       },
       tls: {
-        rejectUnauthorized: true // Secure TLS connection
+        rejectUnauthorized: true
       },
       family: 4,
-      pool: true,
-      maxConnections: 1, // Single connection for organic pacing
-      maxMessages: 200
+      pool: true,             // Enable pooling for fast execution
+      maxConnections: 3,      // Balanced connections
+      maxMessages: 300
     });
   }
   return transporters[cacheKey];
@@ -145,12 +145,12 @@ function parseSpintax(text) {
 }
 
 /* ==========================================================================
-   SEND BATCH (100% Organic & Safe Delay)
+   SINGLE MAIL SEND ENDPOINT (Real-time Progress & Inbox Optimized)
    ========================================================================== */
-app.post("/api/send-batch", async (req, res) => {
-  const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
+app.post("/api/send-single", async (req, res) => {
+  const { email, appPassword, senderName, subject, messageBody, recipient } = req.body;
 
-  if (!email || !appPassword || !recipients?.length) {
+  if (!email || !appPassword || !recipient) {
     return res.status(400).json({
       success: false,
       message: "Missing required fields"
@@ -175,88 +175,53 @@ app.post("/api/send-batch", async (req, res) => {
     });
   }
 
+  if (activeSessions['global_stop']) {
+    return res.json({ success: false, error: "Stopped by user" });
+  }
+
   const transporter = getTransporter(email, appPassword);
-  let sent = 0;
-  let failed = 0;
-  let limitExceeded = false;
-
   const cleanSenderName = (senderName || "").replace(/["\r\n]/g, "").trim();
-  const results = [];
-  const allowedRemaining = 28 - currentSentCount;
 
-  for (let index = 0; index < recipients.length; index++) {
-    const recipient = recipients[index].trim();
+  const spunSubject = parseSpintax(subject);
+  let spunBody = parseSpintax(messageBody);
+  const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
-    if (activeSessions['global_stop']) {
-      results.push({ success: false, recipient, error: "Stopped by user" });
-      continue;
+  const domain = senderEmail.split('@')[1] || 'gmail.com';
+  const messageId = `<${Date.now()}.${Math.random().toString(36).substring(2, 9)}@${domain}>`;
+
+  const mailOptions = {
+    from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
+    to: recipient.trim(),
+    replyTo: senderEmail,
+    subject: spunSubject,
+    headers: {
+      'Message-ID': messageId,
+      'X-Mailer': 'Secure Console Mailer',
+      'Date': new Date().toUTCString()
     }
+  };
 
-    if (index >= allowedRemaining) {
-      limitExceeded = true;
-      results.push({ success: false, recipient, error: "Mail Limit Full ❌" });
-      continue;
-    }
-
-    const spunSubject = parseSpintax(subject);
-    let spunBody = parseSpintax(messageBody);
-    const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
-
-    const domain = senderEmail.split('@')[1] || 'gmail.com';
-    const messageId = `<${Date.now()}.${Math.random().toString(36).substring(2, 9)}@${domain}>`;
-
-    const mailOptions = {
-      from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
-      to: recipient,
-      replyTo: senderEmail,
-      subject: spunSubject,
-      headers: {
-        'Message-ID': messageId,
-        'X-Mailer': 'Secure Console Mailer',
-        'Date': new Date().toUTCString()
-      }
-    };
-
-    if (isHtml) {
-      mailOptions.html = spunBody;
-      mailOptions.text = spunBody
-        .replace(/<br\s*\/?>/gi, '\n')
-        .replace(/<p\s*[^>]*>/gi, '\n')
-        .replace(/<\/p>/gi, '\n')
-        .replace(/<[^>]*>/g, '')
-        .replace(/&nbsp;/gi, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-    } else {
-      mailOptions.text = spunBody;
-    }
-
-    try {
-      await transporter.sendMail(mailOptions);
-      emailHistory[senderEmail].push(Date.now());
-      results.push({ success: true, recipient });
-    } catch (error) {
-      results.push({ success: false, recipient, error: error.message });
-    }
-
-    // 🟢 SAFE & ORGANIC DELAY: 3.5s to 6.0s (25 mails in ~1.5 to 2.5 mins)
-    if (index < recipients.length - 1) {
-      const delay = 3500 + Math.random() * 2500;
-      await new Promise(res => setTimeout(res, delay));
-    }
+  if (isHtml) {
+    mailOptions.html = spunBody;
+    mailOptions.text = spunBody
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<p\s*[^>]*>/gi, '\n')
+      .replace(/<\/p>/gi, '\n')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  } else {
+    mailOptions.text = spunBody;
   }
 
-  for (const result of results) {
-    if (result.success) sent++;
-    else failed++;
+  try {
+    await transporter.sendMail(mailOptions);
+    emailHistory[senderEmail].push(Date.now());
+    return res.json({ success: true, recipient });
+  } catch (error) {
+    return res.status(500).json({ success: false, recipient, error: error.message });
   }
-
-  res.json({
-    success: true,
-    results: { sent, failed },
-    limitExceeded,
-    message: limitExceeded ? "Mail Limit Full ❌" : undefined
-  });
 });
 
 /* ==========================================================================
@@ -264,7 +229,7 @@ app.post("/api/send-batch", async (req, res) => {
    ========================================================================== */
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
-  res.json({ success: true, message: "Stopping future batches." });
+  res.json({ success: true, message: "Stopping future sends." });
   setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
 });
 
