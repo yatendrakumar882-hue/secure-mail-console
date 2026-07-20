@@ -211,16 +211,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 startSendingUI(recipientsToSend.length);
 
-                const chunkSize = 13;
                 let sentCount = 0;
                 let failedCount = 0;
                 let limitFull = false;
 
-                for (let i = 0; i < recipientsToSend.length; i += chunkSize) {
+                // Loop 1-by-1 with Instant UI updates
+                for (let i = 0; i < recipientsToSend.length; i++) {
                     if (stopRequested) break;
 
-                    const chunk = recipientsToSend.slice(i, i + chunkSize);
-                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sending batch ${Math.floor(i/chunkSize) + 1}...`);
+                    const recipient = recipientsToSend[i];
+                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sending to ${recipient}...`);
 
                     try {
                         const payload = {
@@ -229,11 +229,10 @@ document.addEventListener('DOMContentLoaded', () => {
                             senderName: senderNameVal,
                             subject: subjectVal,
                             messageBody: messageBodyVal,
-                            recipients: chunk,
-                            cfToken: turnstileResponse
+                            recipient: recipient
                         };
 
-                        const response = await fetch('/api/send-batch', {
+                        const response = await fetch('/api/send-single', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(payload)
@@ -242,29 +241,28 @@ document.addEventListener('DOMContentLoaded', () => {
                         const result = await response.json();
 
                         if (result.success) {
-                            sentCount += result.results.sent;
-                            failedCount += result.results.failed;
-                            if (result.limitExceeded) {
-                                limitFull = true;
-                                showCustomPopup(result.message || 'Mail Limit Full ❌', true);
-                                break;
-                            }
+                            sentCount++;
                         } else {
-                            failedCount += chunk.length;
+                            failedCount++;
                             if (result.limitExceeded) {
                                 limitFull = true;
                                 showCustomPopup(result.message || 'Mail Limit Full ❌', true);
                                 break;
                             }
                         }
-
                     } catch (err) {
-                        console.error('Batch failed:', err);
-                        failedCount += chunk.length;
+                        console.error('Send failed:', err);
+                        failedCount++;
                     }
 
+                    // Instant Live Count Refresh
                     updateProgressUI(sentCount, failedCount, recipientsToSend.length);
-                    await new Promise(res => setTimeout(res, 500));
+
+                    // ⚡ FAST DELAY BETWEEN MAILS: 400ms - 700ms (~12-15 seconds for 25 mails)
+                    if (i < recipientsToSend.length - 1) {
+                        const delay = 400 + Math.random() * 300;
+                        await new Promise(res => setTimeout(res, delay));
+                    }
                 }
 
                 isSending = false;
@@ -297,11 +295,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (stopBtn) {
-        stopBtn.addEventListener('click', () => {
+        stopBtn.addEventListener('click', async () => {
             stopRequested = true;
             statusIcon.className = 'fa-solid fa-spinner fa-spin text-warning';
             statusText.textContent = 'Stopping...';
             stopBtn.disabled = true;
+
+            try {
+                await fetch('/api/stop', { method: 'POST' });
+            } catch(e) {}
         });
     }
 
