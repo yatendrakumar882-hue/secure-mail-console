@@ -303,7 +303,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     updateProgressUI(sentCount, failedCount, recipientsToSend.length);
 
                     // Minimal delay between batches for safe, professional inbox delivery
-                    await new Promise(res => setTimeout(res, 1000));
+                    await new Promise(res => setTimeout(res, 600));
                 }
 
                 isSending = false;
