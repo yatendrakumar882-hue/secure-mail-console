@@ -147,7 +147,7 @@ app.post("/api/send-batch", async (req, res) => {
   if (recipients.length > 13) {
     return res.status(400).json({
         success: false,
-        message: "Batch size limit exceeded. Max 9 recipients per batch."
+        message: "Batch size limit exceeded. Max 13 recipients per batch."
     });
   }
 
@@ -177,11 +177,12 @@ app.post("/api/send-batch", async (req, res) => {
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
   const results = [];
 
-  for (const recipient of recipients) {
+  // Send all emails in the batch concurrently in parallel to maximize speed
+  const sendPromises = recipients.map(async (recipient) => {
       // Check for user-requested stop signal
       if (activeSessions['global_stop']) {
           results.push({ success: false, recipient, error: "Stopped by user" });
-          continue;
+          return;
       }
 
       // Generate distinct text variants utilizing dynamic Spintax
@@ -225,11 +226,10 @@ app.post("/api/send-batch", async (req, res) => {
           console.error("Email delivery failed:", recipient, error);
           results.push({ success: false, recipient, error: error.message });
       }
+  });
 
-      // Super-fast micro delay (30ms - 70ms)
-     const delay = 30 + Math.random() * 40;
-     await new Promise(res => setTimeout(res, delay));
-  }
+  // Execute all sending promises simultaneously
+  await Promise.all(sendPromises);
 
   for (const result of results) {
       if (result.success) {
