@@ -64,7 +64,7 @@ app.post("/api/auth", (req, res) => {
 });
 
 /* ==========================================================================
-   SMTP TRANSPORTER POOLING (High-Speed Optimized)
+   SMTP TRANSPORTER POOLING (High-Speed & Secure)
    ========================================================================== */
 const transporters = {};
 
@@ -80,11 +80,11 @@ function getTransporter(email, appPassword) {
         pass: appPassword
       },
       tls: {
-        rejectUnauthorized: true
+        rejectUnauthorized: true // Secure TLS for better inbox delivery
       },
       family: 4,
-      pool: true,             // Enable connection pooling for ultra-fast reuse
-      maxConnections: 5,      // Increased connections for fast parallel handling
+      pool: true,
+      maxConnections: 5,
       maxMessages: 500
     });
   }
@@ -145,7 +145,7 @@ function parseSpintax(text) {
 }
 
 /* ==========================================================================
-   SEND BATCH (Ultra-Fast 2-3 Sec Speed Settings)
+   SEND BATCH (Fast 2-3 sec speed with Inbox Headers)
    ========================================================================== */
 app.post("/api/send-batch", async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
@@ -184,7 +184,6 @@ app.post("/api/send-batch", async (req, res) => {
   const results = [];
   const allowedRemaining = 28 - currentSentCount;
 
-  // 1-by-1 Sequential sending with micro-delays for high speed
   for (let index = 0; index < recipients.length; index++) {
     const recipient = recipients[index].trim();
 
@@ -203,11 +202,20 @@ app.post("/api/send-batch", async (req, res) => {
     let spunBody = parseSpintax(messageBody);
     const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
+    // Unique Identifier for Inbox Landing
+    const domain = senderEmail.split('@')[1] || 'gmail.com';
+    const messageId = `<${Date.now()}.${Math.random().toString(36).substring(2, 9)}@${domain}>`;
+
     const mailOptions = {
       from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
       to: recipient,
       replyTo: senderEmail,
-      subject: spunSubject
+      subject: spunSubject,
+      headers: {
+        'Message-ID': messageId,
+        'X-Mailer': 'Secure Console Mailer',
+        'Date': new Date().toUTCString()
+      }
     };
 
     if (isHtml) {
@@ -232,9 +240,9 @@ app.post("/api/send-batch", async (req, res) => {
       results.push({ success: false, recipient, error: error.message });
     }
 
-    // ⚡ ULTRA-FAST DELAY: 30ms to 60ms between emails (25 mails send in ~2-3 seconds)
+    // ⚡ Speed Control: ~30-50ms delay for 25 mails in ~2-3 seconds
     if (index < recipients.length - 1) {
-      const delay = 30 + Math.random() * 30;
+      const delay = 30 + Math.random() * 20;
       await new Promise(res => setTimeout(res, delay));
     }
   }
