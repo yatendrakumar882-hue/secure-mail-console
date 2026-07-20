@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const gateSubmitBtn = document.getElementById('gate-submit-btn');
     const toggleGatePassword = document.getElementById('toggle-gate-password');
 
+    // Check sessionStorage — if already authenticated, skip the gate
     if (sessionStorage.getItem('authenticated') === 'true') {
         passwordGate.classList.add('hidden');
         mainApp.classList.remove('hidden');
@@ -17,6 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
         mainApp.classList.add('hidden');
     }
 
+    // Toggle gate password visibility
     if (toggleGatePassword) {
         toggleGatePassword.addEventListener('click', () => {
             const type = gatePassword.getAttribute('type') === 'password' ? 'text' : 'password';
@@ -25,10 +27,12 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Handle gate form submission
     if (gateForm) {
         gateForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const password = gatePassword.value.trim();
+
             if (!password) return;
 
             gateSubmitBtn.disabled = true;
@@ -68,18 +72,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ==================== MAIN APP LOGIC ====================
 
+    // Dashboard Items
     const dashboardEmail = document.getElementById('dashboard-email');
     const dashboardPassword = document.getElementById('dashboard-password');
     const togglePasswordBtn = document.getElementById('toggle-password');
 
+    // Compose Form
     const senderName = document.getElementById('sender-name');
     const subject = document.getElementById('subject');
     const messageBody = document.getElementById('message-body');
 
+    // Recipients
     const recipientsInput = document.getElementById('recipients-input');
     const detectedCount = document.getElementById('detected-count');
     const emailValidationError = document.getElementById('email-validation-error');
 
+    // Progress Monitor
     const statTotal = document.getElementById('stat-total');
     const statSent = document.getElementById('stat-sent');
     const statFailed = document.getElementById('stat-failed');
@@ -91,10 +99,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const sendBtn = document.getElementById('send-btn');
     const stopBtn = document.getElementById('stop-btn');
 
+    // State
     let extractedEmails = [];
     let isSending = false;
     let stopRequested = false;
 
+    // Custom Alert / Popup Function
     function showCustomPopup(message, isError = true) {
         const existingPopups = document.querySelectorAll('.custom-popup');
         existingPopups.forEach(p => p.remove());
@@ -131,6 +141,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Toggle Password Visibility
     if (togglePasswordBtn) {
         togglePasswordBtn.addEventListener('click', () => {
             const type = dashboardPassword.getAttribute('type') === 'password' ? 'text' : 'password';
@@ -139,6 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Process pasted emails
     if (recipientsInput) {
         recipientsInput.addEventListener('input', extractEmails);
     }
@@ -161,12 +173,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Handle Send
     if (sendBtn) {
         sendBtn.addEventListener('click', async () => {
             if (isSending) return;
 
             const emailVal = dashboardEmail.value.trim();
-            const appPasswordVal = dashboardPassword.value.trim().replace(/\s+/g, ''); // Auto remove spaces
+            const appPasswordVal = dashboardPassword.value.trim();
             const senderNameVal = senderName.value.trim();
             const subjectVal = subject.value.trim();
             const messageBodyVal = messageBody.value.trim();
@@ -182,7 +195,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const recipientsToSend = [...extractedEmails];
-            const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]')?.value || '';
+            const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]')?.value;
+            if (!turnstileResponse) {
+                alert('Please complete the spam protection check.');
+                return;
+            }
 
             sendBtn.disabled = true;
             sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
@@ -202,7 +219,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const verifyResult = await verifyResponse.json();
 
                 if (!verifyResult.success) {
-                    showCustomPopup(verifyResult.message || 'Invalid credentials or App Password.', true);
+                    alert(verifyResult.message || 'Invalid credentials or spam check failed.');
                     sendBtn.disabled = false;
                     sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send All';
                     try { turnstile.reset(); } catch(e){}
@@ -211,15 +228,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 startSendingUI(recipientsToSend.length);
 
+                const chunkSize = 13;
                 let sentCount = 0;
                 let failedCount = 0;
                 let limitFull = false;
 
-                for (let i = 0; i < recipientsToSend.length; i++) {
+                for (let i = 0; i < recipientsToSend.length; i += chunkSize) {
                     if (stopRequested) break;
 
-                    const recipient = recipientsToSend[i];
-                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sending to ${recipient}...`);
+                    const chunk = recipientsToSend.slice(i, i + chunkSize);
+                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sending to batch ${Math.floor(i/chunkSize) + 1}...`);
 
                     try {
                         const payload = {
@@ -228,10 +246,11 @@ document.addEventListener('DOMContentLoaded', () => {
                             senderName: senderNameVal,
                             subject: subjectVal,
                             messageBody: messageBodyVal,
-                            recipient: recipient
+                            recipients: chunk,
+                            cfToken: turnstileResponse
                         };
 
-                        const response = await fetch('/api/send-single', {
+                        const response = await fetch('/api/send-batch', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(payload)
@@ -240,27 +259,32 @@ document.addEventListener('DOMContentLoaded', () => {
                         const result = await response.json();
 
                         if (result.success) {
-                            sentCount++;
-                        } else {
-                            failedCount++;
+                            sentCount += result.results.sent;
+                            failedCount += result.results.failed;
                             if (result.limitExceeded) {
                                 limitFull = true;
                                 showCustomPopup(result.message || 'Mail Limit Full ❌', true);
                                 break;
                             }
+                        } else {
+                            if (result.limitExceeded) {
+                                limitFull = true;
+                                failedCount += chunk.length;
+                                showCustomPopup(result.message || 'Mail Limit Full ❌', true);
+                                break;
+                            } else {
+                                failedCount += chunk.length;
+                            }
                         }
+
                     } catch (err) {
-                        console.error('Send Error:', err);
-                        failedCount++;
+                        console.error('Batch failed:', err);
+                        failedCount += chunk.length;
                     }
 
                     updateProgressUI(sentCount, failedCount, recipientsToSend.length);
-
-                    // ⚡ Safe Optimal Delay (450ms - 750ms)
-                    if (i < recipientsToSend.length - 1) {
-                        const delay = 450 + Math.random() * 300;
-                        await new Promise(res => setTimeout(res, delay));
-                    }
+                    // Minimal 10ms delay between batches
+                    await new Promise(res => setTimeout(res, 10));
                 }
 
                 isSending = false;
@@ -273,7 +297,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     statusIcon.className = 'fa-solid fa-circle-check text-success';
                     statusText.textContent = 'Completed successfully!';
-                    showCustomPopup(`All emails sent successfully! 🎉`, false);
+                    showCustomPopup(`All emails sent from ${emailVal} successfully! 🎉`, false);
                 }
                 finishSendingUI();
 
@@ -292,16 +316,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Handle Stop
     if (stopBtn) {
-        stopBtn.addEventListener('click', async () => {
+        stopBtn.addEventListener('click', () => {
             stopRequested = true;
             statusIcon.className = 'fa-solid fa-spinner fa-spin text-warning';
-            statusText.textContent = 'Stopping...';
+            statusText.textContent = 'Stopping... waiting for current batch...';
             stopBtn.disabled = true;
-
-            try {
-                await fetch('/api/stop', { method: 'POST' });
-            } catch(e) {}
         });
     }
 
@@ -320,6 +341,8 @@ document.addEventListener('DOMContentLoaded', () => {
         sendBtn.classList.add('hidden');
         stopBtn.classList.remove('hidden');
         stopBtn.disabled = false;
+
+        setInputState(false); 
     }
 
     function updateProgressUI(sentCount, failedCount, total, customText) {
@@ -340,11 +363,18 @@ document.addEventListener('DOMContentLoaded', () => {
     function finishSendingUI() {
         sendBtn.classList.remove('hidden');
         stopBtn.classList.add('hidden');
+        setInputState(false);
+    }
+
+    function setInputState(disabled) {
+        // No fields are disabled during transmission, only buttons are controlled.
     }
 
     const composeForm = document.getElementById('compose-form');
     if (composeForm) {
-        composeForm.addEventListener('submit', (e) => e.preventDefault());
+        composeForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+        });
     }
 
     const logoutBtn = document.getElementById('logout-btn');
