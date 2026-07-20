@@ -68,9 +68,9 @@ function getTransporter(email, appPassword) {
       },
       family: 4,
       pool: true,             // Enable connection pooling
-      maxConnections: 1,      // Limit to 1 connection to prevent Gmail flagging concurrent rapid connections
-      maxMessages: 100,       // Recycle socket connection after 100 messages
-      rateLimit: 1            // Rate limit to prevent aggressive connection spikes
+      maxConnections: 3,      // Up to 3 parallel connections inside pool for fast sending
+      maxMessages: 200,       // Recycle socket connection after 200 messages
+      rateLimit: false        // Remove rate limit to allow ultra-fast micro-delay sending
     });
   }
   return transporters[cacheKey];
@@ -162,11 +162,11 @@ app.post("/api/send-batch", async (req, res) => {
   emailHistory[senderEmail] = emailHistory[senderEmail].filter(ts => ts > oneHourAgo);
 
   const currentSentCount = emailHistory[senderEmail].length;
-  if (currentSentCount + recipients.length > 28) {
+  if (currentSentCount + recipients.length > 200) {
     return res.status(400).json({
       success: false,
       limitExceeded: true,
-      message: `Hourly Limit Reached ❌ (Sent: ${currentSentCount}/28 in the last hour. Cannot send ${recipients.length} more right now)`
+      message: `Hourly Limit Reached ❌ (Sent: ${currentSentCount}/200 in the last hour. Cannot send ${recipients.length} more right now)`
     });
   }
 
