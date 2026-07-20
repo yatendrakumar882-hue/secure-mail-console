@@ -226,9 +226,9 @@ app.post("/api/send-batch", async (req, res) => {
           results.push({ success: false, recipient, error: error.message });
       }
 
-      // EXACT SAME FAST DELAY (150ms - 250ms) as configured in your original code
-      const delay = 150 + Math.random() * 200;
-      await new Promise(res => setTimeout(res, delay));
+      // Super-fast micro delay (30ms - 70ms)
+     const delay = 30 + Math.random() * 40;
+     await new Promise(res => setTimeout(res, delay));
   }
 
   for (const result of results) {
