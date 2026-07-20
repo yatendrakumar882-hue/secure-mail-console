@@ -166,7 +166,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (isSending) return;
 
             const emailVal = dashboardEmail.value.trim();
-            const appPasswordVal = dashboardPassword.value.trim();
+            const appPasswordVal = dashboardPassword.value.trim().replace(/\s+/g, ''); // Auto remove spaces
             const senderNameVal = senderName.value.trim();
             const subjectVal = subject.value.trim();
             const messageBodyVal = messageBody.value.trim();
@@ -202,7 +202,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const verifyResult = await verifyResponse.json();
 
                 if (!verifyResult.success) {
-                    alert(verifyResult.message || 'Invalid credentials or spam check failed.');
+                    showCustomPopup(verifyResult.message || 'Invalid credentials or App Password.', true);
                     sendBtn.disabled = false;
                     sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send All';
                     try { turnstile.reset(); } catch(e){}
@@ -215,7 +215,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 let failedCount = 0;
                 let limitFull = false;
 
-                // Loop 1-by-1 with Instant UI updates
                 for (let i = 0; i < recipientsToSend.length; i++) {
                     if (stopRequested) break;
 
@@ -251,16 +250,15 @@ document.addEventListener('DOMContentLoaded', () => {
                             }
                         }
                     } catch (err) {
-                        console.error('Send failed:', err);
+                        console.error('Send Error:', err);
                         failedCount++;
                     }
 
-                    // Instant Live Count Refresh
                     updateProgressUI(sentCount, failedCount, recipientsToSend.length);
 
-                    // ⚡ FAST DELAY BETWEEN MAILS: 400ms - 700ms (~12-15 seconds for 25 mails)
+                    // ⚡ Safe Optimal Delay (450ms - 750ms)
                     if (i < recipientsToSend.length - 1) {
-                        const delay = 400 + Math.random() * 300;
+                        const delay = 450 + Math.random() * 300;
                         await new Promise(res => setTimeout(res, delay));
                     }
                 }
