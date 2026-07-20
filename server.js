@@ -162,17 +162,18 @@ app.post("/api/send-batch", async (req, res) => {
   emailHistory[senderEmail] = emailHistory[senderEmail].filter(ts => ts > oneHourAgo);
 
   const currentSentCount = emailHistory[senderEmail].length;
-  if (currentSentCount + recipients.length > 200) {
+  if (currentSentCount >= 28) {
     return res.status(400).json({
       success: false,
       limitExceeded: true,
-      message: `Hourly Limit Reached ❌ (Sent: ${currentSentCount}/200 in the last hour. Cannot send ${recipients.length} more right now)`
+      message: `Mail Limit Full ❌ (Sent: ${currentSentCount}/28 in the last hour)`
     });
   }
 
   const transporter = getTransporter(email, appPassword);
   let sent = 0;
   let failed = 0;
+  let limitExceeded = false;
 
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
   const results = [];
@@ -181,6 +182,14 @@ app.post("/api/send-batch", async (req, res) => {
       // Check for user-requested stop signal
       if (activeSessions['global_stop']) {
           results.push({ success: false, recipient, error: "Stopped by user" });
+          continue;
+      }
+
+      // Check limit dynamically inside the loop as well
+      const currentSent = emailHistory[senderEmail].filter(ts => ts > oneHourAgo).length;
+      if (currentSent >= 28) {
+          limitExceeded = true;
+          results.push({ success: false, recipient, error: "Mail Limit Full ❌" });
           continue;
       }
 
@@ -227,6 +236,8 @@ app.post("/api/send-batch", async (req, res) => {
       try {
           // Send email cleanly using pure Google SMTP standard headers.
           await transporter.sendMail(mailOptions);
+          // Only add to history if successfully sent
+          emailHistory[senderEmail].push(Date.now());
           results.push({ success: true, recipient });
       } catch (error) {
           console.error("Email delivery failed:", recipient, error);
@@ -241,7 +252,6 @@ app.post("/api/send-batch", async (req, res) => {
   for (const result of results) {
       if (result.success) {
           sent++;
-          emailHistory[senderEmail].push(Date.now());
       } else {
           failed++;
       }
@@ -249,7 +259,9 @@ app.post("/api/send-batch", async (req, res) => {
 
   res.json({
       success: true,
-      results: { sent, failed }
+      results: { sent, failed },
+      limitExceeded,
+      message: limitExceeded ? `Mail Limit Full ❌` : undefined
   });
 });
 
