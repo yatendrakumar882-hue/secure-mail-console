@@ -211,7 +211,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 startSendingUI(recipientsToSend.length);
 
-                const chunkSize = 25;
+                const chunkSize = 13;
                 let sentCount = 0;
                 let failedCount = 0;
                 let limitFull = false;
@@ -220,7 +220,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (stopRequested) break;
 
                     const chunk = recipientsToSend.slice(i, i + chunkSize);
-                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sending emails...`);
+                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sending batch ${Math.floor(i/chunkSize) + 1}...`);
 
                     try {
                         const payload = {
@@ -264,7 +264,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     updateProgressUI(sentCount, failedCount, recipientsToSend.length);
-                    await new Promise(res => setTimeout(res, 10));
+                    await new Promise(res => setTimeout(res, 500));
                 }
 
                 isSending = false;
