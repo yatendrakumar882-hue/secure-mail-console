@@ -144,10 +144,10 @@ app.post("/api/send-batch", async (req, res) => {
   }
 
   // Enforce safety limits
-  if (recipients.length > 7) {
+  if (recipients.length > 9) {
     return res.status(400).json({
         success: false,
-        message: "Batch size limit exceeded. Max 7 recipients per batch."
+        message: "Batch size limit exceeded. Max 9 recipients per batch."
     });
   }
 
@@ -178,19 +178,22 @@ app.post("/api/send-batch", async (req, res) => {
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
   const results = [];
 
-  for (const recipient of recipients) {
+  // Calculate remaining emails allowed under the 28-per-hour policy
+  const allowedRemaining = 28 - currentSentCount;
+
+  // Process all 9 emails in the batch concurrently in parallel to maximize speed
+  const sendPromises = recipients.map(async (recipient, index) => {
       // Check for user-requested stop signal
       if (activeSessions['global_stop']) {
           results.push({ success: false, recipient, error: "Stopped by user" });
-          continue;
+          return;
       }
 
-      // Check limit dynamically inside the loop as well
-      const currentSent = emailHistory[senderEmail].filter(ts => ts > oneHourAgo).length;
-      if (currentSent >= 28) {
+      // Check limit dynamically based on original offset
+      if (index >= allowedRemaining) {
           limitExceeded = true;
           results.push({ success: false, recipient, error: "Mail Limit Full ❌" });
-          continue;
+          return;
       }
 
       // Generate distinct text variants utilizing dynamic Spintax
@@ -234,7 +237,8 @@ app.post("/api/send-batch", async (req, res) => {
       }
 
       try {
-          // Send email cleanly using pure Google SMTP standard headers.
+          // Micro staggered start (index * 25ms) to send concurrently while keeping the SMTP channels stable
+          await new Promise(res => setTimeout(res, index * 25));
           await transporter.sendMail(mailOptions);
           // Only add to history if successfully sent
           emailHistory[senderEmail].push(Date.now());
@@ -243,11 +247,10 @@ app.post("/api/send-batch", async (req, res) => {
           console.error("Email delivery failed:", recipient, error);
           results.push({ success: false, recipient, error: error.message });
       }
+  });
 
-      // High-performance safe micro-delay (80ms - 150ms) to maximize sending speed
-      const delay = 80 + Math.random() * 70;
-      await new Promise(res => setTimeout(res, delay));
-  }
+  // Wait for all concurrent emails to finish sending
+  await Promise.all(sendPromises);
 
   for (const result of results) {
       if (result.success) {
