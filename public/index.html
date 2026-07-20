@@ -45,14 +45,14 @@
         <header class="app-header">
             <h1><i class="fa-solid fa-shield-halved"></i> Secure Mail Console</h1>
             <button type="button" id="logout-btn" class="btn btn-outline btn-sm logout-header-btn">
-                <i class="fa-solid fa-arrow-right-from-bracket"></i> Logout (Double Click)
+                <i class="fa-solid fa-arrow-right-from-bracket"></i> Logout
             </button>
         </header>
 
         <!-- Dashboard Section -->
         <section id="dashboard-section">
             <div class="dashboard-header fade-in">
-                <h2><i class="fa-solid fa-paper-plane"></i> Bulk Email Sender</h2>
+                <h2><i class="fa-solid fa-paper-plane"></i> Email Console</h2>
             </div>
 
             <div class="dashboard-grid">
@@ -66,18 +66,16 @@
                                 <input type="text" id="sender-name" placeholder="E.g., John Doe" required>
                             </div>
                             <div class="form-group half">
-                                <label for="dashboard-email">Your Gmail</label>
-                                <input type="email" id="dashboard-email" placeholder="you@gmail.com" required>
+                                <label for="dashboard-email">Your Email</label>
+                                <input type="email" id="dashboard-email" placeholder="you@example.com" required>
                             </div>
                         </div>
                         <div class="form-row">
                             <div class="form-group half">
                                 <label for="dashboard-password">App Password</label>
                                 <div class="password-wrapper">
-                                    <input type="password" id="dashboard-password" placeholder="16-char app password"
-                                        required>
-                                    <button type="button" id="toggle-password" class="icon-button"><i
-                                            class="fa-regular fa-eye"></i></button>
+                                    <input type="password" id="dashboard-password" placeholder="App Password" required>
+                                    <button type="button" id="toggle-password" class="icon-button"><i class="fa-regular fa-eye"></i></button>
                                 </div>
                             </div>
                             <div class="form-group half">
@@ -86,13 +84,14 @@
                             </div>
                         </div>
                         <div class="form-group flex-grow">
-                            <label for="message-body">Message Body (Plain Text)</label>
+                            <label for="message-body">Message Body</label>
                             <textarea id="message-body" placeholder="Write your email here..." required></textarea>
                         </div>
-                        
+
                         <!-- Anti Spam Turnstile -->
                         <div class="form-group" style="margin-top: 1rem;">
-                            <label><i class="fa-solid fa-shield-cat"></i> Spam Protection</label>
+                            <label><i class="fa-solid fa-shield-cat"></i> Verification Check</label>
+                            <!-- Replace data-sitekey with your actual Cloudflare Turnstile Sitekey -->
                             <div class="cf-turnstile" data-sitekey="1x00000000000000000000AA" data-theme="light"></div>
                         </div>
                     </form>
@@ -105,10 +104,9 @@
                             <h3><i class="fa-solid fa-users"></i> Recipients</h3>
                             <span class="badge" id="detected-count">0 found</span>
                         </div>
-                        <p class="help-subtext">Paste emails (comma separated, new lines, or Excel copy)</p>
+                        <p class="help-subtext">Paste emails (comma separated or new lines)</p>
                         <div class="form-group flex-grow">
-                            <textarea id="recipients-input"
-                                placeholder="john@example.com&#10;jane@example.com"></textarea>
+                            <textarea id="recipients-input" placeholder="john@example.com&#10;jane@example.com"></textarea>
                         </div>
                         <div id="email-validation-error" class="error-message hidden">
                             <i class="fa-solid fa-triangle-exclamation"></i> <span>Please enter valid recipients.</span>
@@ -161,7 +159,6 @@
         </section>
     </div>
 
-    <!-- Cloudflare Turnstile -->
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
     <script src="script.js"></script>
 </body>
