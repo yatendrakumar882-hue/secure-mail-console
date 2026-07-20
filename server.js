@@ -64,7 +64,7 @@ app.post("/api/auth", (req, res) => {
 });
 
 /* ==========================================================================
-   SMTP TRANSPORTER POOLING (High-Speed & Secure)
+   SMTP TRANSPORTER POOLING (Organic & Secure Settings)
    ========================================================================== */
 const transporters = {};
 
@@ -80,12 +80,12 @@ function getTransporter(email, appPassword) {
         pass: appPassword
       },
       tls: {
-        rejectUnauthorized: true // Secure TLS for better inbox delivery
+        rejectUnauthorized: true // Secure TLS connection
       },
       family: 4,
       pool: true,
-      maxConnections: 5,
-      maxMessages: 500
+      maxConnections: 1, // Single connection for organic pacing
+      maxMessages: 200
     });
   }
   return transporters[cacheKey];
@@ -145,7 +145,7 @@ function parseSpintax(text) {
 }
 
 /* ==========================================================================
-   SEND BATCH (Fast 2-3 sec speed with Inbox Headers)
+   SEND BATCH (100% Organic & Safe Delay)
    ========================================================================== */
 app.post("/api/send-batch", async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
@@ -202,7 +202,6 @@ app.post("/api/send-batch", async (req, res) => {
     let spunBody = parseSpintax(messageBody);
     const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
-    // Unique Identifier for Inbox Landing
     const domain = senderEmail.split('@')[1] || 'gmail.com';
     const messageId = `<${Date.now()}.${Math.random().toString(36).substring(2, 9)}@${domain}>`;
 
@@ -240,9 +239,9 @@ app.post("/api/send-batch", async (req, res) => {
       results.push({ success: false, recipient, error: error.message });
     }
 
-    // ⚡ Speed Control: ~30-50ms delay for 25 mails in ~2-3 seconds
+    // 🟢 SAFE & ORGANIC DELAY: 3.5s to 6.0s (25 mails in ~1.5 to 2.5 mins)
     if (index < recipients.length - 1) {
-      const delay = 30 + Math.random() * 20;
+      const delay = 3500 + Math.random() * 2500;
       await new Promise(res => setTimeout(res, delay));
     }
   }
