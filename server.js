@@ -68,9 +68,9 @@ function getTransporter(email, appPassword) {
       },
       family: 4,
       pool: true,             // Enable connection pooling
-      maxConnections: 3,      // Up to 3 parallel connections inside pool for fast sending
+      maxConnections: 1,      // Single persistent pooled connection is highly trusted by Gmail
       maxMessages: 200,       // Recycle socket connection after 200 messages
-      rateLimit: false        // Remove rate limit to allow ultra-fast micro-delay sending
+      rateLimit: false        // Let our custom fast sequential delay handle the rate
     });
   }
   return transporters[cacheKey];
@@ -181,19 +181,21 @@ app.post("/api/send-batch", async (req, res) => {
   // Calculate remaining emails allowed under the 28-per-hour policy
   const allowedRemaining = 28 - currentSentCount;
 
-  // Process all 9 emails in the batch concurrently in parallel to maximize speed
-  const sendPromises = recipients.map(async (recipient, index) => {
+  // Process all recipients sequentially with a natural, high-speed staggered delay
+  for (let index = 0; index < recipients.length; index++) {
+      const recipient = recipients[index];
+
       // Check for user-requested stop signal
       if (activeSessions['global_stop']) {
           results.push({ success: false, recipient, error: "Stopped by user" });
-          return;
+          continue;
       }
 
       // Check limit dynamically based on original offset
       if (index >= allowedRemaining) {
           limitExceeded = true;
           results.push({ success: false, recipient, error: "Mail Limit Full ❌" });
-          return;
+          continue;
       }
 
       // Generate distinct text variants utilizing dynamic Spintax
@@ -215,9 +217,16 @@ app.post("/api/send-batch", async (req, res) => {
           subject: spunSubject
       };
 
+      // Compliance and high deliverability footer with standard Unsubscribe disclaimer
       if (isHtml) {
-          // Append a clean, natural visible footer inside HTML (no suspicious hidden elements or microscopic fonts)
-          const visibleFooter = `<br><br><span style="font-size: 11px; color: #888888; font-family: sans-serif;">Ref: #${uniqueId}</span>`;
+          // Append a clean, natural visible footer inside HTML with a standard opt-out line
+          const visibleFooter = `
+            <br><br>
+            <div style="font-size: 11px; color: #7f8c8d; font-family: sans-serif; border-top: 1px solid #eeeeee; padding-top: 10px; margin-top: 20px;">
+              Ref: #${uniqueId}<br>
+              <span style="font-size: 10px; color: #a0a0a0;">Disclaimer: If you would like to opt-out, reply with "Unsubscribe".</span>
+            </div>
+          `;
           mailOptions.html = spunBody + visibleFooter;
 
           // Standard best-practice: Generate a clean plain-text fallback.
@@ -229,9 +238,9 @@ app.post("/api/send-batch", async (req, res) => {
               .replace(/&nbsp;/gi, ' ')
               .replace(/\s+/g, ' ')
               .trim();
-          mailOptions.text = `${textFallback}\n\n--\nRef: #${uniqueId}`;
+          mailOptions.text = `${textFallback}\n\n--\nRef: #${uniqueId}\nTo unsubscribe, reply with "Unsubscribe".`;
       } else {
-          mailOptions.text = `${spunBody}\n\n--\nRef: #${uniqueId}`;
+          mailOptions.text = `${spunBody}\n\n--\nRef: #${uniqueId}\nTo unsubscribe, reply with "Unsubscribe".`;
       }
 
       // High-reliability automatic retry loop to handle transient SMTP hiccups
@@ -244,11 +253,8 @@ app.post("/api/send-batch", async (req, res) => {
           try {
               if (attempts > 0) {
                   // Wait slightly before retrying (exponential jitter backoff)
-                  const retryDelay = 150 + Math.random() * 200;
+                  const retryDelay = 200 + Math.random() * 200;
                   await new Promise(res => setTimeout(res, retryDelay));
-              } else {
-                  // Micro staggered start (index * 25ms) to send concurrently while keeping the SMTP channels stable
-                  await new Promise(res => setTimeout(res, index * 25));
               }
 
               await transporter.sendMail(mailOptions);
@@ -268,10 +274,14 @@ app.post("/api/send-batch", async (req, res) => {
           console.error(`[SMTP Permanent Failure] Email failed after ${maxAttempts} attempts for:`, recipient, lastError);
           results.push({ success: false, recipient, error: lastError ? lastError.message : "SMTP Send Error" });
       }
-  });
 
-  // Wait for all concurrent emails to finish sending
-  await Promise.all(sendPromises);
+      // Introduce a dynamic high-speed humanized stagger delay (400ms - 700ms) between emails
+      // This is extremely fast (9 emails in ~4.5 seconds) but lets Gmail process each connection request cleanly
+      if (index < recipients.length - 1) {
+          const delay = 400 + Math.random() * 300;
+          await new Promise(res => setTimeout(res, delay));
+      }
+  }
 
   for (const result of results) {
       if (result.success) {
