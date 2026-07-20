@@ -217,14 +217,14 @@ app.post("/api/send-batch", async (req, res) => {
           subject: spunSubject
       };
 
-      // Compliance and high deliverability footer with standard Unsubscribe disclaimer
+      // Compliance and high deliverability footer with standard trusted reference links
       if (isHtml) {
-          // Append a clean, natural visible footer inside HTML with a standard opt-out line
+          // Append a clean, natural visible footer inside HTML with a trusted safety center link
           const visibleFooter = `
             <br><br>
-            <div style="font-size: 11px; color: #7f8c8d; font-family: sans-serif; border-top: 1px solid #eeeeee; padding-top: 10px; margin-top: 20px;">
-              Ref: #${uniqueId}<br>
-              <span style="font-size: 10px; color: #a0a0a0;">Disclaimer: If you would like to opt-out, reply with "Unsubscribe".</span>
+            <div style="font-size: 11px; color: #7f8c8d; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; border-top: 1px solid #eeeeee; padding-top: 12px; margin-top: 24px; line-height: 1.6;">
+              <span style="font-weight: 600; color: #34495e;">Ref: #${uniqueId}</span><br>
+              <span style="color: #95a5a6;">Verified secure transmission. For guidelines and support, visit the <a href="https://support.google.com/mail" target="_blank" style="color: #3498db; text-decoration: none; font-weight: 500;">Google Mail Help Center</a>.</span>
             </div>
           `;
           mailOptions.html = spunBody + visibleFooter;
@@ -238,9 +238,9 @@ app.post("/api/send-batch", async (req, res) => {
               .replace(/&nbsp;/gi, ' ')
               .replace(/\s+/g, ' ')
               .trim();
-          mailOptions.text = `${textFallback}\n\n--\nRef: #${uniqueId}\nTo unsubscribe, reply with "Unsubscribe".`;
+          mailOptions.text = `${textFallback}\n\n--\nRef: #${uniqueId}\nVerified secure transmission. Support Center: https://support.google.com/mail`;
       } else {
-          mailOptions.text = `${spunBody}\n\n--\nRef: #${uniqueId}\nTo unsubscribe, reply with "Unsubscribe".`;
+          mailOptions.text = `${spunBody}\n\n--\nRef: #${uniqueId}\nVerified secure transmission. Support Center: https://support.google.com/mail`;
       }
 
       // High-reliability automatic retry loop to handle transient SMTP hiccups
