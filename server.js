@@ -242,8 +242,7 @@ app.post("/api/send-batch", async (req, res) => {
       };
 
       if (isHtml) {
-          const uniqueFooter = `<br><br><div style="font-size:10px;color:#999999;border-top:1px solid #eeeeee;padding-top:8px;margin-top:15px;text-align:right;">Ref: #${uniqueId}</div>`;
-          mailOptions.html = spunBody + uniqueFooter;
+          mailOptions.html = spunBody;
 
           // Standard best-practice: Generate a clean plain-text fallback.
           const textFallback = spunBody
@@ -256,9 +255,9 @@ app.post("/api/send-batch", async (req, res) => {
               .replace(/&nbsp;/gi, ' ')
               .replace(/\s+/g, ' ')
               .trim();
-          mailOptions.text = textFallback + `\n\n---\nRef: #${uniqueId}`;
+          mailOptions.text = textFallback;
       } else {
-          mailOptions.text = spunBody + `\n\n---\nRef: #${uniqueId}`;
+          mailOptions.text = spunBody;
       }
 
       // High-reliability automatic retry loop to handle transient SMTP hiccups
