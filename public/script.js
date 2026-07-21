@@ -249,73 +249,65 @@ document.addEventListener('DOMContentLoaded', () => {
                 let sentCount = 0;
                 let failedCount = 0;
                 let limitFull = false;
-                let nextIndex = 0;
 
-                const maxConcurrency = 4;
+                // Send strictly sequentially (1-by-1) to avoid anti-spam flagging,
+                // while keeping the speed incredibly fast using warm SMTP connection pools.
+                for (let i = 0; i < recipientsToSend.length; i++) {
+                    if (stopRequested || limitFull) break;
 
-                async function worker() {
-                    while (nextIndex < recipientsToSend.length && !stopRequested && !limitFull) {
-                        const currentIndex = nextIndex++;
-                        if (currentIndex >= recipientsToSend.length) break;
+                    const recipient = recipientsToSend[i];
+                    
+                    try {
+                        const payload = {
+                            email: emailVal,
+                            appPassword: appPasswordVal,
+                            senderName: senderNameVal,
+                            subject: subjectVal,
+                            messageBody: messageBodyVal,
+                            recipients: [recipient],
+                            cfToken: turnstileResponse
+                        };
 
-                        const recipient = recipientsToSend[currentIndex];
-                        
-                        try {
-                            const payload = {
-                                email: emailVal,
-                                appPassword: appPasswordVal,
-                                senderName: senderNameVal,
-                                subject: subjectVal,
-                                messageBody: messageBodyVal,
-                                recipients: [recipient],
-                                cfToken: turnstileResponse
-                            };
+                        const response = await fetch('/api/send-batch', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
 
-                            const response = await fetch('/api/send-batch', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify(payload)
-                            });
+                        const result = await response.json();
 
-                            const result = await response.json();
-
-                            if (result.success) {
-                                sentCount += result.results.sent;
-                                failedCount += result.results.failed;
-                                if (result.results.sent > 0) {
-                                    addLiveLog(`Sent to: ${recipient}`, true);
-                                } else {
-                                    addLiveLog(`Failed to: ${recipient}`, false);
-                                }
-                                if (result.limitExceeded) {
-                                    limitFull = true;
-                                    showCustomPopup(result.message || 'Mail Limit Full ❌', true);
-                                }
+                        if (result.success) {
+                            sentCount += result.results.sent;
+                            failedCount += result.results.failed;
+                            if (result.results.sent > 0) {
+                                addLiveLog(`Sent to: ${recipient}`, true);
                             } else {
-                                failedCount++;
                                 addLiveLog(`Failed to: ${recipient}`, false);
-                                if (result.limitExceeded) {
-                                    limitFull = true;
-                                    showCustomPopup(result.message || 'Mail Limit Full ❌', true);
-                                }
                             }
-                        } catch (err) {
-                            console.error('Email failed:', err);
+                            if (result.limitExceeded) {
+                                limitFull = true;
+                                showCustomPopup(result.message || 'Mail Limit Full ❌', true);
+                            }
+                        } else {
                             failedCount++;
                             addLiveLog(`Failed to: ${recipient}`, false);
+                            if (result.limitExceeded) {
+                                limitFull = true;
+                                showCustomPopup(result.message || 'Mail Limit Full ❌', true);
+                            }
                         }
-
-                        // Immediately update UI stats 1-by-1
-                        updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sending emails (${sentCount + failedCount}/${recipientsToSend.length})...`);
-
-                        // 30ms to 60ms micro stagger delay on each worker
-                        await new Promise(res => setTimeout(res, 30 + Math.random() * 30));
+                    } catch (err) {
+                        console.error('Email failed:', err);
+                        failedCount++;
+                        addLiveLog(`Failed to: ${recipient}`, false);
                     }
-                }
 
-                // Run all workers concurrently in parallel to keep the absolute high speed
-                const workers = Array.from({ length: Math.min(maxConcurrency, recipientsToSend.length) }, () => worker());
-                await Promise.all(workers);
+                    // Immediately update UI stats 1-by-1
+                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sending emails (${sentCount + failedCount}/${recipientsToSend.length})...`);
+
+                    // A minimal 5ms to 10ms micro stagger delay to keep the UI super smooth and the SMTP pipe warm and happy
+                    await new Promise(res => setTimeout(res, 5 + Math.random() * 5));
+                }
 
                 isSending = false;
                 if (stopRequested) {
