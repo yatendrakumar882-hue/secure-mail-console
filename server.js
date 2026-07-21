@@ -81,11 +81,17 @@ function getTransporter(email, appPassword) {
   const cacheKey = `${email.toLowerCase().trim()}_${appPassword}`;
   if (!transporters[cacheKey]) {
     transporters[cacheKey] = nodemailer.createTransport({
-      service: "gmail",
+      host: "smtp.gmail.com",
+      port: 587,
+      secure: false, // STARTTLS
       auth: {
         user: email,
         pass: appPassword
       },
+      tls: {
+        rejectUnauthorized: true
+      },
+      family: 4,
       pool: true,             // Enable connection pooling for ultra-fast reuse
       maxConnections: 5,      // Increased connections for fast parallel handling
       maxMessages: 500
