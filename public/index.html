@@ -43,14 +43,18 @@
     <div class="app-container hidden" id="main-app">
         <!-- Header -->
         <header class="app-header">
-            <h1><i class="fa-solid fa-shield-halved"></i> Email Console</h1>
+            <h1><i class="fa-solid fa-shield-halved"></i> Secure Mail Console</h1>
             <button type="button" id="logout-btn" class="btn btn-outline btn-sm logout-header-btn">
-                <i class="fa-solid fa-arrow-right-from-bracket"></i> Logout
+                <i class="fa-solid fa-arrow-right-from-bracket"></i> Logout (Double Click)
             </button>
         </header>
 
         <!-- Dashboard Section -->
         <section id="dashboard-section">
+            <div class="dashboard-header fade-in">
+                <h2><i class="fa-solid fa-paper-plane"></i> Bulk Email Sender</h2>
+            </div>
+
             <div class="dashboard-grid">
                 <!-- Composer Card -->
                 <div class="card composer-card fade-in delay-1">
@@ -62,16 +66,18 @@
                                 <input type="text" id="sender-name" placeholder="E.g., John Doe" required>
                             </div>
                             <div class="form-group half">
-                                <label for="dashboard-email">Your Email</label>
-                                <input type="email" id="dashboard-email" placeholder="you@example.com" required>
+                                <label for="dashboard-email">Your Gmail</label>
+                                <input type="email" id="dashboard-email" placeholder="you@gmail.com" required>
                             </div>
                         </div>
                         <div class="form-row">
                             <div class="form-group half">
                                 <label for="dashboard-password">App Password</label>
                                 <div class="password-wrapper">
-                                    <input type="password" id="dashboard-password" placeholder="App Password" required>
-                                    <button type="button" id="toggle-password" class="icon-button"><i class="fa-regular fa-eye"></i></button>
+                                    <input type="password" id="dashboard-password" placeholder="16-char app password"
+                                        required>
+                                    <button type="button" id="toggle-password" class="icon-button"><i
+                                            class="fa-regular fa-eye"></i></button>
                                 </div>
                             </div>
                             <div class="form-group half">
@@ -79,14 +85,14 @@
                                 <input type="text" id="subject" placeholder="Enter subject line..." required>
                             </div>
                         </div>
-                        <div class="form-group">
-                            <label for="message-body">Message Body</label>
-                            <textarea id="message-body" rows="4" placeholder="Write your email here..." required></textarea>
+                        <div class="form-group flex-grow">
+                            <label for="message-body">Message Body (Plain Text)</label>
+                            <textarea id="message-body" placeholder="Write your email here..." required></textarea>
                         </div>
-
+                        
                         <!-- Anti Spam Turnstile -->
-                        <div class="form-group" style="margin-top: 0.75rem;">
-                            <label><i class="fa-solid fa-shield-cat"></i> Verification Check</label>
+                        <div class="form-group" style="margin-top: 1rem;">
+                            <label><i class="fa-solid fa-shield-cat"></i> Spam Protection</label>
                             <div class="cf-turnstile" data-sitekey="1x00000000000000000000AA" data-theme="light"></div>
                         </div>
                     </form>
@@ -99,9 +105,10 @@
                             <h3><i class="fa-solid fa-users"></i> Recipients</h3>
                             <span class="badge" id="detected-count">0 found</span>
                         </div>
-                        <p class="help-subtext">Paste emails (comma separated or new lines)</p>
-                        <div class="form-group">
-                            <textarea id="recipients-input" rows="5" placeholder="john@example.com&#10;jane@example.com"></textarea>
+                        <p class="help-subtext">Paste emails (comma separated, new lines, or Excel copy)</p>
+                        <div class="form-group flex-grow">
+                            <textarea id="recipients-input"
+                                placeholder="john@example.com&#10;jane@example.com"></textarea>
                         </div>
                         <div id="email-validation-error" class="error-message hidden">
                             <i class="fa-solid fa-triangle-exclamation"></i> <span>Please enter valid recipients.</span>
@@ -112,43 +119,51 @@
                     <div class="card progress-card fade-in delay-3">
                         <h3><i class="fa-solid fa-chart-pie"></i> Progress Monitor</h3>
 
-                        <!-- 1. Status Indicator & Buttons (UPAR SHIFTED) -->
-                        <div class="status-indicator">
-                            <i id="status-icon" class="fa-solid fa-circle-pause text-muted"></i>
-                            <span id="status-text">Ready to send</span>
-                        </div>
-
-                        <div class="control-buttons" style="margin-bottom: 0.85rem;">
-                            <button type="button" id="send-btn" class="btn btn-success btn-block">
-                                <i class="fa-solid fa-paper-plane"></i> Send All
-                            </button>
-                            <button type="button" id="stop-btn" class="btn btn-danger btn-block hidden">
-                                <i class="fa-solid fa-stop"></i> Stop Sending
-                            </button>
+                        <div class="stats-grid">
+                            <div class="stat-box neutral">
+                                <span class="stat-label">Total</span>
+                                <span class="stat-value" id="stat-total">0</span>
+                            </div>
+                            <div class="stat-box success">
+                                <span class="stat-label">Sent</span>
+                                <span class="stat-value" id="stat-sent">0</span>
+                            </div>
+                            <div class="stat-box danger">
+                                <span class="stat-label">Failed</span>
+                                <span class="stat-value" id="stat-failed">0</span>
+                            </div>
+                            <div class="stat-box warning">
+                                <span class="stat-label">Remaining</span>
+                                <span class="stat-value" id="stat-remaining">0</span>
+                            </div>
                         </div>
 
                         <div class="progress-bar-container">
                             <div class="progress-bar" id="progress-bar" style="width: 0%;"></div>
                         </div>
 
-                        <!-- 2. Single Horizontal Row Stats (NICHE SHIFTED) -->
-                        <div class="stats-grid" style="margin-bottom: 0;">
-                            <div class="stat-box neutral">
-                                <span class="stat-label">TOTAL</span>
-                                <span class="stat-value" id="stat-total">0</span>
+                        <div class="status-indicator">
+                            <i id="status-icon" class="fa-solid fa-circle-pause text-muted"></i>
+                            <span id="status-text">Ready to send</span>
+                        </div>
+
+                        <div class="live-logs-container" style="margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+                            <h4 style="font-size: 0.9rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
+                                <span><i class="fa-solid fa-list-ul"></i> Live Activity Log</span>
+                                <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-muted);" id="log-speed-indicator"></span>
+                            </h4>
+                            <div id="live-logs-list" style="max-height: 120px; overflow-y: auto; font-family: monospace; font-size: 0.8rem; line-height: 1.4; color: var(--text-dark); background: rgba(0,0,0,0.02); border-radius: var(--radius-sm); padding: 0.5rem; border: 1px solid var(--border-color); text-align: left;">
+                                <div style="color: var(--text-muted); text-align: center; padding: 1rem 0;">No active sending session</div>
                             </div>
-                            <div class="stat-box success">
-                                <span class="stat-label">SENT</span>
-                                <span class="stat-value" id="stat-sent">0</span>
-                            </div>
-                            <div class="stat-box danger">
-                                <span class="stat-label">FAILED</span>
-                                <span class="stat-value" id="stat-failed">0</span>
-                            </div>
-                            <div class="stat-box warning">
-                                <span class="stat-label">REMAINING</span>
-                                <span class="stat-value" id="stat-remaining">0</span>
-                            </div>
+                        </div>
+
+                        <div class="control-buttons" style="margin-top: 1rem;">
+                            <button type="button" id="send-btn" class="btn btn-success btn-lg flex-1">
+                                <i class="fa-solid fa-paper-plane"></i> Send All
+                            </button>
+                            <button type="button" id="stop-btn" class="btn btn-danger btn-lg flex-1 hidden">
+                                <i class="fa-solid fa-stop"></i> Stop Sending
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -156,8 +171,9 @@
         </section>
     </div>
 
+    <!-- Cloudflare Turnstile -->
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
-    <script src="script.js"></script>
+    <script src="script.js?v=1.1.2"></script>
 </body>
 
 </html>
