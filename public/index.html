@@ -115,6 +115,16 @@
                         </div>
                     </div>
 
+                    <!-- Action Buttons -->
+                    <div class="control-buttons fade-in delay-2" style="margin-top: -0.5rem; margin-bottom: 0.5rem;">
+                        <button type="button" id="send-btn" class="btn btn-success btn-lg flex-1" style="width: 100%;">
+                            <i class="fa-solid fa-paper-plane"></i> Send All
+                        </button>
+                        <button type="button" id="stop-btn" class="btn btn-danger btn-lg flex-1 hidden" style="width: 100%;">
+                            <i class="fa-solid fa-stop"></i> Stop Sending
+                        </button>
+                    </div>
+
                     <!-- Progress Monitor Card -->
                     <div class="card progress-card fade-in delay-3">
                         <h3><i class="fa-solid fa-chart-pie"></i> Progress Monitor</h3>
@@ -142,28 +152,20 @@
                             <div class="progress-bar" id="progress-bar" style="width: 0%;"></div>
                         </div>
 
-                        <div class="status-indicator">
+                        <div class="status-indicator" style="margin-bottom: 0;">
                             <i id="status-icon" class="fa-solid fa-circle-pause text-muted"></i>
                             <span id="status-text">Ready to send</span>
                         </div>
+                    </div>
 
-                        <div class="live-logs-container" style="margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
-                            <h4 style="font-size: 0.9rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
-                                <span><i class="fa-solid fa-list-ul"></i> Live Activity Log</span>
-                                <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-muted);" id="log-speed-indicator"></span>
-                            </h4>
-                            <div id="live-logs-list" style="max-height: 120px; overflow-y: auto; font-family: monospace; font-size: 0.8rem; line-height: 1.4; color: var(--text-dark); background: rgba(0,0,0,0.02); border-radius: var(--radius-sm); padding: 0.5rem; border: 1px solid var(--border-color); text-align: left;">
-                                <div style="color: var(--text-muted); text-align: center; padding: 1rem 0;">No active sending session</div>
-                            </div>
-                        </div>
-
-                        <div class="control-buttons" style="margin-top: 1rem;">
-                            <button type="button" id="send-btn" class="btn btn-success btn-lg flex-1">
-                                <i class="fa-solid fa-paper-plane"></i> Send All
-                            </button>
-                            <button type="button" id="stop-btn" class="btn btn-danger btn-lg flex-1 hidden">
-                                <i class="fa-solid fa-stop"></i> Stop Sending
-                            </button>
+                    <!-- Live Activity Log Card -->
+                    <div class="card live-logs-card fade-in delay-3">
+                        <h3 style="font-size: 1.1rem; font-weight: 600; color: var(--text-main); margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
+                            <span><i class="fa-solid fa-list-ul"></i> Live Activity Log</span>
+                            <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-muted);" id="log-speed-indicator"></span>
+                        </h3>
+                        <div id="live-logs-list" style="max-height: 150px; overflow-y: auto; font-family: monospace; font-size: 0.8rem; line-height: 1.4; color: var(--text-dark); background: rgba(0,0,0,0.02); border-radius: var(--radius-sm); padding: 0.5rem; border: 1px solid var(--border-color); text-align: left;">
+                            <div style="color: var(--text-muted); text-align: center; padding: 1rem 0;">No active sending session</div>
                         </div>
                     </div>
                 </div>
