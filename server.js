@@ -81,20 +81,14 @@ function getTransporter(email, appPassword) {
   const cacheKey = `${email.toLowerCase().trim()}_${appPassword}`;
   if (!transporters[cacheKey]) {
     transporters[cacheKey] = nodemailer.createTransport({
-      host: "smtp.gmail.com",
-      port: 587,
-      secure: false, // STARTTLS
+      service: "gmail",
       auth: {
         user: email,
         pass: appPassword
       },
-      tls: {
-        rejectUnauthorized: true
-      },
-      family: 4,
       pool: true,             // Enable connection pooling for ultra-fast reuse
-      maxConnections: 5,      // Increased connections for fast parallel handling
-      maxMessages: 500
+      maxConnections: 5,      // Standard concurrent pool connections
+      maxMessages: 100
     });
   }
   return transporters[cacheKey];
@@ -160,38 +154,13 @@ function parseSpintax(text) {
   return spun;
 }
 
-/**
- * Appends a completely invisible fingerprint to prevent spam signature detection.
- * HTML emails get a 100% hidden, zero-display micro-span.
- * Text emails get an invisible sequence of Zero-Width Spaces (ZWSP) that has 0px width and is completely invisible even when copy-pasted.
- */
-function addInvisibleFingerprint(body, isHtml) {
-  const randomId = Math.random().toString(36).substring(2, 12).toUpperCase();
-  if (isHtml) {
-    const invisibleTag = `<span style="display:none !important;visibility:hidden;mso-hide:all;font-size:1px;color:#ffffff;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">${randomId}</span>`;
-    if (body.includes('</body>')) {
-      return body.replace('</body>', `${invisibleTag}</body>`);
-    } else {
-      return body + invisibleTag;
-    }
-  } else {
-    let zwSequence = "";
-    for (let i = 0; i < randomId.length; i++) {
-      const charCode = randomId.charCodeAt(i);
-      const binary = charCode.toString(2);
-      for (const bit of binary) {
-        zwSequence += bit === '0' ? '\u200B' : '\u200C';
-      }
-      zwSequence += '\u200D';
-    }
-    return body + zwSequence;
-  }
-}
-
 /* ==========================================================================
-   SEND BATCH
+   SEND BATCH (STANDARD AND STREAMING)
    ========================================================================== */
 
+/**
+ * Standard batch route
+ */
 app.post("/api/send-batch", async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
 
@@ -202,11 +171,17 @@ app.post("/api/send-batch", async (req, res) => {
     });
   }
 
+  if (cfToken && TURNSTILE_SECRET_KEY) {
+    const isValidToken = await verifyTurnstile(cfToken, req.ip);
+    if (!isValidToken) {
+      return res.status(400).json({ success: false, message: "Spam check failed. Try again." });
+    }
+  }
+
   const senderEmail = email.toLowerCase().trim();
   const now = Date.now();
   const oneHourAgo = now - 3600000;
 
-  // Initialize and clean rate limit history
   if (!emailHistory[senderEmail]) {
     emailHistory[senderEmail] = [];
   }
@@ -225,135 +200,216 @@ app.post("/api/send-batch", async (req, res) => {
   let sent = 0;
   let failed = 0;
   let limitExceeded = false;
-
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
   const results = [];
-
-  // Calculate remaining emails allowed under the 28-per-hour policy
   const allowedRemaining = 28 - currentSentCount;
 
-  // Process all recipients sequentially with a natural, high-speed staggered delay
   for (let index = 0; index < recipients.length; index++) {
-      const recipient = recipients[index] ? recipients[index].trim() : "";
-      if (!recipient) continue;
+    const recipient = recipients[index] ? recipients[index].trim() : "";
+    if (!recipient) continue;
 
-      // Check for user-requested stop signal
-      if (activeSessions['global_stop']) {
-          results.push({ success: false, recipient, error: "Stopped by user" });
-          continue;
+    if (activeSessions['global_stop']) {
+      results.push({ success: false, recipient, error: "Stopped by user" });
+      continue;
+    }
+
+    if (index >= allowedRemaining) {
+      limitExceeded = true;
+      results.push({ success: false, recipient, error: "Mail Limit Full ❌" });
+      continue;
+    }
+
+    const spunSubject = parseSpintax(subject);
+    const spunBody = parseSpintax(messageBody);
+    const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
+
+    // Completely natural, human-like email object.
+    // Zero custom headers and zero hidden spam footers or weird tracking codes.
+    const mailOptions = {
+      from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
+      to: recipient,
+      replyTo: email,
+      subject: spunSubject
+    };
+
+    if (isHtml) {
+      mailOptions.html = spunBody;
+      const textFallback = spunBody
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<p\s*[^>]*>/gi, '\n')
+        .replace(/<\/p>/gi, '\n')
+        .replace(/<[^>]*>/g, '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      mailOptions.text = textFallback;
+    } else {
+      mailOptions.text = spunBody;
+    }
+
+    let sentSuccessfully = false;
+    let lastError = null;
+    let attempts = 0;
+    const maxAttempts = 2;
+
+    while (attempts < maxAttempts) {
+      try {
+        if (attempts > 0) {
+          await new Promise(res => setTimeout(res, 100 + Math.random() * 100));
+        }
+        await transporter.sendMail(mailOptions);
+        emailHistory[senderEmail].push(Date.now());
+        results.push({ success: true, recipient });
+        sentSuccessfully = true;
+        break;
+      } catch (error) {
+        lastError = error;
+        attempts++;
       }
+    }
 
-      // Check limit dynamically based on original offset
-      if (index >= allowedRemaining) {
-          limitExceeded = true;
-          results.push({ success: false, recipient, error: "Mail Limit Full ❌" });
-          continue;
-      }
+    if (!sentSuccessfully) {
+      results.push({ success: false, recipient, error: lastError ? lastError.message : "SMTP Send Error" });
+    }
 
-      // Generate distinct text variants utilizing dynamic Spintax
-      const spunSubject = parseSpintax(subject);
-      let spunBody = parseSpintax(messageBody);
-
-      // Detect if body is raw text or HTML
-      const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
-
-      // Apply invisible 100% hidden fingerprint variant to guarantee unique cryptographic payload hashes
-      // without showing any footer, labels, or indicators to the user.
-      const fingerprintedBody = addInvisibleFingerprint(spunBody, isHtml);
-
-      // Generate a high-reputation Message-ID matching the sender domain to look 100% natural
-      const domain = email.includes('@') ? email.split('@')[1] : 'gmail.com';
-      const randomMsgId = `<${Math.random().toString(36).substring(2, 15)}-${Math.random().toString(36).substring(2, 15)}@${domain}>`;
-
-      // Create an authentic, organic email object with professional, inbox-safe headers
-      const mailOptions = {
-          from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
-          to: recipient,
-          replyTo: email,
-          subject: spunSubject,
-          messageId: randomMsgId,
-          headers: {
-              'X-Priority': '3', // Normal Priority
-              'X-MSMail-Priority': 'Normal',
-              'Importance': 'Normal',
-              'X-Mailer': undefined // Suppress standard client software headers that spam filters flag
-          }
-      };
-
-      if (isHtml) {
-          mailOptions.html = fingerprintedBody;
-
-          // Standard best-practice: Generate a clean plain-text fallback.
-          const textFallbackRaw = spunBody
-              .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-              .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-              .replace(/<br\s*\/?>/gi, '\n')
-              .replace(/<p\s*[^>]*>/gi, '\n')
-              .replace(/<\/p>/gi, '\n')
-              .replace(/<[^>]*>/g, '')
-              .replace(/&nbsp;/gi, ' ')
-              .replace(/\s+/g, ' ')
-              .trim();
-          
-          // Apply invisible fingerprint to text fallback as well
-          mailOptions.text = addInvisibleFingerprint(textFallbackRaw, false);
-      } else {
-          mailOptions.text = fingerprintedBody;
-      }
-
-      // High-reliability automatic retry loop to handle transient SMTP hiccups
-      let sentSuccessfully = false;
-      let lastError = null;
-      let attempts = 0;
-      const maxAttempts = 3;
-
-      while (attempts < maxAttempts) {
-          try {
-              if (attempts > 0) {
-                  // Wait slightly before retrying (exponential jitter backoff)
-                  const retryDelay = 150 + Math.random() * 150;
-                  await new Promise(res => setTimeout(res, retryDelay));
-              }
-
-              await transporter.sendMail(mailOptions);
-              // Only add to history if successfully sent
-              emailHistory[senderEmail].push(Date.now());
-              results.push({ success: true, recipient });
-              sentSuccessfully = true;
-              break; // Success, exit retry loop
-          } catch (error) {
-              lastError = error;
-              attempts++;
-              console.warn(`[SMTP Retry Warning] Attempt ${attempts}/${maxAttempts} for ${recipient} failed:`, error.message);
-          }
-      }
-
-      if (!sentSuccessfully) {
-          console.error(`[SMTP Permanent Failure] Email failed after ${maxAttempts} attempts for:`, recipient, lastError);
-          results.push({ success: false, recipient, error: lastError ? lastError.message : "SMTP Send Error" });
-      }
-
-      // ⚡ ULTRA-FAST DELAY: 30ms to 60ms between emails (25 mails send in ~2-3 seconds)
-      if (index < recipients.length - 1) {
-          const delay = 30 + Math.random() * 30;
-          await new Promise(res => setTimeout(res, delay));
-      }
+    if (index < recipients.length - 1) {
+      await new Promise(res => setTimeout(res, 20 + Math.random() * 20));
+    }
   }
 
   for (const result of results) {
-      if (result.success) {
-          sent++;
-      } else {
-          failed++;
-      }
+    if (result.success) sent++;
+    else failed++;
   }
 
   res.json({
-      success: true,
-      results: { sent, failed },
-      limitExceeded,
-      message: limitExceeded ? `Mail Limit Full ❌` : undefined
+    success: true,
+    results: { sent, failed },
+    limitExceeded,
+    message: limitExceeded ? "Mail Limit Full ❌" : undefined
   });
+});
+
+/**
+ * High-speed Server-Sent Events (SSE) streaming route
+ * Sends 1-by-1 sequentially on the server side with warm pools,
+ * and streams results instantly to the client in real-time.
+ */
+app.post("/api/send-stream", async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
+
+  if (!email || !appPassword || !recipients?.length) {
+    res.write(`data: ${JSON.stringify({ success: false, error: "Missing required fields" })}\n\n`);
+    res.end();
+    return;
+  }
+
+  if (cfToken && TURNSTILE_SECRET_KEY) {
+    const isValidToken = await verifyTurnstile(cfToken, req.ip);
+    if (!isValidToken) {
+      res.write(`data: ${JSON.stringify({ success: false, error: "Spam check failed. Try again." })}\n\n`);
+      res.end();
+      return;
+    }
+  }
+
+  const senderEmail = email.toLowerCase().trim();
+  const now = Date.now();
+  const oneHourAgo = now - 3600000;
+
+  if (!emailHistory[senderEmail]) {
+    emailHistory[senderEmail] = [];
+  }
+  emailHistory[senderEmail] = emailHistory[senderEmail].filter(ts => ts > oneHourAgo);
+
+  let currentSentCount = emailHistory[senderEmail].length;
+  const transporter = getTransporter(email, appPassword);
+  const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
+  const allowedRemaining = 28 - currentSentCount;
+
+  for (let index = 0; index < recipients.length; index++) {
+    const recipient = recipients[index] ? recipients[index].trim() : "";
+    if (!recipient) continue;
+
+    if (activeSessions['global_stop']) {
+      res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Stopped by user" })}\n\n`);
+      continue;
+    }
+
+    if (currentSentCount >= 28 || index >= allowedRemaining) {
+      res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Mail Limit Full ❌", limitExceeded: true })}\n\n`);
+      continue;
+    }
+
+    const spunSubject = parseSpintax(subject);
+    const spunBody = parseSpintax(messageBody);
+    const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
+
+    // Completely natural, highly-reputable, human-like structure with zero spam signals
+    const mailOptions = {
+      from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
+      to: recipient,
+      replyTo: email,
+      subject: spunSubject
+    };
+
+    if (isHtml) {
+      mailOptions.html = spunBody;
+      const textFallback = spunBody
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<p\s*[^>]*>/gi, '\n')
+        .replace(/<\/p>/gi, '\n')
+        .replace(/<[^>]*>/g, '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      mailOptions.text = textFallback;
+    } else {
+      mailOptions.text = spunBody;
+    }
+
+    let sentSuccessfully = false;
+    let lastError = null;
+    let attempts = 0;
+    const maxAttempts = 2;
+
+    while (attempts < maxAttempts) {
+      try {
+        if (attempts > 0) {
+          await new Promise(res => setTimeout(res, 100 + Math.random() * 100));
+        }
+        await transporter.sendMail(mailOptions);
+        emailHistory[senderEmail].push(Date.now());
+        currentSentCount++;
+        sentSuccessfully = true;
+        break;
+      } catch (error) {
+        lastError = error;
+        attempts++;
+      }
+    }
+
+    if (sentSuccessfully) {
+      res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
+    } else {
+      res.write(`data: ${JSON.stringify({ success: false, recipient, error: lastError ? lastError.message : "SMTP Send Error" })}\n\n`);
+    }
+
+    if (index < recipients.length - 1) {
+      await new Promise(res => setTimeout(res, 20 + Math.random() * 20));
+    }
+  }
+
+  res.write("data: [DONE]\n\n");
+  res.end();
 });
 
 /* ==========================================================================
