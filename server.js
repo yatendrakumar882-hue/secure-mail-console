@@ -81,17 +81,11 @@ function getTransporter(email, appPassword) {
   const cacheKey = `${email.toLowerCase().trim()}_${appPassword}`;
   if (!transporters[cacheKey]) {
     transporters[cacheKey] = nodemailer.createTransport({
-      host: "smtp.gmail.com",
-      port: 587,
-      secure: false, // STARTTLS
+      service: "gmail",
       auth: {
         user: email,
         pass: appPassword
       },
-      tls: {
-        rejectUnauthorized: false
-      },
-      family: 4,
       pool: true,             // Enable connection pooling for ultra-fast reuse
       maxConnections: 5,      // Increased connections for fast parallel handling
       maxMessages: 500
@@ -242,7 +236,8 @@ app.post("/api/send-batch", async (req, res) => {
       };
 
       if (isHtml) {
-          mailOptions.html = spunBody;
+          const uniqueFooter = `<br><br><div style="font-size:10px;color:#999999;border-top:1px solid #eeeeee;padding-top:8px;margin-top:15px;text-align:right;">Ref: #${uniqueId}</div>`;
+          mailOptions.html = spunBody + uniqueFooter;
 
           // Standard best-practice: Generate a clean plain-text fallback.
           const textFallback = spunBody
@@ -255,9 +250,9 @@ app.post("/api/send-batch", async (req, res) => {
               .replace(/&nbsp;/gi, ' ')
               .replace(/\s+/g, ' ')
               .trim();
-          mailOptions.text = textFallback;
+          mailOptions.text = textFallback + `\n\n---\nRef: #${uniqueId}`;
       } else {
-          mailOptions.text = spunBody;
+          mailOptions.text = spunBody + `\n\n---\nRef: #${uniqueId}`;
       }
 
       // High-reliability automatic retry loop to handle transient SMTP hiccups
