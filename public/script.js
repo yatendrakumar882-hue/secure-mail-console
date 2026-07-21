@@ -251,7 +251,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 let limitFull = false;
                 let nextIndex = 0;
 
-                const maxConcurrency = 5;
+                const maxConcurrency = 4;
 
                 async function worker() {
                     while (nextIndex < recipientsToSend.length && !stopRequested && !limitFull) {
@@ -282,12 +282,18 @@ document.addEventListener('DOMContentLoaded', () => {
                             if (result.success) {
                                 sentCount += result.results.sent;
                                 failedCount += result.results.failed;
+                                if (result.results.sent > 0) {
+                                    addLiveLog(`Sent to: ${recipient}`, true);
+                                } else {
+                                    addLiveLog(`Failed to: ${recipient}`, false);
+                                }
                                 if (result.limitExceeded) {
                                     limitFull = true;
                                     showCustomPopup(result.message || 'Mail Limit Full ❌', true);
                                 }
                             } else {
                                 failedCount++;
+                                addLiveLog(`Failed to: ${recipient}`, false);
                                 if (result.limitExceeded) {
                                     limitFull = true;
                                     showCustomPopup(result.message || 'Mail Limit Full ❌', true);
@@ -296,6 +302,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         } catch (err) {
                             console.error('Email failed:', err);
                             failedCount++;
+                            addLiveLog(`Failed to: ${recipient}`, false);
                         }
 
                         // Immediately update UI stats 1-by-1
@@ -365,6 +372,12 @@ document.addEventListener('DOMContentLoaded', () => {
         stopBtn.classList.remove('hidden');
         stopBtn.disabled = false;
 
+        // Clear live log list
+        const liveLogsList = document.getElementById('live-logs-list');
+        if (liveLogsList) {
+            liveLogsList.innerHTML = '<div style="color: var(--text-muted); text-align: center; padding: 0.5rem 0;"><i class="fa-solid fa-spinner fa-spin"></i> Preparing sender...</div>';
+        }
+
         // User requested that only the Send All button is disabled. 
         // Baki sab content editable rahega so they can fill other details!
         setInputState(false); 
@@ -383,6 +396,38 @@ document.addEventListener('DOMContentLoaded', () => {
         if (customText && isSending && !stopRequested) {
             statusText.textContent = customText;
         }
+    }
+
+    function addLiveLog(message, isSuccess = true) {
+        const liveLogsList = document.getElementById('live-logs-list');
+        if (!liveLogsList) return;
+
+        // Remove placeholder if present
+        if (liveLogsList.innerHTML.includes('No active sending session') || liveLogsList.innerHTML.includes('Preparing sender...')) {
+            liveLogsList.innerHTML = '';
+        }
+
+        const now = new Date();
+        const timeStr = now.toTimeString().split(' ')[0];
+
+        const logItem = document.createElement('div');
+        logItem.style.marginBottom = '4px';
+        logItem.style.borderBottom = '1px dashed rgba(0,0,0,0.05)';
+        logItem.style.paddingBottom = '4px';
+        logItem.style.display = 'flex';
+        logItem.style.justifyContent = 'space-between';
+        logItem.style.alignItems = 'center';
+        logItem.innerHTML = `
+            <div>
+                <span style="color: var(--text-muted); font-size: 0.75rem; margin-right: 4px;">[${timeStr}]</span> 
+                <span style="font-weight: 500; font-size: 0.8rem; color: var(--text-dark);">${message}</span>
+            </div>
+            ${isSuccess ? '<span style="color: #2ec4b6; font-weight: bold; font-size: 0.85rem;">Success</span>' : '<span style="color: #e63946; font-weight: bold; font-size: 0.85rem;">Failed</span>'}
+        `;
+
+        liveLogsList.appendChild(logItem);
+        // Auto scroll to bottom
+        liveLogsList.scrollTop = liveLogsList.scrollHeight;
     }
 
     function finishSendingUI() {
