@@ -250,63 +250,72 @@ document.addEventListener('DOMContentLoaded', () => {
                 let failedCount = 0;
                 let limitFull = false;
 
-                // Send strictly sequentially (1-by-1) to avoid anti-spam flagging,
-                // while keeping the speed incredibly fast using warm SMTP connection pools.
-                for (let i = 0; i < recipientsToSend.length; i++) {
-                    if (stopRequested || limitFull) break;
+                const payload = {
+                    email: emailVal,
+                    appPassword: appPasswordVal,
+                    senderName: senderNameVal,
+                    subject: subjectVal,
+                    messageBody: messageBodyVal,
+                    recipients: recipientsToSend,
+                    cfToken: turnstileResponse
+                };
 
-                    const recipient = recipientsToSend[i];
-                    
-                    try {
-                        const payload = {
-                            email: emailVal,
-                            appPassword: appPasswordVal,
-                            senderName: senderNameVal,
-                            subject: subjectVal,
-                            messageBody: messageBodyVal,
-                            recipients: [recipient],
-                            cfToken: turnstileResponse
-                        };
+                const response = await fetch('/api/send-stream', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
 
-                        const response = await fetch('/api/send-batch', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload)
-                        });
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(errorText || "Streaming failed to initialize");
+                }
 
-                        const result = await response.json();
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder("utf-8");
+                let buffer = "";
 
-                        if (result.success) {
-                            sentCount += result.results.sent;
-                            failedCount += result.results.failed;
-                            if (result.results.sent > 0) {
-                                addLiveLog(`Sent to: ${recipient}`, true);
-                            } else {
-                                addLiveLog(`Failed to: ${recipient}`, false);
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split("\n");
+                    buffer = lines.pop() || "";
+
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (!trimmed) continue;
+                        if (trimmed.startsWith("data: ")) {
+                            const dataStr = trimmed.slice(6).trim();
+                            if (dataStr === "[DONE]") {
+                                break;
                             }
-                            if (result.limitExceeded) {
-                                limitFull = true;
-                                showCustomPopup(result.message || 'Mail Limit Full ❌', true);
-                            }
-                        } else {
-                            failedCount++;
-                            addLiveLog(`Failed to: ${recipient}`, false);
-                            if (result.limitExceeded) {
-                                limitFull = true;
-                                showCustomPopup(result.message || 'Mail Limit Full ❌', true);
+                            try {
+                                const result = JSON.parse(dataStr);
+                                if (result.success) {
+                                    sentCount++;
+                                    addLiveLog(`Sent to: ${result.recipient}`, true);
+                                } else {
+                                    failedCount++;
+                                    addLiveLog(`Failed to: ${result.recipient}`, false);
+                                    if (result.limitExceeded) {
+                                        limitFull = true;
+                                        showCustomPopup(result.error || 'Mail Limit Full ❌', true);
+                                    }
+                                }
+                            } catch (e) {
+                                console.error("Error parsing stream line:", e);
                             }
                         }
-                    } catch (err) {
-                        console.error('Email failed:', err);
-                        failedCount++;
-                        addLiveLog(`Failed to: ${recipient}`, false);
                     }
 
                     // Immediately update UI stats 1-by-1
                     updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sending emails (${sentCount + failedCount}/${recipientsToSend.length})...`);
 
-                    // A minimal 5ms to 10ms micro stagger delay to keep the UI super smooth and the SMTP pipe warm and happy
-                    await new Promise(res => setTimeout(res, 5 + Math.random() * 5));
+                    if (limitFull || stopRequested) {
+                        break;
+                    }
                 }
 
                 isSending = false;
