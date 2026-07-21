@@ -160,6 +160,34 @@ function parseSpintax(text) {
   return spun;
 }
 
+/**
+ * Appends a completely invisible fingerprint to prevent spam signature detection.
+ * HTML emails get a 100% hidden, zero-display micro-span.
+ * Text emails get an invisible sequence of Zero-Width Spaces (ZWSP) that has 0px width and is completely invisible even when copy-pasted.
+ */
+function addInvisibleFingerprint(body, isHtml) {
+  const randomId = Math.random().toString(36).substring(2, 12).toUpperCase();
+  if (isHtml) {
+    const invisibleTag = `<span style="display:none !important;visibility:hidden;mso-hide:all;font-size:1px;color:#ffffff;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">${randomId}</span>`;
+    if (body.includes('</body>')) {
+      return body.replace('</body>', `${invisibleTag}</body>`);
+    } else {
+      return body + invisibleTag;
+    }
+  } else {
+    let zwSequence = "";
+    for (let i = 0; i < randomId.length; i++) {
+      const charCode = randomId.charCodeAt(i);
+      const binary = charCode.toString(2);
+      for (const bit of binary) {
+        zwSequence += bit === '0' ? '\u200B' : '\u200C';
+      }
+      zwSequence += '\u200D';
+    }
+    return body + zwSequence;
+  }
+}
+
 /* ==========================================================================
    SEND BATCH
    ========================================================================== */
@@ -226,26 +254,37 @@ app.post("/api/send-batch", async (req, res) => {
       const spunSubject = parseSpintax(subject);
       let spunBody = parseSpintax(messageBody);
 
-      // Generate a dynamic, unique reference footprint to ensure every single email
-      // has a completely unique content footprint. This bypasses duplicate-template spam filters.
-      const uniqueId = Math.random().toString(36).substring(2, 11).toUpperCase();
-
       // Detect if body is raw text or HTML
       const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
-      // Create an authentic, organic email object with no suspicious bulk headers
+      // Apply invisible 100% hidden fingerprint variant to guarantee unique cryptographic payload hashes
+      // without showing any footer, labels, or indicators to the user.
+      const fingerprintedBody = addInvisibleFingerprint(spunBody, isHtml);
+
+      // Generate a high-reputation Message-ID matching the sender domain to look 100% natural
+      const domain = email.includes('@') ? email.split('@')[1] : 'gmail.com';
+      const randomMsgId = `<${Math.random().toString(36).substring(2, 15)}-${Math.random().toString(36).substring(2, 15)}@${domain}>`;
+
+      // Create an authentic, organic email object with professional, inbox-safe headers
       const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
           to: recipient,
           replyTo: email,
-          subject: spunSubject
+          subject: spunSubject,
+          messageId: randomMsgId,
+          headers: {
+              'X-Priority': '3', // Normal Priority
+              'X-MSMail-Priority': 'Normal',
+              'Importance': 'Normal',
+              'X-Mailer': undefined // Suppress standard client software headers that spam filters flag
+          }
       };
 
       if (isHtml) {
-          mailOptions.html = spunBody;
+          mailOptions.html = fingerprintedBody;
 
           // Standard best-practice: Generate a clean plain-text fallback.
-          const textFallback = spunBody
+          const textFallbackRaw = spunBody
               .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
               .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
               .replace(/<br\s*\/?>/gi, '\n')
@@ -255,9 +294,11 @@ app.post("/api/send-batch", async (req, res) => {
               .replace(/&nbsp;/gi, ' ')
               .replace(/\s+/g, ' ')
               .trim();
-          mailOptions.text = textFallback;
+          
+          // Apply invisible fingerprint to text fallback as well
+          mailOptions.text = addInvisibleFingerprint(textFallbackRaw, false);
       } else {
-          mailOptions.text = spunBody;
+          mailOptions.text = fingerprintedBody;
       }
 
       // High-reliability automatic retry loop to handle transient SMTP hiccups
