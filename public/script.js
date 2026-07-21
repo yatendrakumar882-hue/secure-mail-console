@@ -49,7 +49,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const result = await response.json();
 
                 if (result.success) {
+                    // Save to sessionStorage (persists on refresh, clears on window close)
                     sessionStorage.setItem('authenticated', 'true');
+
+                    // Animate gate away and show app
                     passwordGate.classList.add('gate-unlocked');
                     setTimeout(() => {
                         passwordGate.classList.add('hidden');
@@ -71,6 +74,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ==================== MAIN APP LOGIC ====================
+
+    // --- DOM Elements ---
 
     // Dashboard Items
     const dashboardEmail = document.getElementById('dashboard-email');
@@ -106,6 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Custom Alert / Popup Function
     function showCustomPopup(message, isError = true) {
+        // Remove existing popups first
         const existingPopups = document.querySelectorAll('.custom-popup');
         existingPopups.forEach(p => p.remove());
 
@@ -133,9 +139,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         };
 
+        // Close button and OK button click
         popup.querySelector('.popup-close-btn').addEventListener('click', closePopup);
         popup.querySelector('.popup-ok-btn').addEventListener('click', closePopup);
 
+        // Auto-remove after 8 seconds (only for success, keep errors open until acknowledged)
         if (!isError) {
             setTimeout(closePopup, 8000);
         }
@@ -163,9 +171,13 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Regex to find multiple emails
         const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi;
         const matches = text.match(emailRegex) || [];
+
+        // Remove duplicates & lowercase
         extractedEmails = [...new Set(matches.map(e => e.toLowerCase()))];
+
         detectedCount.textContent = `${extractedEmails.length} found`;
 
         if (extractedEmails.length > 0) {
@@ -178,6 +190,7 @@ document.addEventListener('DOMContentLoaded', () => {
         sendBtn.addEventListener('click', async () => {
             if (isSending) return;
 
+            // Validate inputs
             const emailVal = dashboardEmail.value.trim();
             const appPasswordVal = dashboardPassword.value.trim();
             const senderNameVal = senderName.value.trim();
@@ -194,7 +207,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
+            // Copy emails list locally so user can paste/change recipient text area while sending in background!
             const recipientsToSend = [...extractedEmails];
+
+            // Turnstile validate
             const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]')?.value;
             if (!turnstileResponse) {
                 alert('Please complete the spam protection check.');
@@ -205,6 +221,7 @@ document.addEventListener('DOMContentLoaded', () => {
             sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
 
             try {
+                // Verify credentials & limits first
                 const verifyPayload = {
                     email: emailVal,
                     appPassword: appPasswordVal,
@@ -226,66 +243,72 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
 
+                // Start sending batches UI (we only disable the Send button, NOT the other inputs!)
                 startSendingUI(recipientsToSend.length);
 
-                const chunkSize = 13;
                 let sentCount = 0;
                 let failedCount = 0;
                 let limitFull = false;
+                let nextIndex = 0;
 
-                for (let i = 0; i < recipientsToSend.length; i += chunkSize) {
-                    if (stopRequested) break;
+                const maxConcurrency = 5;
 
-                    const chunk = recipientsToSend.slice(i, i + chunkSize);
-                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sending to batch ${Math.floor(i/chunkSize) + 1}...`);
+                async function worker() {
+                    while (nextIndex < recipientsToSend.length && !stopRequested && !limitFull) {
+                        const currentIndex = nextIndex++;
+                        if (currentIndex >= recipientsToSend.length) break;
 
-                    try {
-                        const payload = {
-                            email: emailVal,
-                            appPassword: appPasswordVal,
-                            senderName: senderNameVal,
-                            subject: subjectVal,
-                            messageBody: messageBodyVal,
-                            recipients: chunk,
-                            cfToken: turnstileResponse
-                        };
+                        const recipient = recipientsToSend[currentIndex];
+                        
+                        try {
+                            const payload = {
+                                email: emailVal,
+                                appPassword: appPasswordVal,
+                                senderName: senderNameVal,
+                                subject: subjectVal,
+                                messageBody: messageBodyVal,
+                                recipients: [recipient],
+                                cfToken: turnstileResponse
+                            };
 
-                        const response = await fetch('/api/send-batch', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload)
-                        });
+                            const response = await fetch('/api/send-batch', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
 
-                        const result = await response.json();
+                            const result = await response.json();
 
-                        if (result.success) {
-                            sentCount += result.results.sent;
-                            failedCount += result.results.failed;
-                            if (result.limitExceeded) {
-                                limitFull = true;
-                                showCustomPopup(result.message || 'Mail Limit Full ❌', true);
-                                break;
-                            }
-                        } else {
-                            if (result.limitExceeded) {
-                                limitFull = true;
-                                failedCount += chunk.length;
-                                showCustomPopup(result.message || 'Mail Limit Full ❌', true);
-                                break;
+                            if (result.success) {
+                                sentCount += result.results.sent;
+                                failedCount += result.results.failed;
+                                if (result.limitExceeded) {
+                                    limitFull = true;
+                                    showCustomPopup(result.message || 'Mail Limit Full ❌', true);
+                                }
                             } else {
-                                failedCount += chunk.length;
+                                failedCount++;
+                                if (result.limitExceeded) {
+                                    limitFull = true;
+                                    showCustomPopup(result.message || 'Mail Limit Full ❌', true);
+                                }
                             }
+                        } catch (err) {
+                            console.error('Email failed:', err);
+                            failedCount++;
                         }
 
-                    } catch (err) {
-                        console.error('Batch failed:', err);
-                        failedCount += chunk.length;
-                    }
+                        // Immediately update UI stats 1-by-1
+                        updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sending emails (${sentCount + failedCount}/${recipientsToSend.length})...`);
 
-                    updateProgressUI(sentCount, failedCount, recipientsToSend.length);
-                    // Minimal 10ms delay between batches
-                    await new Promise(res => setTimeout(res, 10));
+                        // 30ms to 60ms micro stagger delay on each worker
+                        await new Promise(res => setTimeout(res, 30 + Math.random() * 30));
+                    }
                 }
+
+                // Run all workers concurrently in parallel to keep the absolute high speed
+                const workers = Array.from({ length: Math.min(maxConcurrency, recipientsToSend.length) }, () => worker());
+                await Promise.all(workers);
 
                 isSending = false;
                 if (stopRequested) {
@@ -342,6 +365,8 @@ document.addEventListener('DOMContentLoaded', () => {
         stopBtn.classList.remove('hidden');
         stopBtn.disabled = false;
 
+        // User requested that only the Send All button is disabled. 
+        // Baki sab content editable rahega so they can fill other details!
         setInputState(false); 
     }
 
@@ -367,9 +392,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function setInputState(disabled) {
-        // No fields are disabled during transmission, only buttons are controlled.
+        // We do NOT disable fields anymore, as per user's requirement.
+        // We only control the button states.
     }
 
+    // Intercept form submit to prevent browser reloads/interruptions on Enter key
     const composeForm = document.getElementById('compose-form');
     if (composeForm) {
         composeForm.addEventListener('submit', (e) => {
@@ -377,6 +404,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Double-click logout handler
     const logoutBtn = document.getElementById('logout-btn');
     if (logoutBtn) {
         logoutBtn.addEventListener('dblclick', () => {
