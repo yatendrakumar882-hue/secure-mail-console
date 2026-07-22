@@ -12,8 +12,8 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 
-// Site password from environment variable
-const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
+// Site password and Cloudflare Turnstile key from environment
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
 /* ==========================================================================
@@ -71,12 +71,6 @@ app.post("/api/auth", (req, res) => {
 
 const transporters = {};
 
-/**
- * Retrieves an existing or creates a new pooled nodemailer transport instance.
- * Using SMTP connection pooling is highly recommended for Gmail to maintain
- * connection state and avoid repeated SSL handshake overhead, which triggers
- * security/spam filters on rapid connections.
- */
 function getTransporter(email, appPassword) {
   const cacheKey = `${email.toLowerCase().trim()}_${appPassword}`;
   if (!transporters[cacheKey]) {
@@ -134,13 +128,9 @@ app.post("/api/verify", async (req, res) => {
 });
 
 /* ==========================================================================
-   SPINTAX PARSER
+   SPINTAX PARSER & CONTENT NATURALIZER
    ========================================================================== */
 
-/**
- * Recursively parses spintax format {option1|option2|option3}
- * to generate unique, organic-looking emails that bypass copy-paste bulk spam detectors.
- */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -154,21 +144,73 @@ function parseSpintax(text) {
   return spun;
 }
 
+function naturalizeEmailContent(subject, body, senderName, index) {
+  let spunSubject = parseSpintax(subject);
+  let spunBody = parseSpintax(body);
+
+  const cleanSender = (senderName || "").trim();
+
+  // 1. Automatic polite greeting if none is present
+  const hasGreeting = /^(hello|hi|dear|greetings|hey|good\s+(morning|afternoon|evening))/i.test(spunBody.trim());
+  const greetings = ["Hello,", "Hi,", "Greetings,", "Dear,", "Hello there,", "Hi there,", "Good day,"];
+
+  if (!hasGreeting) {
+    const chosenGreeting = greetings[index % greetings.length];
+    spunBody = `${chosenGreeting}\n\n${spunBody}`;
+  }
+
+  // 2. High-reputation friendly weekday/time signature
+  const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const currentDay = daysOfWeek[new Date().getDay()];
+
+  const wishes = [
+    `Hope you have a wonderful ${currentDay}!`,
+    `Wishing you a very productive ${currentDay}!`,
+    `Hope you are having a great ${currentDay}!`,
+    `Wishing you a wonderful week ahead!`,
+    `Hope your day is going exceptionally well!`,
+    `Have a wonderful rest of your day!`,
+    `Wishing you all the best and success!`,
+    `Hope this email finds you in high spirits!`
+  ];
+
+  const closings = [
+    `Best regards,\n${cleanSender}`,
+    `Thanks and regards,\n${cleanSender}`,
+    `Sincerely,\n${cleanSender}`,
+    `Warmly,\n${cleanSender}`,
+    `With warm appreciation,\n${cleanSender}`,
+    `Kind regards,\n${cleanSender}`,
+    `Best wishes,\n${cleanSender}`,
+    `Respectfully,\n${cleanSender}`
+  ];
+
+  const chosenWish = wishes[index % wishes.length];
+  const chosenClosing = closings[index % closings.length];
+
+  spunBody = `${spunBody}\n\n${chosenWish}\n\n${chosenClosing}`;
+
+  if (index % 2 === 0) {
+    spunBody += " ";
+  } else {
+    spunBody += "\n";
+  }
+
+  const subjectVariations = ["", " ", ".", " !", "...", " "];
+  spunSubject = `${spunSubject}${subjectVariations[index % subjectVariations.length]}`;
+
+  return { subject: spunSubject, body: spunBody };
+}
+
 /* ==========================================================================
-   SEND BATCH (STANDARD AND STREAMING)
+   SEND BATCH & SSE STREAMING ROUTES
    ========================================================================== */
 
-/**
- * Standard batch route
- */
 app.post("/api/send-batch", async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
 
   if (!email || !appPassword || !recipients?.length) {
-    return res.status(400).json({
-      success: false,
-      message: "Missing required fields"
-    });
+    return res.status(400).json({ success: false, message: "Missing required fields" });
   }
 
   if (cfToken && TURNSTILE_SECRET_KEY) {
@@ -219,22 +261,19 @@ app.post("/api/send-batch", async (req, res) => {
       continue;
     }
 
-    const spunSubject = parseSpintax(subject);
-    const spunBody = parseSpintax(messageBody);
-    const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
+    const { subject: naturalSubject, body: naturalBody } = naturalizeEmailContent(subject, messageBody, cleanSenderName, index);
+    const isHtml = /<[a-z][\s\S]*>/i.test(naturalBody);
 
-    // Completely natural, human-like email object.
-    // Zero custom headers and zero hidden spam footers or weird tracking codes.
     const mailOptions = {
       from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
       to: recipient,
       replyTo: email,
-      subject: spunSubject
+      subject: naturalSubject
     };
 
     if (isHtml) {
-      mailOptions.html = spunBody;
-      const textFallback = spunBody
+      mailOptions.html = naturalBody;
+      const textFallback = naturalBody
         .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
         .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
         .replace(/<br\s*\/?>/gi, '\n')
@@ -246,7 +285,7 @@ app.post("/api/send-batch", async (req, res) => {
         .trim();
       mailOptions.text = textFallback;
     } else {
-      mailOptions.text = spunBody;
+      mailOptions.text = naturalBody;
     }
 
     let sentSuccessfully = false;
@@ -257,7 +296,7 @@ app.post("/api/send-batch", async (req, res) => {
     while (attempts < maxAttempts) {
       try {
         if (attempts > 0) {
-          await new Promise(res => setTimeout(res, 100 + Math.random() * 100));
+          await new Promise(res => setTimeout(res, 200 + Math.random() * 200));
         }
         await transporter.sendMail(mailOptions);
         emailHistory[senderEmail].push(Date.now());
@@ -275,7 +314,7 @@ app.post("/api/send-batch", async (req, res) => {
     }
 
     if (index < recipients.length - 1) {
-      await new Promise(res => setTimeout(res, 20 + Math.random() * 20));
+      await new Promise(res => setTimeout(res, 1200 + Math.random() * 1000));
     }
   }
 
@@ -292,11 +331,6 @@ app.post("/api/send-batch", async (req, res) => {
   });
 });
 
-/**
- * High-speed Server-Sent Events (SSE) streaming route
- * Sends 1-by-1 sequentially on the server side with warm pools,
- * and streams results instantly to the client in real-time.
- */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -347,21 +381,19 @@ app.post("/api/send-stream", async (req, res) => {
       continue;
     }
 
-    const spunSubject = parseSpintax(subject);
-    const spunBody = parseSpintax(messageBody);
-    const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
+    const { subject: naturalSubject, body: naturalBody } = naturalizeEmailContent(subject, messageBody, cleanSenderName, index);
+    const isHtml = /<[a-z][\s\S]*>/i.test(naturalBody);
 
-    // Completely natural, highly-reputable, human-like structure with zero spam signals
     const mailOptions = {
       from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
       to: recipient,
       replyTo: email,
-      subject: spunSubject
+      subject: naturalSubject
     };
 
     if (isHtml) {
-      mailOptions.html = spunBody;
-      const textFallback = spunBody
+      mailOptions.html = naturalBody;
+      const textFallback = naturalBody
         .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
         .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
         .replace(/<br\s*\/?>/gi, '\n')
@@ -373,7 +405,7 @@ app.post("/api/send-stream", async (req, res) => {
         .trim();
       mailOptions.text = textFallback;
     } else {
-      mailOptions.text = spunBody;
+      mailOptions.text = naturalBody;
     }
 
     let sentSuccessfully = false;
@@ -384,7 +416,7 @@ app.post("/api/send-stream", async (req, res) => {
     while (attempts < maxAttempts) {
       try {
         if (attempts > 0) {
-          await new Promise(res => setTimeout(res, 100 + Math.random() * 100));
+          await new Promise(res => setTimeout(res, 200 + Math.random() * 200));
         }
         await transporter.sendMail(mailOptions);
         emailHistory[senderEmail].push(Date.now());
@@ -404,7 +436,7 @@ app.post("/api/send-stream", async (req, res) => {
     }
 
     if (index < recipients.length - 1) {
-      await new Promise(res => setTimeout(res, 20 + Math.random() * 20));
+      await new Promise(res => setTimeout(res, 1200 + Math.random() * 1000));
     }
   }
 
@@ -420,7 +452,6 @@ app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stopping future batches." });
 
-  // Reset stop state after 5 seconds to allow subsequent submissions
   setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
 });
 
