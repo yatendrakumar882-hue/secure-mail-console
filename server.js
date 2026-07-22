@@ -154,29 +154,6 @@ function parseSpintax(text) {
   return spun;
 }
 
-/**
- * Automatically personalizes and naturalizes each email's content.
- * Bypasses incoming bulk spam detectors (which block identical content sent to multiple accounts)
- * by dynamically applying organic greetings, polite human closings, and weekday variations.
- * Does NOT use suspicious hidden span elements or weird tracking code tags that raise spam score.
- */
-function naturalizeEmailContent(subject, body, senderName, index) {
-  let spunSubject = parseSpintax(subject);
-  let spunBody = parseSpintax(body);
-
-  return { subject: spunSubject, body: spunBody };
-}
-
-/**
- * Generates an authentic, clean RFC 2822 Message-ID to ensure high inbox deliverability reputation
- */
-function generateCleanMessageId(senderEmail) {
-  const domain = senderEmail.includes('@') ? senderEmail.split('@')[1] : 'gmail.com';
-  const randomStr = Math.random().toString(36).substring(2, 11);
-  const timestamp = Date.now();
-  return `<${timestamp}.${randomStr}@${domain}>`;
-}
-
 /* ==========================================================================
    SEND BATCH (STANDARD AND STREAMING)
    ========================================================================== */
@@ -242,21 +219,20 @@ app.post("/api/send-batch", async (req, res) => {
       continue;
     }
 
-    // Apply natural automatic content variations for subject and body
-    const { subject: naturalSubject, body: naturalBody } = naturalizeEmailContent(subject, messageBody, cleanSenderName, index);
-    const isHtml = /<[a-z][\s\S]*>/i.test(naturalBody);
+    const spunSubject = parseSpintax(subject);
+    const spunBody = parseSpintax(messageBody);
+    const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
     const mailOptions = {
       from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
       to: recipient,
       replyTo: email,
-      subject: naturalSubject,
-      messageId: generateCleanMessageId(email)
+      subject: spunSubject
     };
 
     if (isHtml) {
-      mailOptions.html = naturalBody;
-      const textFallback = naturalBody
+      mailOptions.html = spunBody;
+      const textFallback = spunBody
         .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
         .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
         .replace(/<br\s*\/?>/gi, '\n')
@@ -268,7 +244,7 @@ app.post("/api/send-batch", async (req, res) => {
         .trim();
       mailOptions.text = textFallback;
     } else {
-      mailOptions.text = naturalBody;
+      mailOptions.text = spunBody;
     }
 
     let sentSuccessfully = false;
@@ -370,21 +346,20 @@ app.post("/api/send-stream", async (req, res) => {
       continue;
     }
 
-    // Apply natural automatic content variations for subject and body
-    const { subject: naturalSubject, body: naturalBody } = naturalizeEmailContent(subject, messageBody, cleanSenderName, index);
-    const isHtml = /<[a-z][\s\S]*>/i.test(naturalBody);
+    const spunSubject = parseSpintax(subject);
+    const spunBody = parseSpintax(messageBody);
+    const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
     const mailOptions = {
       from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
       to: recipient,
       replyTo: email,
-      subject: naturalSubject,
-      messageId: generateCleanMessageId(email)
+      subject: spunSubject
     };
 
     if (isHtml) {
-      mailOptions.html = naturalBody;
-      const textFallback = naturalBody
+      mailOptions.html = spunBody;
+      const textFallback = spunBody
         .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
         .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
         .replace(/<br\s*\/?>/gi, '\n')
@@ -396,7 +371,7 @@ app.post("/api/send-stream", async (req, res) => {
         .trim();
       mailOptions.text = textFallback;
     } else {
-      mailOptions.text = naturalBody;
+      mailOptions.text = spunBody;
     }
 
     let sentSuccessfully = false;
