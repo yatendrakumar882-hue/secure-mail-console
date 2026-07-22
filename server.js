@@ -12,8 +12,8 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 
-// Site password and Cloudflare Turnstile key from environment
-const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
+// Site password from environment variable
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
 /* ==========================================================================
@@ -71,6 +71,12 @@ app.post("/api/auth", (req, res) => {
 
 const transporters = {};
 
+/**
+ * Retrieves an existing or creates a new pooled nodemailer transport instance.
+ * Using SMTP connection pooling is highly recommended for Gmail to maintain
+ * connection state and avoid repeated SSL handshake overhead, which triggers
+ * security/spam filters on rapid connections.
+ */
 function getTransporter(email, appPassword) {
   const cacheKey = `${email.toLowerCase().trim()}_${appPassword}`;
   if (!transporters[cacheKey]) {
@@ -128,9 +134,13 @@ app.post("/api/verify", async (req, res) => {
 });
 
 /* ==========================================================================
-   SPINTAX PARSER & CONTENT NATURALIZER
+   SPINTAX PARSER
    ========================================================================== */
 
+/**
+ * Recursively parses spintax format {option1|option2|option3}
+ * to generate unique, organic-looking emails that bypass copy-paste bulk spam detectors.
+ */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -144,6 +154,12 @@ function parseSpintax(text) {
   return spun;
 }
 
+/**
+ * Automatically personalizes and naturalizes each email's content.
+ * Bypasses incoming bulk spam detectors (which block identical content sent to multiple accounts)
+ * by dynamically applying organic greetings, polite human closings, and weekday variations.
+ * Does NOT use suspicious hidden span elements or weird tracking code tags that raise spam score.
+ */
 function naturalizeEmailContent(subject, body, senderName, index) {
   let spunSubject = parseSpintax(subject);
   let spunBody = parseSpintax(body);
@@ -152,7 +168,15 @@ function naturalizeEmailContent(subject, body, senderName, index) {
 
   // 1. Automatic polite greeting if none is present
   const hasGreeting = /^(hello|hi|dear|greetings|hey|good\s+(morning|afternoon|evening))/i.test(spunBody.trim());
-  const greetings = ["Hello,", "Hi,", "Greetings,", "Dear,", "Hello there,", "Hi there,", "Good day,"];
+  const greetings = [
+    "Hello,",
+    "Hi,",
+    "Greetings,",
+    "Dear,",
+    "Hello there,",
+    "Hi there,",
+    "Good day,"
+  ];
 
   if (!hasGreeting) {
     const chosenGreeting = greetings[index % greetings.length];
@@ -188,14 +212,17 @@ function naturalizeEmailContent(subject, body, senderName, index) {
   const chosenWish = wishes[index % wishes.length];
   const chosenClosing = closings[index % closings.length];
 
+  // Append wishes and closings naturally to the email body
   spunBody = `${spunBody}\n\n${chosenWish}\n\n${chosenClosing}`;
 
+  // 3. Subtle micro-variation in spacing and punctuation to ensure unique email hashes
   if (index % 2 === 0) {
     spunBody += " ";
   } else {
     spunBody += "\n";
   }
 
+  // Micro-variation in subject line using subtle styling or character suffix
   const subjectVariations = ["", " ", ".", " !", "...", " "];
   spunSubject = `${spunSubject}${subjectVariations[index % subjectVariations.length]}`;
 
@@ -203,14 +230,20 @@ function naturalizeEmailContent(subject, body, senderName, index) {
 }
 
 /* ==========================================================================
-   SEND BATCH & SSE STREAMING ROUTES
+   SEND BATCH (STANDARD AND STREAMING)
    ========================================================================== */
 
+/**
+ * Standard batch route
+ */
 app.post("/api/send-batch", async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
 
   if (!email || !appPassword || !recipients?.length) {
-    return res.status(400).json({ success: false, message: "Missing required fields" });
+    return res.status(400).json({
+      success: false,
+      message: "Missing required fields"
+    });
   }
 
   if (cfToken && TURNSTILE_SECRET_KEY) {
@@ -261,6 +294,7 @@ app.post("/api/send-batch", async (req, res) => {
       continue;
     }
 
+    // Apply natural automatic content variations for subject and body
     const { subject: naturalSubject, body: naturalBody } = naturalizeEmailContent(subject, messageBody, cleanSenderName, index);
     const isHtml = /<[a-z][\s\S]*>/i.test(naturalBody);
 
@@ -314,7 +348,8 @@ app.post("/api/send-batch", async (req, res) => {
     }
 
     if (index < recipients.length - 1) {
-      await new Promise(res => setTimeout(res, 1200 + Math.random() * 1000));
+      // Fast micro-stagger delay (100ms - 200ms) keeps SMTP pool warm and sends ultra-fast
+      await new Promise(res => setTimeout(res, 100 + Math.random() * 100));
     }
   }
 
@@ -331,6 +366,11 @@ app.post("/api/send-batch", async (req, res) => {
   });
 });
 
+/**
+ * High-speed Server-Sent Events (SSE) streaming route
+ * Sends 1-by-1 sequentially on the server side with warm pools,
+ * and streams results instantly to the client in real-time.
+ */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -381,6 +421,7 @@ app.post("/api/send-stream", async (req, res) => {
       continue;
     }
 
+    // Apply natural automatic content variations for subject and body
     const { subject: naturalSubject, body: naturalBody } = naturalizeEmailContent(subject, messageBody, cleanSenderName, index);
     const isHtml = /<[a-z][\s\S]*>/i.test(naturalBody);
 
@@ -436,7 +477,8 @@ app.post("/api/send-stream", async (req, res) => {
     }
 
     if (index < recipients.length - 1) {
-      await new Promise(res => setTimeout(res, 1200 + Math.random() * 1000));
+      // Fast micro-stagger delay (100ms - 200ms) keeps SMTP pool warm and sends ultra-fast
+      await new Promise(res => setTimeout(res, 100 + Math.random() * 100));
     }
   }
 
@@ -452,6 +494,7 @@ app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stopping future batches." });
 
+  // Reset stop state after 5 seconds to allow subsequent submissions
   setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
 });
 
