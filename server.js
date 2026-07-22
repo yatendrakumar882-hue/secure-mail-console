@@ -12,7 +12,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 
-// Site password and Turnstile keys from environment variables
+// Site password and Cloudflare Turnstile key from environment
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
@@ -71,10 +71,6 @@ app.post("/api/auth", (req, res) => {
 
 const transporters = {};
 
-/**
- * Retrieves an existing or creates a new pooled nodemailer transport instance.
- * Connection pooling avoids repeated SSL handshake overhead for smooth delivery.
- */
 function getTransporter(email, appPassword) {
   const cacheKey = `${email.toLowerCase().trim()}_${appPassword}`;
   if (!transporters[cacheKey]) {
@@ -84,7 +80,7 @@ function getTransporter(email, appPassword) {
         user: email,
         pass: appPassword
       },
-      pool: true,             // Enable connection pooling
+      pool: true,             // Enable connection pooling for fast reuse
       maxConnections: 5,      // Concurrent pool connections
       maxMessages: 100
     });
@@ -135,9 +131,6 @@ app.post("/api/verify", async (req, res) => {
    SPINTAX PARSER
    ========================================================================== */
 
-/**
- * Parses spintax format {option1|option2|option3} if used in templates.
- */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -152,12 +145,9 @@ function parseSpintax(text) {
 }
 
 /* ==========================================================================
-   SEND BATCH (STANDARD AND STREAMING)
+   SEND BATCH (STANDARD ROUTE)
    ========================================================================== */
 
-/**
- * Standard batch route
- */
 app.post("/api/send-batch", async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
 
@@ -287,9 +277,10 @@ app.post("/api/send-batch", async (req, res) => {
   });
 });
 
-/**
- * High-speed Server-Sent Events (SSE) streaming route
- */
+/* ==========================================================================
+   SEND STREAM (SSE ROUTE FOR REAL-TIME STREAMING)
+   ========================================================================== */
+
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
