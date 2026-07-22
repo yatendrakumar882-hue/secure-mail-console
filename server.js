@@ -12,7 +12,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 
-// Site password and Cloudflare Turnstile key from environment
+// Site password and security configuration from environment variables
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
@@ -48,7 +48,7 @@ const activeSessions = {};
 const emailHistory = {};
 
 /* ==========================================================================
-   PASSWORD AUTHENTICATION
+   AUTHENTICATION ROUTE
    ========================================================================== */
 
 app.post("/api/auth", (req, res) => {
@@ -66,11 +66,15 @@ app.post("/api/auth", (req, res) => {
 });
 
 /* ==========================================================================
-   SMTP TRANSPORTER POOLING & CACHING
+   SMTP TRANSPORTER POOLING
    ========================================================================== */
 
 const transporters = {};
 
+/**
+ * Creates and reuses pooled Nodemailer transport instances.
+ * Connection pooling improves throughput and reuses active socket connections.
+ */
 function getTransporter(email, appPassword) {
   const cacheKey = `${email.toLowerCase().trim()}_${appPassword}`;
   if (!transporters[cacheKey]) {
@@ -80,8 +84,8 @@ function getTransporter(email, appPassword) {
         user: email,
         pass: appPassword
       },
-      pool: true,             // Enable connection pooling for fast reuse
-      maxConnections: 5,      // Concurrent pool connections
+      pool: true,             // Connection pooling enabled
+      maxConnections: 5,      // Concurrent connections
       maxMessages: 100
     });
   }
@@ -105,7 +109,7 @@ app.post("/api/verify", async (req, res) => {
   if (cfToken && TURNSTILE_SECRET_KEY) {
     const isValidToken = await verifyTurnstile(cfToken, req.ip);
     if (!isValidToken) {
-      return res.status(400).json({ success: false, message: "Spam check failed. Try again." });
+      return res.status(400).json({ success: false, message: "Security check failed. Try again." });
     }
   }
 
@@ -161,7 +165,7 @@ app.post("/api/send-batch", async (req, res) => {
   if (cfToken && TURNSTILE_SECRET_KEY) {
     const isValidToken = await verifyTurnstile(cfToken, req.ip);
     if (!isValidToken) {
-      return res.status(400).json({ success: false, message: "Spam check failed. Try again." });
+      return res.status(400).json({ success: false, message: "Security check failed. Try again." });
     }
   }
 
@@ -179,7 +183,7 @@ app.post("/api/send-batch", async (req, res) => {
     return res.status(400).json({
       success: false,
       limitExceeded: true,
-      message: `Mail Limit Full ❌ (Sent: ${currentSentCount}/28 in the last hour)`
+      message: `Mail Limit Full (Sent: ${currentSentCount}/28 in the last hour)`
     });
   }
 
@@ -202,7 +206,7 @@ app.post("/api/send-batch", async (req, res) => {
 
     if (index >= allowedRemaining) {
       limitExceeded = true;
-      results.push({ success: false, recipient, error: "Mail Limit Full ❌" });
+      results.push({ success: false, recipient, error: "Mail Limit Full" });
       continue;
     }
 
@@ -273,12 +277,12 @@ app.post("/api/send-batch", async (req, res) => {
     success: true,
     results: { sent, failed },
     limitExceeded,
-    message: limitExceeded ? "Mail Limit Full ❌" : undefined
+    message: limitExceeded ? "Mail Limit Full" : undefined
   });
 });
 
 /* ==========================================================================
-   SEND STREAM (SSE ROUTE FOR REAL-TIME STREAMING)
+   SEND STREAM (REAL-TIME SSE ROUTE)
    ========================================================================== */
 
 app.post("/api/send-stream", async (req, res) => {
@@ -297,7 +301,7 @@ app.post("/api/send-stream", async (req, res) => {
   if (cfToken && TURNSTILE_SECRET_KEY) {
     const isValidToken = await verifyTurnstile(cfToken, req.ip);
     if (!isValidToken) {
-      res.write(`data: ${JSON.stringify({ success: false, error: "Spam check failed. Try again." })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: false, error: "Security check failed. Try again." })}\n\n`);
       res.end();
       return;
     }
@@ -327,7 +331,7 @@ app.post("/api/send-stream", async (req, res) => {
     }
 
     if (currentSentCount >= 28 || index >= allowedRemaining) {
-      res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Mail Limit Full ❌", limitExceeded: true })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Mail Limit Full", limitExceeded: true })}\n\n`);
       continue;
     }
 
