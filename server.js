@@ -164,69 +164,17 @@ function naturalizeEmailContent(subject, body, senderName, index) {
   let spunSubject = parseSpintax(subject);
   let spunBody = parseSpintax(body);
 
-  const cleanSender = (senderName || "").trim();
-
-  // 1. Automatic polite greeting if none is present
-  const hasGreeting = /^(hello|hi|dear|greetings|hey|good\s+(morning|afternoon|evening))/i.test(spunBody.trim());
-  const greetings = [
-    "Hello,",
-    "Hi,",
-    "Greetings,",
-    "Dear,",
-    "Hello there,",
-    "Hi there,",
-    "Good day,"
-  ];
-
-  if (!hasGreeting) {
-    const chosenGreeting = greetings[index % greetings.length];
-    spunBody = `${chosenGreeting}\n\n${spunBody}`;
-  }
-
-  // 2. High-reputation friendly weekday/time signature
-  const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const currentDay = daysOfWeek[new Date().getDay()];
-
-  const wishes = [
-    `Hope you have a wonderful ${currentDay}!`,
-    `Wishing you a very productive ${currentDay}!`,
-    `Hope you are having a great ${currentDay}!`,
-    `Wishing you a wonderful week ahead!`,
-    `Hope your day is going exceptionally well!`,
-    `Have a wonderful rest of your day!`,
-    `Wishing you all the best and success!`,
-    `Hope this email finds you in high spirits!`
-  ];
-
-  const closings = [
-    `Best regards,\n${cleanSender}`,
-    `Thanks and regards,\n${cleanSender}`,
-    `Sincerely,\n${cleanSender}`,
-    `Warmly,\n${cleanSender}`,
-    `With warm appreciation,\n${cleanSender}`,
-    `Kind regards,\n${cleanSender}`,
-    `Best wishes,\n${cleanSender}`,
-    `Respectfully,\n${cleanSender}`
-  ];
-
-  const chosenWish = wishes[index % wishes.length];
-  const chosenClosing = closings[index % closings.length];
-
-  // Append wishes and closings naturally to the email body
-  spunBody = `${spunBody}\n\n${chosenWish}\n\n${chosenClosing}`;
-
-  // 3. Subtle micro-variation in spacing and punctuation to ensure unique email hashes
-  if (index % 2 === 0) {
-    spunBody += " ";
-  } else {
-    spunBody += "\n";
-  }
-
-  // Micro-variation in subject line using subtle styling or character suffix
-  const subjectVariations = ["", " ", ".", " !", "...", " "];
-  spunSubject = `${spunSubject}${subjectVariations[index % subjectVariations.length]}`;
-
   return { subject: spunSubject, body: spunBody };
+}
+
+/**
+ * Generates an authentic, clean RFC 2822 Message-ID to ensure high inbox deliverability reputation
+ */
+function generateCleanMessageId(senderEmail) {
+  const domain = senderEmail.includes('@') ? senderEmail.split('@')[1] : 'gmail.com';
+  const randomStr = Math.random().toString(36).substring(2, 11);
+  const timestamp = Date.now();
+  return `<${timestamp}.${randomStr}@${domain}>`;
 }
 
 /* ==========================================================================
@@ -302,7 +250,8 @@ app.post("/api/send-batch", async (req, res) => {
       from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
       to: recipient,
       replyTo: email,
-      subject: naturalSubject
+      subject: naturalSubject,
+      messageId: generateCleanMessageId(email)
     };
 
     if (isHtml) {
@@ -429,7 +378,8 @@ app.post("/api/send-stream", async (req, res) => {
       from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
       to: recipient,
       replyTo: email,
-      subject: naturalSubject
+      subject: naturalSubject,
+      messageId: generateCleanMessageId(email)
     };
 
     if (isHtml) {
