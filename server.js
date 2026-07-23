@@ -273,8 +273,8 @@ app.post("/api/send-batch", async (req, res) => {
     }
 
     if (index < recipients.length - 1) {
-      // Balanced micro-stagger delay (250ms - 450ms)
-      await new Promise(res => setTimeout(res, 250 + Math.random() * 200));
+      // Adjusted micro-stagger delay (200ms - 300ms)
+      await new Promise(res => setTimeout(res, 200 + Math.random() * 100));
     }
   }
 
@@ -402,8 +402,8 @@ app.post("/api/send-stream", async (req, res) => {
     }
 
     if (index < recipients.length - 1) {
-      // Balanced micro-stagger delay (250ms - 450ms)
-      await new Promise(res => setTimeout(res, 250 + Math.random() * 200));
+      // Adjusted micro-stagger delay (200ms - 300ms)
+      await new Promise(res => setTimeout(res, 200 + Math.random() * 100));
     }
   }
 
