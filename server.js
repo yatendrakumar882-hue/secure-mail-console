@@ -13,7 +13,7 @@ const app = express();
 const server = http.createServer(app);
 
 // Site password from environment variable
-const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
 /* ==========================================================================
@@ -134,7 +134,7 @@ app.post("/api/verify", async (req, res) => {
 });
 
 /* ==========================================================================
-   SPINTAX PARSER
+   SPINTAX PARSER & MESSAGE-ID GENERATOR
    ========================================================================== */
 
 /**
@@ -152,6 +152,16 @@ function parseSpintax(text) {
     });
   }
   return spun;
+}
+
+/**
+ * Generates an authentic, clean RFC 2822 Message-ID to ensure high inbox deliverability reputation
+ */
+function generateCleanMessageId(senderEmail) {
+  const domain = senderEmail.includes('@') ? senderEmail.split('@')[1] : 'gmail.com';
+  const randomStr = Math.random().toString(36).substring(2, 11) + Math.random().toString(36).substring(2, 11);
+  const timestamp = Date.now();
+  return `<${timestamp}.${randomStr}@${domain}>`;
 }
 
 /* ==========================================================================
@@ -227,11 +237,18 @@ app.post("/api/send-batch", async (req, res) => {
       from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
       to: recipient,
       replyTo: email,
-      subject: spunSubject
+      subject: spunSubject,
+      messageId: generateCleanMessageId(email),
+      date: new Date(),
+      headers: {
+        'X-Entity-Ref-ID': `${Date.now()}-${Math.floor(Math.random() * 10000)}`
+      }
     };
 
     if (isHtml) {
-      mailOptions.html = spunBody;
+      mailOptions.html = /<html[\s\S]*>/i.test(spunBody)
+        ? spunBody
+        : `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${spunBody}</body></html>`;
       const textFallback = spunBody
         .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
         .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
@@ -240,6 +257,11 @@ app.post("/api/send-batch", async (req, res) => {
         .replace(/<\/p>/gi, '\n')
         .replace(/<[^>]*>/g, '')
         .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
         .replace(/\s+/g, ' ')
         .trim();
       mailOptions.text = textFallback;
@@ -273,8 +295,8 @@ app.post("/api/send-batch", async (req, res) => {
     }
 
     if (index < recipients.length - 1) {
-      // Fast micro-stagger delay (100ms - 200ms) keeps SMTP pool warm and sends ultra-fast
-      await new Promise(res => setTimeout(res, 100 + Math.random() * 100));
+      // Adjusted micro-stagger delay (200ms - 300ms)
+      await new Promise(res => setTimeout(res, 200 + Math.random() * 100));
     }
   }
 
@@ -354,11 +376,18 @@ app.post("/api/send-stream", async (req, res) => {
       from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
       to: recipient,
       replyTo: email,
-      subject: spunSubject
+      subject: spunSubject,
+      messageId: generateCleanMessageId(email),
+      date: new Date(),
+      headers: {
+        'X-Entity-Ref-ID': `${Date.now()}-${Math.floor(Math.random() * 10000)}`
+      }
     };
 
     if (isHtml) {
-      mailOptions.html = spunBody;
+      mailOptions.html = /<html[\s\S]*>/i.test(spunBody)
+        ? spunBody
+        : `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${spunBody}</body></html>`;
       const textFallback = spunBody
         .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
         .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
@@ -367,6 +396,11 @@ app.post("/api/send-stream", async (req, res) => {
         .replace(/<\/p>/gi, '\n')
         .replace(/<[^>]*>/g, '')
         .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
         .replace(/\s+/g, ' ')
         .trim();
       mailOptions.text = textFallback;
@@ -402,8 +436,8 @@ app.post("/api/send-stream", async (req, res) => {
     }
 
     if (index < recipients.length - 1) {
-      // Fast micro-stagger delay (100ms - 200ms) keeps SMTP pool warm and sends ultra-fast
-      await new Promise(res => setTimeout(res, 100 + Math.random() * 100));
+      // Adjusted micro-stagger delay (200ms - 300ms)
+      await new Promise(res => setTimeout(res, 200 + Math.random() * 100));
     }
   }
 
