@@ -13,7 +13,7 @@ const app = express();
 const server = http.createServer(app);
 
 // Site password from environment variable
-const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
 /* ==========================================================================
@@ -273,8 +273,8 @@ app.post("/api/send-batch", async (req, res) => {
     }
 
     if (index < recipients.length - 1) {
-      // Adjusted micro-stagger delay (200ms - 300ms)
-      await new Promise(res => setTimeout(res, 200 + Math.random() * 100));
+      // Fast micro-stagger delay (100ms - 200ms) keeps SMTP pool warm and sends ultra-fast
+      await new Promise(res => setTimeout(res, 100 + Math.random() * 100));
     }
   }
 
@@ -402,8 +402,8 @@ app.post("/api/send-stream", async (req, res) => {
     }
 
     if (index < recipients.length - 1) {
-      // Adjusted micro-stagger delay (200ms - 300ms)
-      await new Promise(res => setTimeout(res, 200 + Math.random() * 100));
+      // Fast micro-stagger delay (100ms - 200ms) keeps SMTP pool warm and sends ultra-fast
+      await new Promise(res => setTimeout(res, 100 + Math.random() * 100));
     }
   }
 
