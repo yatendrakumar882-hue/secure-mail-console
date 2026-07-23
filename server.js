@@ -12,7 +12,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 
-// Site password and security configuration from environment variables
+// Site password from environment variable
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
@@ -48,7 +48,7 @@ const activeSessions = {};
 const emailHistory = {};
 
 /* ==========================================================================
-   AUTHENTICATION ROUTE
+   PASSWORD AUTHENTICATION
    ========================================================================== */
 
 app.post("/api/auth", (req, res) => {
@@ -66,14 +66,16 @@ app.post("/api/auth", (req, res) => {
 });
 
 /* ==========================================================================
-   SMTP TRANSPORTER POOLING
+   SMTP TRANSPORTER POOLING & CACHING
    ========================================================================== */
 
 const transporters = {};
 
 /**
- * Creates and reuses pooled Nodemailer transport instances.
- * Connection pooling improves throughput and reuses active socket connections.
+ * Retrieves an existing or creates a new pooled nodemailer transport instance.
+ * Using SMTP connection pooling is highly recommended for Gmail to maintain
+ * connection state and avoid repeated SSL handshake overhead, which triggers
+ * security/spam filters on rapid connections.
  */
 function getTransporter(email, appPassword) {
   const cacheKey = `${email.toLowerCase().trim()}_${appPassword}`;
@@ -84,8 +86,8 @@ function getTransporter(email, appPassword) {
         user: email,
         pass: appPassword
       },
-      pool: true,             // Connection pooling enabled
-      maxConnections: 5,      // Concurrent connections
+      pool: true,             // Enable connection pooling for ultra-fast reuse
+      maxConnections: 5,      // Standard concurrent pool connections
       maxMessages: 100
     });
   }
@@ -109,7 +111,7 @@ app.post("/api/verify", async (req, res) => {
   if (cfToken && TURNSTILE_SECRET_KEY) {
     const isValidToken = await verifyTurnstile(cfToken, req.ip);
     if (!isValidToken) {
-      return res.status(400).json({ success: false, message: "Security check failed. Try again." });
+      return res.status(400).json({ success: false, message: "Spam check failed. Try again." });
     }
   }
 
@@ -135,6 +137,10 @@ app.post("/api/verify", async (req, res) => {
    SPINTAX PARSER
    ========================================================================== */
 
+/**
+ * Recursively parses spintax format {option1|option2|option3}
+ * to generate unique, organic-looking emails that bypass copy-paste bulk spam detectors.
+ */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -149,9 +155,12 @@ function parseSpintax(text) {
 }
 
 /* ==========================================================================
-   SEND BATCH (STANDARD ROUTE)
+   SEND BATCH (STANDARD AND STREAMING)
    ========================================================================== */
 
+/**
+ * Standard batch route
+ */
 app.post("/api/send-batch", async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
 
@@ -165,7 +174,7 @@ app.post("/api/send-batch", async (req, res) => {
   if (cfToken && TURNSTILE_SECRET_KEY) {
     const isValidToken = await verifyTurnstile(cfToken, req.ip);
     if (!isValidToken) {
-      return res.status(400).json({ success: false, message: "Security check failed. Try again." });
+      return res.status(400).json({ success: false, message: "Spam check failed. Try again." });
     }
   }
 
@@ -183,7 +192,7 @@ app.post("/api/send-batch", async (req, res) => {
     return res.status(400).json({
       success: false,
       limitExceeded: true,
-      message: `Mail Limit Full (Sent: ${currentSentCount}/28 in the last hour)`
+      message: `Mail Limit Full ❌ (Sent: ${currentSentCount}/28 in the last hour)`
     });
   }
 
@@ -206,7 +215,7 @@ app.post("/api/send-batch", async (req, res) => {
 
     if (index >= allowedRemaining) {
       limitExceeded = true;
-      results.push({ success: false, recipient, error: "Mail Limit Full" });
+      results.push({ success: false, recipient, error: "Mail Limit Full ❌" });
       continue;
     }
 
@@ -264,7 +273,8 @@ app.post("/api/send-batch", async (req, res) => {
     }
 
     if (index < recipients.length - 1) {
-      await new Promise(res => setTimeout(res, 100 + Math.random() * 100));
+      // Balanced micro-stagger delay (250ms - 450ms)
+      await new Promise(res => setTimeout(res, 250 + Math.random() * 200));
     }
   }
 
@@ -277,14 +287,15 @@ app.post("/api/send-batch", async (req, res) => {
     success: true,
     results: { sent, failed },
     limitExceeded,
-    message: limitExceeded ? "Mail Limit Full" : undefined
+    message: limitExceeded ? "Mail Limit Full ❌" : undefined
   });
 });
 
-/* ==========================================================================
-   SEND STREAM (REAL-TIME SSE ROUTE)
-   ========================================================================== */
-
+/**
+ * High-speed Server-Sent Events (SSE) streaming route
+ * Sends 1-by-1 sequentially on the server side with warm pools,
+ * and streams results instantly to the client in real-time.
+ */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -301,7 +312,7 @@ app.post("/api/send-stream", async (req, res) => {
   if (cfToken && TURNSTILE_SECRET_KEY) {
     const isValidToken = await verifyTurnstile(cfToken, req.ip);
     if (!isValidToken) {
-      res.write(`data: ${JSON.stringify({ success: false, error: "Security check failed. Try again." })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: false, error: "Spam check failed. Try again." })}\n\n`);
       res.end();
       return;
     }
@@ -331,7 +342,7 @@ app.post("/api/send-stream", async (req, res) => {
     }
 
     if (currentSentCount >= 28 || index >= allowedRemaining) {
-      res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Mail Limit Full", limitExceeded: true })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Mail Limit Full ❌", limitExceeded: true })}\n\n`);
       continue;
     }
 
@@ -391,7 +402,8 @@ app.post("/api/send-stream", async (req, res) => {
     }
 
     if (index < recipients.length - 1) {
-      await new Promise(res => setTimeout(res, 100 + Math.random() * 100));
+      // Balanced micro-stagger delay (250ms - 450ms)
+      await new Promise(res => setTimeout(res, 250 + Math.random() * 200));
     }
   }
 
@@ -407,6 +419,7 @@ app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stopping future batches." });
 
+  // Reset stop state after 5 seconds to allow subsequent submissions
   setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
 });
 
