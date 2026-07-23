@@ -74,8 +74,7 @@ const transporters = {};
 /**
  * Retrieves an existing or creates a new pooled nodemailer transport instance.
  * Using SMTP connection pooling is highly recommended for Gmail to maintain
- * connection state and avoid repeated SSL handshake overhead, which triggers
- * security/spam filters on rapid connections.
+ * connection state and avoid repeated SSL handshake overhead.
  */
 function getTransporter(email, appPassword) {
   const cacheKey = `${email.toLowerCase().trim()}_${appPassword}`;
@@ -86,8 +85,8 @@ function getTransporter(email, appPassword) {
         user: email,
         pass: appPassword
       },
-      pool: true,             // Enable connection pooling for ultra-fast reuse
-      maxConnections: 5,      // Standard concurrent pool connections
+      pool: true,             // Connection pooling enabled
+      maxConnections: 5,      // Concurrent connections pool
       maxMessages: 100
     });
   }
@@ -139,7 +138,7 @@ app.post("/api/verify", async (req, res) => {
 
 /**
  * Recursively parses spintax format {option1|option2|option3}
- * to generate unique, organic-looking emails that bypass copy-paste bulk spam detectors.
+ * to generate unique, organic-looking content.
  */
 function parseSpintax(text) {
   if (!text) return "";
@@ -155,7 +154,7 @@ function parseSpintax(text) {
 }
 
 /**
- * Generates an authentic, clean RFC 2822 Message-ID to ensure high inbox deliverability reputation
+ * Generates an authentic, clean RFC 2822 Message-ID to ensure high deliverability
  */
 function generateCleanMessageId(senderEmail) {
   const domain = senderEmail.includes('@') ? senderEmail.split('@')[1] : 'gmail.com';
@@ -295,7 +294,7 @@ app.post("/api/send-batch", async (req, res) => {
     }
 
     if (index < recipients.length - 1) {
-      // Adjusted micro-stagger delay (200ms - 300ms)
+      // Micro-stagger delay (~200ms - 300ms)
       await new Promise(res => setTimeout(res, 200 + Math.random() * 100));
     }
   }
@@ -315,8 +314,6 @@ app.post("/api/send-batch", async (req, res) => {
 
 /**
  * High-speed Server-Sent Events (SSE) streaming route
- * Sends 1-by-1 sequentially on the server side with warm pools,
- * and streams results instantly to the client in real-time.
  */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -436,7 +433,7 @@ app.post("/api/send-stream", async (req, res) => {
     }
 
     if (index < recipients.length - 1) {
-      // Adjusted micro-stagger delay (200ms - 300ms)
+      // Micro-stagger delay (~200ms - 300ms)
       await new Promise(res => setTimeout(res, 200 + Math.random() * 100));
     }
   }
@@ -453,7 +450,6 @@ app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stopping future batches." });
 
-  // Reset stop state after 5 seconds to allow subsequent submissions
   setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
 });
 
