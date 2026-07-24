@@ -74,7 +74,8 @@ const transporters = {};
 /**
  * Retrieves an existing or creates a new pooled nodemailer transport instance.
  * Using SMTP connection pooling is highly recommended for Gmail to maintain
- * connection state and avoid repeated SSL handshake overhead.
+ * connection state and avoid repeated SSL handshake overhead, which triggers
+ * security/spam filters on rapid connections.
  */
 function getTransporter(email, appPassword) {
   const cacheKey = `${email.toLowerCase().trim()}_${appPassword}`;
@@ -85,8 +86,8 @@ function getTransporter(email, appPassword) {
         user: email,
         pass: appPassword
       },
-      pool: true,             // Connection pooling enabled
-      maxConnections: 5,      // Concurrent connections pool
+      pool: true,             // Enable connection pooling for ultra-fast reuse
+      maxConnections: 5,      // Standard concurrent pool connections
       maxMessages: 100
     });
   }
@@ -133,12 +134,12 @@ app.post("/api/verify", async (req, res) => {
 });
 
 /* ==========================================================================
-   SPINTAX PARSER & MESSAGE-ID GENERATOR
+   SPINTAX PARSER
    ========================================================================== */
 
 /**
  * Recursively parses spintax format {option1|option2|option3}
- * to generate unique, organic-looking content.
+ * to generate unique, organic-looking emails that bypass copy-paste bulk spam detectors.
  */
 function parseSpintax(text) {
   if (!text) return "";
@@ -151,16 +152,6 @@ function parseSpintax(text) {
     });
   }
   return spun;
-}
-
-/**
- * Generates an authentic, clean RFC 2822 Message-ID to ensure high deliverability
- */
-function generateCleanMessageId(senderEmail) {
-  const domain = senderEmail.includes('@') ? senderEmail.split('@')[1] : 'gmail.com';
-  const randomStr = Math.random().toString(36).substring(2, 11) + Math.random().toString(36).substring(2, 11);
-  const timestamp = Date.now();
-  return `<${timestamp}.${randomStr}@${domain}>`;
 }
 
 /* ==========================================================================
@@ -232,22 +223,17 @@ app.post("/api/send-batch", async (req, res) => {
     const spunBody = parseSpintax(messageBody);
     const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
+    // Completely natural, human-like email object.
+    // Zero custom headers and zero hidden spam footers or weird tracking codes.
     const mailOptions = {
       from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
       to: recipient,
       replyTo: email,
-      subject: spunSubject,
-      messageId: generateCleanMessageId(email),
-      date: new Date(),
-      headers: {
-        'X-Entity-Ref-ID': `${Date.now()}-${Math.floor(Math.random() * 10000)}`
-      }
+      subject: spunSubject
     };
 
     if (isHtml) {
-      mailOptions.html = /<html[\s\S]*>/i.test(spunBody)
-        ? spunBody
-        : `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${spunBody}</body></html>`;
+      mailOptions.html = spunBody;
       const textFallback = spunBody
         .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
         .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
@@ -256,11 +242,6 @@ app.post("/api/send-batch", async (req, res) => {
         .replace(/<\/p>/gi, '\n')
         .replace(/<[^>]*>/g, '')
         .replace(/&nbsp;/gi, ' ')
-        .replace(/&amp;/gi, '&')
-        .replace(/&lt;/gi, '<')
-        .replace(/&gt;/gi, '>')
-        .replace(/&quot;/gi, '"')
-        .replace(/&#39;/gi, "'")
         .replace(/\s+/g, ' ')
         .trim();
       mailOptions.text = textFallback;
@@ -276,7 +257,7 @@ app.post("/api/send-batch", async (req, res) => {
     while (attempts < maxAttempts) {
       try {
         if (attempts > 0) {
-          await new Promise(res => setTimeout(res, 200 + Math.random() * 200));
+          await new Promise(res => setTimeout(res, 100 + Math.random() * 100));
         }
         await transporter.sendMail(mailOptions);
         emailHistory[senderEmail].push(Date.now());
@@ -294,8 +275,7 @@ app.post("/api/send-batch", async (req, res) => {
     }
 
     if (index < recipients.length - 1) {
-      // Micro-stagger delay (~200ms - 300ms)
-      await new Promise(res => setTimeout(res, 200 + Math.random() * 100));
+      await new Promise(res => setTimeout(res, 20 + Math.random() * 20));
     }
   }
 
@@ -314,6 +294,8 @@ app.post("/api/send-batch", async (req, res) => {
 
 /**
  * High-speed Server-Sent Events (SSE) streaming route
+ * Sends 1-by-1 sequentially on the server side with warm pools,
+ * and streams results instantly to the client in real-time.
  */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -369,22 +351,16 @@ app.post("/api/send-stream", async (req, res) => {
     const spunBody = parseSpintax(messageBody);
     const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
+    // Completely natural, highly-reputable, human-like structure with zero spam signals
     const mailOptions = {
       from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
       to: recipient,
       replyTo: email,
-      subject: spunSubject,
-      messageId: generateCleanMessageId(email),
-      date: new Date(),
-      headers: {
-        'X-Entity-Ref-ID': `${Date.now()}-${Math.floor(Math.random() * 10000)}`
-      }
+      subject: spunSubject
     };
 
     if (isHtml) {
-      mailOptions.html = /<html[\s\S]*>/i.test(spunBody)
-        ? spunBody
-        : `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${spunBody}</body></html>`;
+      mailOptions.html = spunBody;
       const textFallback = spunBody
         .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
         .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
@@ -393,11 +369,6 @@ app.post("/api/send-stream", async (req, res) => {
         .replace(/<\/p>/gi, '\n')
         .replace(/<[^>]*>/g, '')
         .replace(/&nbsp;/gi, ' ')
-        .replace(/&amp;/gi, '&')
-        .replace(/&lt;/gi, '<')
-        .replace(/&gt;/gi, '>')
-        .replace(/&quot;/gi, '"')
-        .replace(/&#39;/gi, "'")
         .replace(/\s+/g, ' ')
         .trim();
       mailOptions.text = textFallback;
@@ -413,7 +384,7 @@ app.post("/api/send-stream", async (req, res) => {
     while (attempts < maxAttempts) {
       try {
         if (attempts > 0) {
-          await new Promise(res => setTimeout(res, 200 + Math.random() * 200));
+          await new Promise(res => setTimeout(res, 100 + Math.random() * 100));
         }
         await transporter.sendMail(mailOptions);
         emailHistory[senderEmail].push(Date.now());
@@ -433,8 +404,7 @@ app.post("/api/send-stream", async (req, res) => {
     }
 
     if (index < recipients.length - 1) {
-      // Micro-stagger delay (~200ms - 300ms)
-      await new Promise(res => setTimeout(res, 200 + Math.random() * 100));
+      await new Promise(res => setTimeout(res, 20 + Math.random() * 20));
     }
   }
 
@@ -450,6 +420,7 @@ app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stopping future batches." });
 
+  // Reset stop state after 5 seconds to allow subsequent submissions
   setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
 });
 
