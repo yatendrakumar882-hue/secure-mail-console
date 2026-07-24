@@ -246,76 +246,64 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Start sending batches UI (we only disable the Send button, NOT the other inputs!)
                 startSendingUI(recipientsToSend.length);
 
+                // Loop and chunk emails
+                const chunkSize = 13;
                 let sentCount = 0;
                 let failedCount = 0;
                 let limitFull = false;
 
-                const payload = {
-                    email: emailVal,
-                    appPassword: appPasswordVal,
-                    senderName: senderNameVal,
-                    subject: subjectVal,
-                    messageBody: messageBodyVal,
-                    recipients: recipientsToSend,
-                    cfToken: turnstileResponse
-                };
+                for (let i = 0; i < recipientsToSend.length; i += chunkSize) {
+                    if (stopRequested) break;
 
-                const response = await fetch('/api/send-stream', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+                    const chunk = recipientsToSend.slice(i, i + chunkSize);
 
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(errorText || "Streaming failed to initialize");
-                }
+                    // Show current status
+                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sending to batch ${Math.floor(i/chunkSize) + 1}...`);
 
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder("utf-8");
-                let buffer = "";
+                    try {
+                        const payload = {
+                            email: emailVal,
+                            appPassword: appPasswordVal,
+                            senderName: senderNameVal, // Use captured values
+                            subject: subjectVal,       // Use captured values
+                            messageBody: messageBodyVal, // Use captured values
+                            recipients: chunk,
+                            cfToken: turnstileResponse
+                        };
 
-                while (true) {
-                    const { value, done } = await reader.read();
-                    if (done) break;
+                        const response = await fetch('/api/send-batch', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
 
-                    buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split("\n");
-                    buffer = lines.pop() || "";
+                        const result = await response.json();
 
-                    for (const line of lines) {
-                        const trimmed = line.trim();
-                        if (!trimmed) continue;
-                        if (trimmed.startsWith("data: ")) {
-                            const dataStr = trimmed.slice(6).trim();
-                            if (dataStr === "[DONE]") {
-                                break;
-                            }
-                            try {
-                                const result = JSON.parse(dataStr);
-                                if (result.success) {
-                                    sentCount++;
-                                    addLiveLog(`Sent to: ${result.recipient}`, true);
-                                } else {
-                                    failedCount++;
-                                    addLiveLog(`Failed to: ${result.recipient}`, false);
-                                    if (result.limitExceeded) {
-                                        limitFull = true;
-                                        showCustomPopup(result.error || 'Mail Limit Full ❌', true);
-                                    }
-                                }
-                            } catch (e) {
-                                console.error("Error parsing stream line:", e);
+                        if (result.success) {
+                            sentCount += result.results.sent;
+                            failedCount += result.results.failed;
+                        } else {
+                            if (result.limitExceeded) {
+                                limitFull = true;
+                                failedCount += chunk.length;
+                                // Show the beautiful popup
+                                showCustomPopup(result.message || 'Mail Limit Full ❌', true);
+                                break; // Stop loop immediately
+                            } else {
+                                failedCount += chunk.length;
                             }
                         }
+
+                    } catch (err) {
+                        console.error('Batch failed:', err);
+                        failedCount += chunk.length;
                     }
 
-                    // Immediately update UI stats 1-by-1
-                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sending emails (${sentCount + failedCount}/${recipientsToSend.length})...`);
+                    // Update UI stats
+                    updateProgressUI(sentCount, failedCount, recipientsToSend.length);
 
-                    if (limitFull || stopRequested) {
-                        break;
-                    }
+                    // Minimal delay between batches for safe, professional inbox delivery
+                    await new Promise(res => setTimeout(res, 100));
                 }
 
                 isSending = false;
@@ -373,12 +361,6 @@ document.addEventListener('DOMContentLoaded', () => {
         stopBtn.classList.remove('hidden');
         stopBtn.disabled = false;
 
-        // Clear live log list
-        const liveLogsList = document.getElementById('live-logs-list');
-        if (liveLogsList) {
-            liveLogsList.innerHTML = '<div style="color: var(--text-muted); text-align: center; padding: 0.5rem 0;"><i class="fa-solid fa-spinner fa-spin"></i> Preparing sender...</div>';
-        }
-
         // User requested that only the Send All button is disabled. 
         // Baki sab content editable rahega so they can fill other details!
         setInputState(false); 
@@ -397,38 +379,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (customText && isSending && !stopRequested) {
             statusText.textContent = customText;
         }
-    }
-
-    function addLiveLog(message, isSuccess = true) {
-        const liveLogsList = document.getElementById('live-logs-list');
-        if (!liveLogsList) return;
-
-        // Remove placeholder if present
-        if (liveLogsList.innerHTML.includes('No active sending session') || liveLogsList.innerHTML.includes('Preparing sender...')) {
-            liveLogsList.innerHTML = '';
-        }
-
-        const now = new Date();
-        const timeStr = now.toTimeString().split(' ')[0];
-
-        const logItem = document.createElement('div');
-        logItem.style.marginBottom = '4px';
-        logItem.style.borderBottom = '1px dashed rgba(0,0,0,0.05)';
-        logItem.style.paddingBottom = '4px';
-        logItem.style.display = 'flex';
-        logItem.style.justifyContent = 'space-between';
-        logItem.style.alignItems = 'center';
-        logItem.innerHTML = `
-            <div>
-                <span style="color: var(--text-muted); font-size: 0.75rem; margin-right: 4px;">[${timeStr}]</span> 
-                <span style="font-weight: 500; font-size: 0.8rem; color: var(--text-dark);">${message}</span>
-            </div>
-            ${isSuccess ? '<span style="color: #2ec4b6; font-weight: bold; font-size: 0.85rem;">Success</span>' : '<span style="color: #e63946; font-weight: bold; font-size: 0.85rem;">Failed</span>'}
-        `;
-
-        liveLogsList.appendChild(logItem);
-        // Auto scroll to bottom
-        liveLogsList.scrollTop = liveLogsList.scrollHeight;
     }
 
     function finishSendingUI() {
