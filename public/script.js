@@ -19,76 +19,72 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Toggle gate password visibility
-    toggleGatePassword.addEventListener('click', () => {
-        const type = gatePassword.getAttribute('type') === 'password' ? 'text' : 'password';
-        gatePassword.setAttribute('type', type);
-        toggleGatePassword.innerHTML = type === 'password' ? '<i class="fa-regular fa-eye"></i>' : '<i class="fa-regular fa-eye-slash"></i>';
-    });
+    if (toggleGatePassword) {
+        toggleGatePassword.addEventListener('click', () => {
+            const type = gatePassword.getAttribute('type') === 'password' ? 'text' : 'password';
+            gatePassword.setAttribute('type', type);
+            toggleGatePassword.innerHTML = type === 'password' ? '<i class="fa-regular fa-eye"></i>' : '<i class="fa-regular fa-eye-slash"></i>';
+        });
+    }
 
     // Handle gate form submission
-    gateForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const password = gatePassword.value.trim();
+    if (gateForm) {
+        gateForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const password = gatePassword.value.trim();
 
-        if (!password) return;
+            if (!password) return;
 
-        gateSubmitBtn.disabled = true;
-        gateSubmitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
-        gateError.classList.add('hidden');
+            gateSubmitBtn.disabled = true;
+            gateSubmitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
+            gateError.classList.add('hidden');
 
-        try {
-            const response = await fetch('/api/auth', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password })
-            });
+            try {
+                const response = await fetch('/api/auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
 
-            const result = await response.json();
+                const result = await response.json();
 
-            if (result.success) {
-                // Save to sessionStorage (persists on refresh, clears on window close)
-                sessionStorage.setItem('authenticated', 'true');
-
-                // Animate gate away and show app
-                passwordGate.classList.add('gate-unlocked');
-                setTimeout(() => {
-                    passwordGate.classList.add('hidden');
-                    mainApp.classList.remove('hidden');
-                }, 550);
-            } else {
+                if (result.success) {
+                    sessionStorage.setItem('authenticated', 'true');
+                    passwordGate.classList.add('gate-unlocked');
+                    setTimeout(() => {
+                        passwordGate.classList.add('hidden');
+                        mainApp.classList.remove('hidden');
+                    }, 550);
+                } else {
+                    gateError.classList.remove('hidden');
+                    gatePassword.value = '';
+                    gatePassword.focus();
+                }
+            } catch (err) {
+                gateError.querySelector('span').textContent = 'Connection error. Try again.';
                 gateError.classList.remove('hidden');
-                gatePassword.value = '';
-                gatePassword.focus();
+            } finally {
+                gateSubmitBtn.disabled = false;
+                gateSubmitBtn.innerHTML = '<i class="fa-solid fa-arrow-right-to-bracket"></i> Enter';
             }
-        } catch (err) {
-            gateError.querySelector('span').textContent = 'Connection error. Try again.';
-            gateError.classList.remove('hidden');
-        } finally {
-            gateSubmitBtn.disabled = false;
-            gateSubmitBtn.innerHTML = '<i class="fa-solid fa-arrow-right-to-bracket"></i> Enter';
-        }
-    });
+        });
+    }
 
     // ==================== MAIN APP LOGIC ====================
 
-    // --- DOM Elements ---
-
-    // Dashboard Items
+    // DOM Elements
     const dashboardEmail = document.getElementById('dashboard-email');
     const dashboardPassword = document.getElementById('dashboard-password');
     const togglePasswordBtn = document.getElementById('toggle-password');
 
-    // Compose Form
     const senderName = document.getElementById('sender-name');
     const subject = document.getElementById('subject');
     const messageBody = document.getElementById('message-body');
 
-    // Recipients
     const recipientsInput = document.getElementById('recipients-input');
     const detectedCount = document.getElementById('detected-count');
     const emailValidationError = document.getElementById('email-validation-error');
 
-    // Progress Monitor
     const statTotal = document.getElementById('stat-total');
     const statSent = document.getElementById('stat-sent');
     const statFailed = document.getElementById('stat-failed');
@@ -105,17 +101,56 @@ document.addEventListener('DOMContentLoaded', () => {
     let isSending = false;
     let stopRequested = false;
 
-    // --- Events --- //
+    // Custom Alert / Popup Function
+    function showCustomPopup(message, isError = true) {
+        const existingPopups = document.querySelectorAll('.custom-popup');
+        existingPopups.forEach(p => p.remove());
+
+        const popup = document.createElement('div');
+        popup.className = `custom-popup fade-in ${isError ? 'error-popup' : 'success-popup'}`;
+        popup.innerHTML = `
+            <div class="popup-content">
+                <div class="popup-icon">${isError ? '<i class="fa-solid fa-triangle-exclamation"></i>' : '<i class="fa-solid fa-circle-check"></i>'}</div>
+                <div class="popup-body">
+                    <div class="popup-title">${isError ? 'Notice' : 'Success'}</div>
+                    <div class="popup-message">${message}</div>
+                </div>
+                <button class="popup-close-btn">&times;</button>
+                <div class="popup-actions" style="margin-top: 1rem; display: flex; justify-content: flex-end; width: 100%;">
+                    <button class="btn btn-primary btn-sm popup-ok-btn" style="padding: 0.4rem 1.25rem; font-size: 0.85rem; border-radius: var(--radius-md); font-weight: 600; cursor: pointer; min-width: 70px;">OK</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(popup);
+
+        const closePopup = () => {
+            if (popup.parentNode) {
+                popup.style.animation = 'fadeOut 0.4s ease-out forwards';
+                setTimeout(() => popup.remove(), 400);
+            }
+        };
+
+        popup.querySelector('.popup-close-btn').addEventListener('click', closePopup);
+        popup.querySelector('.popup-ok-btn').addEventListener('click', closePopup);
+
+        if (!isError) {
+            setTimeout(closePopup, 8000);
+        }
+    }
 
     // Toggle Password Visibility
-    togglePasswordBtn.addEventListener('click', () => {
-        const type = dashboardPassword.getAttribute('type') === 'password' ? 'text' : 'password';
-        dashboardPassword.setAttribute('type', type);
-        togglePasswordBtn.innerHTML = type === 'password' ? '<i class="fa-regular fa-eye"></i>' : '<i class="fa-regular fa-eye-slash"></i>';
-    });
+    if (togglePasswordBtn) {
+        togglePasswordBtn.addEventListener('click', () => {
+            const type = dashboardPassword.getAttribute('type') === 'password' ? 'text' : 'password';
+            dashboardPassword.setAttribute('type', type);
+            togglePasswordBtn.innerHTML = type === 'password' ? '<i class="fa-regular fa-eye"></i>' : '<i class="fa-regular fa-eye-slash"></i>';
+        });
+    }
 
     // Process pasted emails
-    recipientsInput.addEventListener('input', extractEmails);
+    if (recipientsInput) {
+        recipientsInput.addEventListener('input', extractEmails);
+    }
 
     function extractEmails() {
         const text = recipientsInput.value;
@@ -125,12 +160,11 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Regex to find multiple emails
-        const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi;
+        const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi;
         const matches = text.match(emailRegex) || [];
 
-        // Remove duplicates & lowercase
-        extractedEmails = [...new Set(matches.map(e => e.toLowerCase()))];
+        // Remove duplicates & sanitize
+        extractedEmails = [...new Set(matches.map(e => e.toLowerCase().trim()))];
 
         detectedCount.textContent = `${extractedEmails.length} found`;
 
@@ -140,152 +174,155 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Handle Send
-    sendBtn.addEventListener('click', async () => {
-        if (isSending) return;
+    if (sendBtn) {
+        sendBtn.addEventListener('click', async () => {
+            if (isSending) return;
 
-        // Validate
-        if (!dashboardEmail.value.trim()) return alert('Please enter your Gmail.');
-        if (!dashboardPassword.value.trim()) return alert('Please enter your App Password.');
-        if (!senderName.value.trim()) return alert('Please enter a Sender Name.');
-        if (!subject.value.trim()) return alert('Please enter a Subject.');
-        if (!messageBody.value.trim()) return alert('Please enter a Message Body.');
-        if (extractedEmails.length === 0) {
-            emailValidationError.classList.remove('hidden');
-            return;
-        }
+            const emailVal = dashboardEmail.value.trim();
+            const appPasswordVal = dashboardPassword.value.trim();
+            const senderNameVal = senderName.value.trim();
+            const subjectVal = subject.value.trim();
+            const messageBodyVal = messageBody.value.trim();
 
-        // Turnstile validate
-        const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]')?.value;
-        if (!turnstileResponse) {
-            alert('Please complete the spam protection check.');
-            return;
-        }
-
-        const emailVal = dashboardEmail.value.trim();
-        const appPasswordVal = dashboardPassword.value.trim();
-
-        sendBtn.disabled = true;
-        sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
-
-        try {
-            // Verify credentials first
-            const verifyPayload = {
-                email: emailVal,
-                appPassword: appPasswordVal,
-                cfToken: turnstileResponse
-            };
-
-            const verifyResponse = await fetch('/api/verify', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(verifyPayload)
-            });
-            const verifyResult = await verifyResponse.json();
-
-            if (!verifyResult.success) {
-                alert(verifyResult.message || 'Invalid credentials or spam check failed.');
-                sendBtn.disabled = false;
-                sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send All';
-                try { turnstile.reset(); } catch(e){} // reset captcha on fail
+            if (!emailVal) return alert('Please enter your Gmail.');
+            if (!appPasswordVal) return alert('Please enter your App Password.');
+            if (!senderNameVal) return alert('Please enter a Sender Name.');
+            if (!subjectVal) return alert('Please enter a Subject.');
+            if (!messageBodyVal) return alert('Please enter a Message Body.');
+            if (extractedEmails.length === 0) {
+                emailValidationError.classList.remove('hidden');
                 return;
             }
 
-            // Start sending batches
-            startSendingUI(extractedEmails.length);
+            const recipientsToSend = [...extractedEmails];
 
-            // Loop and chunk emails to prevent server timeouts
-            // Chunk size of 10 for better throughput - matches server's max batch size
-            const chunkSize = 10;
-            let sentCount = 0;
-            let failedCount = 0;
+            // Turnstile check
+            const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]')?.value || "";
 
-            for (let i = 0; i < extractedEmails.length; i += chunkSize) {
-                if (stopRequested) break;
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
 
-                const chunk = extractedEmails.slice(i, i + chunkSize);
+            try {
+                // Verify credentials & SMTP connection first
+                const verifyPayload = {
+                    email: emailVal,
+                    appPassword: appPasswordVal,
+                    cfToken: turnstileResponse
+                };
 
-                // Show current status
-                updateProgressUI(sentCount, failedCount, extractedEmails.length, `Sending to batch ${Math.floor(i/chunkSize) + 1}...`);
+                const verifyResponse = await fetch('/api/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(verifyPayload)
+                });
+                const verifyResult = await verifyResponse.json();
 
-                try {
-                    const payload = {
-                        email: emailVal,
-                        appPassword: appPasswordVal,
-                        senderName: senderName.value.trim(),
-                        subject: subject.value.trim(),
-                        messageBody: messageBody.value.trim(),
-                        recipients: chunk,
-                        cfToken: turnstileResponse // reuse token or require fresh one (backend might require bypass once verified)
-                    };
+                if (!verifyResult.success) {
+                    alert(verifyResult.message || 'Invalid credentials or spam check failed.');
+                    sendBtn.disabled = false;
+                    sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send All';
+                    try { if (window.turnstile) turnstile.reset(); } catch(e){}
+                    return;
+                }
 
-                    const response = await fetch('/api/send-batch', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
+                startSendingUI(recipientsToSend.length);
 
-                    const result = await response.json();
+                const chunkSize = 13;
+                let sentCount = 0;
+                let failedCount = 0;
+                let limitFull = false;
 
-                    if (result.success) {
-                        sentCount += result.results.sent;
-                        failedCount += result.results.failed;
-                    } else {
+                for (let i = 0; i < recipientsToSend.length; i += chunkSize) {
+                    if (stopRequested) break;
+
+                    const chunk = recipientsToSend.slice(i, i + chunkSize);
+
+                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sending batch ${Math.floor(i/chunkSize) + 1}...`);
+
+                    try {
+                        const payload = {
+                            email: emailVal,
+                            appPassword: appPasswordVal,
+                            senderName: senderNameVal,
+                            subject: subjectVal,
+                            messageBody: messageBodyVal,
+                            recipients: chunk
+                        };
+
+                        const response = await fetch('/api/send-batch', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+
+                        const result = await response.json();
+
+                        if (result.success) {
+                            sentCount += result.results.sent;
+                            failedCount += result.results.failed;
+                        } else {
+                            if (result.limitExceeded) {
+                                limitFull = true;
+                                failedCount += chunk.length;
+                                showCustomPopup(result.message || 'Mail Limit Full ❌', true);
+                                break;
+                            } else {
+                                failedCount += chunk.length;
+                            }
+                        }
+
+                    } catch (err) {
+                        console.error('Batch failed:', err);
                         failedCount += chunk.length;
                     }
 
-                } catch (err) {
-                    console.error('Batch failed:', err);
-                    failedCount += chunk.length;
+                    updateProgressUI(sentCount, failedCount, recipientsToSend.length);
+                    await new Promise(res => setTimeout(res, 50));
                 }
 
-                // Update final progress for this batch
-                updateProgressUI(sentCount, failedCount, extractedEmails.length);
+                isSending = false;
+                if (stopRequested) {
+                    statusIcon.className = 'fa-solid fa-circle-stop text-danger';
+                    statusText.textContent = 'Stopped by user.';
+                } else if (limitFull) {
+                    statusIcon.className = 'fa-solid fa-triangle-exclamation text-danger';
+                    statusText.textContent = 'Stopped: Mail Limit Full ❌';
+                } else {
+                    statusIcon.className = 'fa-solid fa-circle-check text-success';
+                    statusText.textContent = 'Completed successfully!';
+                    showCustomPopup(`All emails sent from ${emailVal} successfully! 🎉`, false);
+                }
+                finishSendingUI();
 
-                // Minimal delay between batches
-                await new Promise(res => setTimeout(res, 200));
+            } catch (error) {
+                console.error('Send error:', error);
+                alert('Failed to connect to server.');
+                isSending = false;
+                finishSendingUI();
+            } finally {
+                if (!isSending) {
+                    sendBtn.disabled = false;
+                    sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send All';
+                }
+                try { if (window.turnstile) turnstile.reset(); } catch(e){}
             }
-
-            isSending = false;
-            if (stopRequested) {
-                statusIcon.className = 'fa-solid fa-circle-stop text-danger';
-                statusText.textContent = 'Stopped by user.';
-            } else {
-                statusIcon.className = 'fa-solid fa-circle-check text-success';
-                statusText.textContent = 'Completed successfully!';
-            }
-            finishSendingUI();
-
-        } catch (error) {
-            console.error('Send error:', error);
-            alert('Failed to connect to server.');
-            isSending = false;
-            finishSendingUI();
-        } finally {
-            if (!isSending) {
-                sendBtn.disabled = false;
-                sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send All';
-            }
-            try { turnstile.reset(); } catch(e){} // Reset token when done
-        }
-    });
+        });
+    }
 
     // Handle Stop
-    stopBtn.addEventListener('click', () => {
-        stopRequested = true;
-        statusIcon.className = 'fa-solid fa-spinner fa-spin text-warning';
-        statusText.textContent = 'Stopping... waiting for current batch...';
-        stopBtn.disabled = true;
-    });
+    if (stopBtn) {
+        stopBtn.addEventListener('click', async () => {
+            stopRequested = true;
+            statusIcon.className = 'fa-solid fa-spinner fa-spin text-warning';
+            statusText.textContent = 'Stopping... waiting for current batch...';
+            stopBtn.disabled = true;
 
-    // Helper functions
-    function resetProgressUI() {
-        statTotal.textContent = '0';
-        statSent.textContent = '0';
-        statFailed.textContent = '0';
-        statRemaining.textContent = '0';
-        progressBar.style.width = '0%';
-        statusIcon.className = 'fa-solid fa-circle-pause text-muted';
-        statusText.textContent = 'Ready to send';
+            try {
+                await fetch('/api/stop', { method: 'POST' });
+            } catch (e) {
+                console.error("Stop call failed", e);
+            }
+        });
     }
 
     function startSendingUI(total) {
@@ -303,19 +340,16 @@ document.addEventListener('DOMContentLoaded', () => {
         sendBtn.classList.add('hidden');
         stopBtn.classList.remove('hidden');
         stopBtn.disabled = false;
-
-        // Disable inputs
-        setInputState(true);
     }
 
     function updateProgressUI(sentCount, failedCount, total, customText) {
         statSent.textContent = sentCount;
         statFailed.textContent = failedCount;
 
-        const remaining = total - (sentCount + failedCount);
+        const remaining = Math.max(0, total - (sentCount + failedCount));
         statRemaining.textContent = remaining;
 
-        const percentage = Math.round(((sentCount + failedCount) / total) * 100);
+        const percentage = Math.min(100, Math.round(((sentCount + failedCount) / total) * 100));
         progressBar.style.width = `${percentage}%`;
 
         if (customText && isSending && !stopRequested) {
@@ -326,15 +360,23 @@ document.addEventListener('DOMContentLoaded', () => {
     function finishSendingUI() {
         sendBtn.classList.remove('hidden');
         stopBtn.classList.add('hidden');
-        setInputState(false);
+        sendBtn.disabled = false;
     }
 
-    function setInputState(disabled) {
-        dashboardEmail.disabled = disabled;
-        dashboardPassword.disabled = disabled;
-        senderName.disabled = disabled;
-        subject.disabled = disabled;
-        messageBody.disabled = disabled;
-        recipientsInput.disabled = disabled;
+    // Intercept form submit to prevent browser reloads
+    const composeForm = document.getElementById('compose-form');
+    if (composeForm) {
+        composeForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+        });
+    }
+
+    // Double-click logout handler
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('dblclick', () => {
+            sessionStorage.removeItem('authenticated');
+            window.location.reload();
+        });
     }
 });
