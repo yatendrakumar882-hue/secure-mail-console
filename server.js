@@ -144,9 +144,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Standard interval delay between dispatches (1 seconds)
-    if (index < validRecipients.length - 3) {
-      await new Promise(resolve => setTimeout(resolve, 500));
+    // Standard interval delay between dispatches (2 seconds)
+    if (index < validRecipients.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 600));
     }
   }
 
