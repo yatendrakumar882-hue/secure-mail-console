@@ -60,11 +60,11 @@ function getTransporter(email, appPassword) {
         user: email,
         pass: appPassword
       },
-      pool: true,             // High performance SMTP connection pooling
-      maxConnections: 5,     // Optimal concurrent connections for Gmail
+      pool: true,             // Active connection pool for rapid delivery
+      maxConnections: 5,      // Concurrent pool connections
       maxMessages: 100,
       rateDelta: 1000,
-      rateLimit: 5            // Smooth delivery rate to prevent Gmail throttling
+      rateLimit: 10
     });
   }
   return transporters[cacheKey];
@@ -126,7 +126,7 @@ app.post("/api/verify", async (req, res) => {
 });
 
 /* ==========================================================================
-   SPINTAX PARSER (RECURSIVE & SAFE)
+   SPINTAX PARSER
    ========================================================================== */
 function parseSpintax(text) {
   if (!text) return "";
@@ -166,24 +166,19 @@ function convertHtmlToText(html) {
 }
 
 /* ==========================================================================
-   SEND BATCH ROUTE
+   1-BY-1 REALTIME SSE STREAM SENDING ROUTE
    ========================================================================== */
-app.post("/api/send-batch", async (req, res) => {
-  const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
+app.post("/api/send-stream", async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  const { email, appPassword, senderName, subject, messageBody, recipients } = req.body;
 
   if (!email || !appPassword || !recipients?.length) {
-    return res.status(400).json({
-      success: false,
-      message: "Missing required fields"
-    });
-  }
-
-  // Turnstile verification (optional fallback if provided)
-  if (cfToken && TURNSTILE_SECRET_KEY) {
-    const isValidToken = await verifyTurnstile(cfToken, req.ip);
-    if (!isValidToken) {
-      return res.status(400).json({ success: false, message: "Spam check failed. Try again." });
-    }
+    res.write(`data: ${JSON.stringify({ success: false, error: "Missing required fields" })}\n\n`);
+    res.end();
+    return;
   }
 
   const senderEmail = email.toLowerCase().trim();
@@ -193,38 +188,25 @@ app.post("/api/send-batch", async (req, res) => {
   if (!emailHistory[senderEmail]) {
     emailHistory[senderEmail] = [];
   }
-  // Clean up old timestamps beyond 1 hour
   emailHistory[senderEmail] = emailHistory[senderEmail].filter(ts => ts > oneHourAgo);
 
-  const currentSentCount = emailHistory[senderEmail].length;
-  if (currentSentCount >= 28) {
-    return res.status(400).json({
-      success: false,
-      limitExceeded: true,
-      message: `Mail Limit Full ❌ (Sent: ${currentSentCount}/28 in the last hour)`
-    });
-  }
-
+  let currentSentCount = emailHistory[senderEmail].length;
   const transporter = getTransporter(email, appPassword);
-  let sent = 0;
-  let failed = 0;
-  let limitExceeded = false;
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
-  const results = [];
-  const allowedRemaining = 28 - currentSentCount;
 
   for (let index = 0; index < recipients.length; index++) {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
+    // Check if user clicked Stop
     if (activeSessions['global_stop']) {
-      results.push({ success: false, recipient, error: "Stopped by user" });
+      res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Stopped by user" })}\n\n`);
       continue;
     }
 
-    if (index >= allowedRemaining) {
-      limitExceeded = true;
-      results.push({ success: false, recipient, error: "Mail Limit Full ❌" });
+    // Check hourly limit (28 emails / hr)
+    if (currentSentCount >= 28) {
+      res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Mail Limit Full ❌", limitExceeded: true })}\n\n`);
       continue;
     }
 
@@ -232,17 +214,12 @@ app.post("/api/send-batch", async (req, res) => {
     const spunBody = parseSpintax(messageBody);
     const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
-    // Optimized Mail Options for Maximum Inbox Delivery
+    // Completely clean, human-like email object with zero footers and zero links added
     const mailOptions = {
       from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
       to: recipient,
       replyTo: senderEmail,
-      subject: spunSubject,
-      headers: {
-        'X-Mailer': 'Secure Mail Engine',
-        'X-Priority': '3',
-        'Importance': 'normal'
-      }
+      subject: spunSubject
     };
 
     if (isHtml) {
@@ -254,50 +231,30 @@ app.post("/api/send-batch", async (req, res) => {
 
     let sentSuccessfully = false;
     let lastError = null;
-    let attempts = 0;
-    const maxAttempts = 2;
 
-    while (attempts < maxAttempts) {
-      try {
-        if (attempts > 0) {
-          await new Promise(r => setTimeout(r, 200));
-        }
-        await transporter.sendMail(mailOptions);
-        emailHistory[senderEmail].push(Date.now());
-        results.push({ success: true, recipient });
-        sentSuccessfully = true;
-        break;
-      } catch (error) {
-        lastError = error;
-        attempts++;
-      }
+    try {
+      await transporter.sendMail(mailOptions);
+      emailHistory[senderEmail].push(Date.now());
+      currentSentCount++;
+      sentSuccessfully = true;
+    } catch (error) {
+      lastError = error;
     }
 
-    if (!sentSuccessfully) {
-      results.push({ 
-        success: false, 
-        recipient, 
-        error: lastError ? (lastError.message || "SMTP Send Error") : "SMTP Send Error" 
-      });
+    if (sentSuccessfully) {
+      res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
+    } else {
+      res.write(`data: ${JSON.stringify({ success: false, recipient, error: lastError ? lastError.message : "SMTP Send Error" })}\n\n`);
     }
 
+    // Delay between each email: ~160ms so 25 emails complete smoothly in ~4-5 seconds
     if (index < recipients.length - 1) {
-      // Short organic delay between emails to mimic natural human behavior
-      await new Promise(r => setTimeout(r, 30 + Math.floor(Math.random() * 30)));
+      await new Promise(r => setTimeout(r, 150 + Math.floor(Math.random() * 30)));
     }
   }
 
-  for (const result of results) {
-    if (result.success) sent++;
-    else failed++;
-  }
-
-  res.json({
-    success: true,
-    results: { sent, failed },
-    limitExceeded,
-    message: limitExceeded ? "Mail Limit Full ❌" : undefined
-  });
+  res.write("data: [DONE]\n\n");
+  res.end();
 });
 
 /* ==========================================================================
@@ -305,7 +262,7 @@ app.post("/api/send-batch", async (req, res) => {
    ========================================================================== */
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
-  res.json({ success: true, message: "Stopping future batches." });
+  res.json({ success: true, message: "Stopping future sends." });
 
   setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
 });
