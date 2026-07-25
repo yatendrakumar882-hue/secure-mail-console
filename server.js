@@ -48,7 +48,7 @@ const emailHistory = {};
 const transporters = {};
 
 /* ==========================================================================
-   NATURAL GMAIL TRANSPORTER POOLING
+   SMTP TRANSPORTER CONFIGURATION
    ========================================================================== */
 function getTransporter(email, appPassword) {
   const cacheKey = `${email.toLowerCase().trim()}_${appPassword}`;
@@ -60,8 +60,8 @@ function getTransporter(email, appPassword) {
         pass: appPassword
       },
       pool: true,
-      maxConnections: 3,
-      maxMessages: 100
+      maxConnections: 1,
+      maxMessages: 50
     });
   }
   return transporters[cacheKey];
@@ -123,7 +123,7 @@ app.post("/api/verify", async (req, res) => {
 });
 
 /* ==========================================================================
-   SPINTAX PARSER FOR DYNAMIC UNIQUE CONTENT
+   SPINTAX PARSER
    ========================================================================== */
 function parseSpintax(text) {
   if (!text) return "";
@@ -141,7 +141,7 @@ function parseSpintax(text) {
 }
 
 /* ==========================================================================
-   CLEAN TEXT CONVERTER (FOR DUAL MULTIPART INBOX LANDING)
+   PLAIN TEXT CONVERTER FOR MULTIPART MESSAGES
    ========================================================================== */
 function convertHtmlToText(html) {
   if (!html) return "";
@@ -163,7 +163,7 @@ function convertHtmlToText(html) {
 }
 
 /* ==========================================================================
-   1-BY-1 INBOX SAFE REALTIME SSE STREAM ROUTE
+   SAFE 1-BY-1 REALTIME STREAMING ROUTE
    ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -209,7 +209,7 @@ app.post("/api/send-stream", async (req, res) => {
     const spunBody = parseSpintax(messageBody);
     const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
-    // Natural Mail Options - No Fake/Custom X-Headers!
+    // Standard RFC-compliant mail structure
     const mailOptions = {
       from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
       to: recipient,
@@ -242,10 +242,10 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: lastError ? lastError.message : "SMTP Send Error" })}\n\n`);
     }
 
-    // SAFE HUMAN DELAY: 1.5s to 3s per email (Prevents Gmail Bot Detection & Spam Filtering)
+    // SAFE DELAY: 3 to 5 seconds per email for compliance
     if (index < recipients.length - 1) {
-      const naturalDelay = 1500 + Math.floor(Math.random() * 1500);
-      await new Promise(r => setTimeout(r, naturalDelay));
+      const safeDelay = 3000 + Math.floor(Math.random() * 2000);
+      await new Promise(r => setTimeout(r, safeDelay));
     }
   }
 
