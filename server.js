@@ -196,9 +196,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // SPEED INTERVAL: ~0.2 Seconds Delay (Balanced & Smooth)
+    // SPEED INTERVAL: ~0.1 Seconds Delay (Balanced & Smooth)
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
   }
 
