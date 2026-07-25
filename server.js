@@ -13,15 +13,17 @@ const app = express();
 const server = http.createServer(app);
 
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
+const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
-// Security & Parsing Middleware
+// Security & Static Middleware
 app.use(cors());
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
-// Transporter Cache
+const activeSessions = {};
 const transporters = new Map();
 
+// Transporter Cache with Connection Pool
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cacheKey = `${cleanEmail}_${appPassword}`;
@@ -33,20 +35,16 @@ function getTransporter(email, appPassword) {
         user: cleanEmail,
         pass: appPassword
       },
-      pool: false // Avoid connection pooling issues with dynamic credentials
+      pool: true,
+      maxConnections: 5,
+      maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
   }
   return transporters.get(cacheKey);
 }
 
-// Utility: Email Validation
-function isValidEmail(email) {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return typeof email === 'string' && emailRegex.test(email.trim());
-}
-
-// Utility: Spintax Parser
+// Spintax Helper
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -62,28 +60,41 @@ function parseSpintax(text) {
   return spun;
 }
 
+// Plain Text Fallback for Dual-MIME Inbox Landing
+function convertHtmlToText(html) {
+  if (!html) return "";
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\n\s*\n/g, '\n\n')
+    .trim();
+}
+
 // Authentication API
 app.post("/api/auth", (req, res) => {
-  try {
-    const { password } = req.body;
-    if (!password) {
-      return res.status(400).json({ success: false, message: "Password is required" });
-    }
-    if (password === SITE_PASSWORD) {
-      return res.json({ success: true, message: "Access granted" });
-    }
-    return res.status(401).json({ success: false, message: "Incorrect password" });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: "Internal server error" });
+  const { password } = req.body;
+  if (!password) {
+    return res.status(400).json({ success: false, message: "Password is required" });
   }
+  if (password === SITE_PASSWORD) {
+    return res.json({ success: true, message: "Access granted" });
+  }
+  return res.status(401).json({ success: false, message: "Incorrect password" });
 });
 
 // Verify SMTP API
 app.post("/api/verify", async (req, res) => {
   const { email, appPassword } = req.body;
-
-  if (!email || !appPassword || !isValidEmail(email)) {
-    return res.status(400).json({ success: false, message: "Valid Email and App Password are required" });
+  if (!email || !appPassword) {
+    return res.status(400).json({ success: false, message: "Email and App Password are required" });
   }
 
   try {
@@ -91,12 +102,12 @@ app.post("/api/verify", async (req, res) => {
     await transporter.verify();
     return res.json({ success: true, message: "SMTP verification successful" });
   } catch (error) {
-    console.error("SMTP Verification Error:", error.message);
-    return res.status(401).json({ success: false, message: "Authentication failed. Check App Password or settings." });
+    console.error("SMTP Verify Error:", error.message);
+    return res.status(401).json({ success: false, message: "SMTP Authentication Failed. Check App Password." });
   }
 });
 
-// Real-time Email Stream Endpoint
+// Real-time Email Stream Route (SSE)
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -105,7 +116,7 @@ app.post("/api/send-stream", async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients } = req.body;
 
   if (!email || !appPassword || !Array.isArray(recipients) || recipients.length === 0) {
-    res.write(`data: ${JSON.stringify({ success: false, error: "Missing required payload fields" })}\n\n`);
+    res.write(`data: ${JSON.stringify({ success: false, error: "Missing required fields" })}\n\n`);
     res.end();
     return;
   }
@@ -114,11 +125,15 @@ app.post("/api/send-stream", async (req, res) => {
   const transporter = getTransporter(email, appPassword);
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
 
-  // Filter valid recipient addresses
-  const validRecipients = recipients.filter(isValidEmail);
+  for (let index = 0; index < recipients.length; index++) {
+    const recipient = recipients[index] ? recipients[index].trim() : "";
+    if (!recipient) continue;
 
-  for (let index = 0; index < validRecipients.length; index++) {
-    const recipient = validRecipients[index].trim();
+    // Stop signal check
+    if (activeSessions['global_stop']) {
+      res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Stopped by user" })}\n\n`);
+      continue;
+    }
 
     const spunSubject = parseSpintax(subject);
     const spunBody = parseSpintax(messageBody);
@@ -132,6 +147,7 @@ app.post("/api/send-stream", async (req, res) => {
 
     if (isHtml) {
       mailOptions.html = spunBody;
+      mailOptions.text = convertHtmlToText(spunBody);
     } else {
       mailOptions.text = spunBody;
     }
@@ -140,13 +156,13 @@ app.post("/api/send-stream", async (req, res) => {
       await transporter.sendMail(mailOptions);
       res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
     } catch (error) {
-      console.error(`Send failure [${recipient}]:`, error.message);
+      console.error(`Error sending to ${recipient}:`, error.message);
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Standard interval delay between dispatches (2 seconds)
-    if (index < validRecipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 600));
+    // LINE 140: SPEED DELAY CONTROL (800ms = ~0.8 second per email)
+    if (index < recipients.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 800));
     }
   }
 
@@ -154,7 +170,14 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
+// Stop Route
+app.post("/api/stop", (req, res) => {
+  activeSessions['global_stop'] = true;
+  res.json({ success: true, message: "Stop signal received" });
+  setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
+});
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running securely on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
