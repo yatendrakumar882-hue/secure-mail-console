@@ -1,5 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
 
+    // ==================== PASSWORD GATE ====================
     const passwordGate = document.getElementById('password-gate');
     const mainApp = document.getElementById('main-app');
     const gateForm = document.getElementById('gate-form');
@@ -65,6 +66,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // ==================== MAIN APP LOGIC ====================
 
     const dashboardEmail = document.getElementById('dashboard-email');
     const dashboardPassword = document.getElementById('dashboard-password');
@@ -161,6 +164,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Handle Send (1-by-1 Realtime Streaming Mode)
     if (sendBtn) {
         sendBtn.addEventListener('click', async () => {
             if (isSending) return;
@@ -188,6 +192,7 @@ document.addEventListener('DOMContentLoaded', () => {
             sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
 
             try {
+                // Initial Credentials Verification
                 const verifyPayload = {
                     email: emailVal,
                     appPassword: appPasswordVal,
