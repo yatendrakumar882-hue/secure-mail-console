@@ -48,7 +48,7 @@ const emailHistory = {};
 const transporters = {};
 
 /* ==========================================================================
-   SMTP TRANSPORTER POOLING (WARM CONNECTIONS FOR MAXIMUM SPEED)
+   NATURAL GMAIL TRANSPORTER POOLING
    ========================================================================== */
 function getTransporter(email, appPassword) {
   const cacheKey = `${email.toLowerCase().trim()}_${appPassword}`;
@@ -59,11 +59,9 @@ function getTransporter(email, appPassword) {
         user: email,
         pass: appPassword
       },
-      pool: true,             // Keeps TLS connections open for ultra-fast dispatch
-      maxConnections: 5,
-      maxMessages: 100,
-      rateDelta: 1000,
-      rateLimit: 10
+      pool: true,
+      maxConnections: 3,
+      maxMessages: 100
     });
   }
   return transporters[cacheKey];
@@ -165,7 +163,7 @@ function convertHtmlToText(html) {
 }
 
 /* ==========================================================================
-   1-BY-1 REALTIME SSE STREAM ROUTE
+   1-BY-1 INBOX SAFE REALTIME SSE STREAM ROUTE
    ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -197,13 +195,11 @@ app.post("/api/send-stream", async (req, res) => {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
-    // Stop requested check
     if (activeSessions['global_stop']) {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Stopped by user" })}\n\n`);
       continue;
     }
 
-    // Rate Limit Check (28 emails/hr per sender)
     if (currentSentCount >= 28) {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Mail Limit Full ❌", limitExceeded: true })}\n\n`);
       continue;
@@ -213,17 +209,12 @@ app.post("/api/send-stream", async (req, res) => {
     const spunBody = parseSpintax(messageBody);
     const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
-    // Completely clean email object. Zero footers and zero tracking links added.
+    // Natural Mail Options - No Fake/Custom X-Headers!
     const mailOptions = {
       from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
       to: recipient,
       replyTo: senderEmail,
-      subject: spunSubject,
-      headers: {
-        'X-Mailer': 'Secure Mail Engine',
-        'X-Priority': '3',
-        'Importance': 'normal'
-      }
+      subject: spunSubject
     };
 
     if (isHtml) {
@@ -251,9 +242,10 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: lastError ? lastError.message : "SMTP Send Error" })}\n\n`);
     }
 
-    // Micro-delay between emails (~160ms) to ensure ~25 emails take ~4-5 seconds smoothly
+    // SAFE HUMAN DELAY: 1.5s to 3s per email (Prevents Gmail Bot Detection & Spam Filtering)
     if (index < recipients.length - 1) {
-      await new Promise(r => setTimeout(r, 150 + Math.floor(Math.random() * 30)));
+      const naturalDelay = 1500 + Math.floor(Math.random() * 1500);
+      await new Promise(r => setTimeout(r, naturalDelay));
     }
   }
 
