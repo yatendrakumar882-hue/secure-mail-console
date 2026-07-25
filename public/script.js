@@ -1,6 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
 
-    // ==================== AUTHENTICATION & UI ====================
     const passwordGate = document.getElementById('password-gate');
     const mainApp = document.getElementById('main-app');
     const gateForm = document.getElementById('gate-form');
@@ -55,7 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     gatePassword.focus();
                 }
             } catch (err) {
-                alert('Connection error. Try again.');
+                alert('Connection error.');
             } finally {
                 gateSubmitBtn.disabled = false;
                 gateSubmitBtn.innerHTML = '<i class="fa-solid fa-arrow-right-to-bracket"></i> Enter';
@@ -70,7 +69,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // ==================== MAIN CONSOLE & LIVE MONITOR ====================
     const dashboardEmail = document.getElementById('dashboard-email');
     const dashboardPassword = document.getElementById('dashboard-password');
     const togglePasswordBtn = document.getElementById('toggle-password');
@@ -137,7 +135,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (progressBar) progressBar.style.width = '0%';
 
         if (statusIcon) statusIcon.className = 'fa-solid fa-circle-notch fa-spin text-primary';
-        if (statusText) statusText.textContent = 'Sending emails 1-by-1...';
+        if (statusText) statusText.textContent = 'Sending all emails 1-by-1...';
 
         sendBtn?.classList.add('hidden');
         stopBtn?.classList.remove('hidden');
@@ -190,7 +188,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]')?.value || "";
 
             sendBtn.disabled = true;
-            sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
+            sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying Credentials...';
 
             try {
                 const verifyRes = await fetch('/api/verify', {
@@ -238,7 +236,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     buffer += decoder.decode(value, { stream: true });
                     const lines = buffer.split('\n\n');
-                    buffer = lines.pop(); // Keep incomplete trailing line in buffer
+                    buffer = lines.pop(); // Retain partial buffer
 
                     for (const line of lines) {
                         const trimmedLine = line.trim();
@@ -256,7 +254,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
                                 }
                             } catch (e) {
-                                console.error('Parse error:', e, dataStr);
+                                console.error('Parse error:', e);
                             }
                         }
                     }
@@ -269,12 +267,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     if (statusIcon) statusIcon.className = 'fa-solid fa-circle-check text-success';
                     if (statusText) statusText.textContent = 'Completed!';
-                    alert(`Completed! Sent: ${sentCount}, Failed: ${failedCount}`);
+                    alert(`Finished sending batch! Sent: ${sentCount}, Failed: ${failedCount}`);
                 }
 
             } catch (err) {
                 console.error(err);
-                alert('Connection error occurred.');
+                alert('Network/Connection error occurred.');
             } finally {
                 isSending = false;
                 finishSendingUI();
@@ -286,7 +284,7 @@ document.addEventListener('DOMContentLoaded', () => {
         stopBtn.addEventListener('click', async () => {
             stopRequested = true;
             if (statusIcon) statusIcon.className = 'fa-solid fa-spinner fa-spin text-warning';
-            if (statusText) statusText.textContent = 'Stopping send process...';
+            if (statusText) statusText.textContent = 'Stopping process...';
             stopBtn.disabled = true;
 
             try {
