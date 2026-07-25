@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
 
-    // ==================== PASSWORD GATE & LOGOUT ====================
+    // ==================== AUTHENTICATION & UI ====================
     const passwordGate = document.getElementById('password-gate');
     const mainApp = document.getElementById('main-app');
     const gateForm = document.getElementById('gate-form');
@@ -10,7 +10,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const toggleGatePassword = document.getElementById('toggle-gate-password');
     const logoutBtn = document.getElementById('logout-btn');
 
-    // Auth state check
     if (sessionStorage.getItem('authenticated') === 'true') {
         passwordGate?.classList.add('hidden');
         mainApp?.classList.remove('hidden');
@@ -19,7 +18,6 @@ document.addEventListener('DOMContentLoaded', () => {
         mainApp?.classList.add('hidden');
     }
 
-    // Toggle Eye icon for Gate Password
     if (toggleGatePassword && gatePassword) {
         toggleGatePassword.addEventListener('click', () => {
             const type = gatePassword.getAttribute('type') === 'password' ? 'text' : 'password';
@@ -28,7 +26,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Password Gate Submit Handler
     if (gateForm) {
         gateForm.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -66,7 +63,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Double-Click Logout Listener
     if (logoutBtn) {
         logoutBtn.addEventListener('dblclick', () => {
             sessionStorage.removeItem('authenticated');
@@ -74,7 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // ==================== DASHBOARD & SENDING LOGIC ====================
+    // ==================== MAIN CONSOLE & LIVE MONITOR ====================
     const dashboardEmail = document.getElementById('dashboard-email');
     const dashboardPassword = document.getElementById('dashboard-password');
     const togglePasswordBtn = document.getElementById('toggle-password');
@@ -102,7 +98,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let isSending = false;
     let stopRequested = false;
 
-    // Toggle Eye Icon for App Password
     if (togglePasswordBtn && dashboardPassword) {
         togglePasswordBtn.addEventListener('click', () => {
             const type = dashboardPassword.getAttribute('type') === 'password' ? 'text' : 'password';
@@ -111,7 +106,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Extract emails on input
     if (recipientsInput) {
         recipientsInput.addEventListener('input', () => {
             const text = recipientsInput.value;
@@ -133,7 +127,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Live UI updates
     function startSendingUI(total) {
         isSending = true;
         stopRequested = false;
@@ -175,7 +168,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Send Button Event Handler
     if (sendBtn) {
         sendBtn.addEventListener('click', async () => {
             if (isSending) return;
@@ -187,24 +179,24 @@ document.addEventListener('DOMContentLoaded', () => {
             const messageBodyVal = messageBody.value.trim();
 
             if (!emailVal || !appPasswordVal || !senderNameVal || !subjectVal || !messageBodyVal) {
-                return alert('Please fill in all fields.');
+                return alert('Please fill in all input fields.');
             }
             if (extractedEmails.length === 0) {
                 emailValidationError?.classList.remove('hidden');
-                return alert('Please add valid recipient emails.');
+                return alert('Please enter recipient emails.');
             }
 
             const recipientsToSend = [...extractedEmails];
+            const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]')?.value || "";
 
             sendBtn.disabled = true;
             sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
 
             try {
-                // Verify SMTP Credentials
                 const verifyRes = await fetch('/api/verify', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: emailVal, appPassword: appPasswordVal })
+                    body: JSON.stringify({ email: emailVal, appPassword: appPasswordVal, cfToken: turnstileResponse })
                 });
 
                 const verifyResult = await verifyRes.json();
@@ -232,7 +224,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     })
                 });
 
-                if (!response.ok) throw new Error('Streaming connection failed.');
+                if (!response.ok) throw new Error('Streaming failed.');
 
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
@@ -257,13 +249,13 @@ document.addEventListener('DOMContentLoaded', () => {
                                 const event = JSON.parse(dataStr);
                                 if (event.success) {
                                     sentCount++;
-                                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sent to: ${event.recipient}`);
+                                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sent: ${event.recipient}`);
                                 } else {
                                     failedCount++;
                                     updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
                                 }
                             } catch (e) {
-                                console.error('SSE parse error:', e);
+                                console.error('Parse error:', e);
                             }
                         }
                     }
@@ -272,11 +264,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 isSending = false;
                 if (stopRequested) {
                     if (statusIcon) statusIcon.className = 'fa-solid fa-circle-stop text-danger';
-                    if (statusText) statusText.textContent = 'Sending stopped by user.';
+                    if (statusText) statusText.textContent = 'Process stopped.';
                 } else {
                     if (statusIcon) statusIcon.className = 'fa-solid fa-circle-check text-success';
-                    if (statusText) statusText.textContent = 'Completed successfully!';
-                    alert(`All emails processed! Sent: ${sentCount}, Failed: ${failedCount}`);
+                    if (statusText) statusText.textContent = 'Completed!';
+                    alert(`Completed! Sent: ${sentCount}, Failed: ${failedCount}`);
                 }
 
             } catch (err) {
@@ -289,7 +281,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Stop Button Handler
     if (stopBtn) {
         stopBtn.addEventListener('click', async () => {
             stopRequested = true;
@@ -300,7 +291,7 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 await fetch('/api/stop', { method: 'POST' });
             } catch (e) {
-                console.error("Stop call failed", e);
+                console.error("Stop error", e);
             }
         });
     }
