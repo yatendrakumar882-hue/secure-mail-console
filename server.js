@@ -196,9 +196,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // SPEED INTERVAL: ~0.5 Seconds Delay (Balanced & Smooth)
+    // SPEED INTERVAL: ~0.2 Seconds Delay (Balanced & Smooth)
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 600));
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
   }
 
@@ -212,7 +212,7 @@ app.post("/api/send-stream", async (req, res) => {
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stopping send process." });
-  setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
+  setTimeout(() => { activeSessions['global_stop'] = false; }, 9000);
 });
 
 const PORT = process.env.PORT || 3000;
