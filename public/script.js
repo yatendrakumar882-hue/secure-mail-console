@@ -164,7 +164,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Handle Send (1-by-1 Realtime Streaming Mode)
+    // Handle Send (Safe 1-by-1 Live Stream)
     if (sendBtn) {
         sendBtn.addEventListener('click', async () => {
             if (isSending) return;
@@ -192,7 +192,6 @@ document.addEventListener('DOMContentLoaded', () => {
             sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
 
             try {
-                // Initial Credentials Verification
                 const verifyPayload = {
                     email: emailVal,
                     appPassword: appPasswordVal,
@@ -337,7 +336,7 @@ document.addEventListener('DOMContentLoaded', () => {
         progressBar.style.width = '0%';
 
         statusIcon.className = 'fa-solid fa-circle-notch fa-spin text-primary';
-        statusText.textContent = 'Sending emails 1-by-1...';
+        statusText.textContent = 'Sending emails safely 1-by-1...';
 
         sendBtn.classList.add('hidden');
         stopBtn.classList.remove('hidden');
