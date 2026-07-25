@@ -12,13 +12,9 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 
-// Environment variables
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
-/* ==========================================================================
-   HELPER: CLOUDFLARE TURNSTILE VERIFICATION
-   ========================================================================== */
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY || !token) return true;
 
@@ -48,9 +44,6 @@ const activeSessions = {};
 const emailHistory = {};
 const transporters = {};
 
-/* ==========================================================================
-   SMTP TRANSPORTER POOLING & CACHING
-   ========================================================================== */
 function getTransporter(email, appPassword) {
   const cacheKey = `${email.toLowerCase().trim()}_${appPassword}`;
   if (!transporters[cacheKey]) {
@@ -60,8 +53,8 @@ function getTransporter(email, appPassword) {
         user: email,
         pass: appPassword
       },
-      pool: true,             // Active connection pool for rapid delivery
-      maxConnections: 5,      // Concurrent pool connections
+      pool: true,
+      maxConnections: 5,
       maxMessages: 100,
       rateDelta: 1000,
       rateLimit: 10
@@ -70,9 +63,6 @@ function getTransporter(email, appPassword) {
   return transporters[cacheKey];
 }
 
-/* ==========================================================================
-   PASSWORD AUTHENTICATION
-   ========================================================================== */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
 
@@ -87,9 +77,6 @@ app.post("/api/auth", (req, res) => {
   }
 });
 
-/* ==========================================================================
-   VERIFY SMTP
-   ========================================================================== */
 app.post("/api/verify", async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
 
@@ -125,9 +112,6 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ==========================================================================
-   SPINTAX PARSER
-   ========================================================================== */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -143,9 +127,6 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* ==========================================================================
-   HTML TO CLEAN PLAIN TEXT CONVERTER FOR INBOX PLACEMENT
-   ========================================================================== */
 function convertHtmlToText(html) {
   if (!html) return "";
   return html
@@ -165,9 +146,6 @@ function convertHtmlToText(html) {
     .trim();
 }
 
-/* ==========================================================================
-   1-BY-1 REALTIME SSE STREAM SENDING ROUTE
-   ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -198,13 +176,11 @@ app.post("/api/send-stream", async (req, res) => {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
-    // Check if user clicked Stop
     if (activeSessions['global_stop']) {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Stopped by user" })}\n\n`);
       continue;
     }
 
-    // Check hourly limit (28 emails / hr)
     if (currentSentCount >= 28) {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Mail Limit Full ❌", limitExceeded: true })}\n\n`);
       continue;
@@ -214,12 +190,16 @@ app.post("/api/send-stream", async (req, res) => {
     const spunBody = parseSpintax(messageBody);
     const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
-    // Completely clean, human-like email object with zero footers and zero links added
     const mailOptions = {
       from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
       to: recipient,
       replyTo: senderEmail,
-      subject: spunSubject
+      subject: spunSubject,
+      headers: {
+        'X-Mailer': 'Secure Mail Engine',
+        'X-Priority': '3',
+        'Importance': 'normal'
+      }
     };
 
     if (isHtml) {
@@ -247,7 +227,6 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: lastError ? lastError.message : "SMTP Send Error" })}\n\n`);
     }
 
-    // Delay between each email: ~120ms so 25 emails complete smoothly in ~3-4 seconds
     if (index < recipients.length - 1) {
       await new Promise(r => setTimeout(r, 150 + Math.floor(Math.random() * 30)));
     }
@@ -257,9 +236,6 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
-/* ==========================================================================
-   STOP SEND PROCESS
-   ========================================================================== */
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stopping future sends." });
@@ -267,9 +243,6 @@ app.post("/api/stop", (req, res) => {
   setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
 });
 
-/* ==========================================================================
-   START SERVER
-   ========================================================================== */
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, '0.0.0.0', () => {
