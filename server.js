@@ -15,7 +15,7 @@ const server = http.createServer(app);
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
-// Security & Static Middleware
+// Security & Parsing Middleware
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -23,7 +23,33 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const transporters = new Map();
 
-// Transporter Cache with Connection Pool
+/* ==========================================================================
+   TURNSTILE CAPTCHA CHECK
+   ========================================================================== */
+async function verifyTurnstile(token, ip) {
+  if (!TURNSTILE_SECRET_KEY || !token) return true;
+
+  try {
+    const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        secret: TURNSTILE_SECRET_KEY,
+        response: token,
+        remoteip: ip || ''
+      })
+    });
+    const data = await response.json();
+    return data.success;
+  } catch (error) {
+    console.error("Turnstile Verification Error:", error);
+    return false;
+  }
+}
+
+/* ==========================================================================
+   TRANSPORTER POOLING (FAST TLS REUSE)
+   ========================================================================== */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cacheKey = `${cleanEmail}_${appPassword}`;
@@ -44,7 +70,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-// Spintax Helper
+// Spintax Helper: {Hi|Hello|Hey}
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -60,7 +86,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-// Plain Text Fallback for Dual-MIME Inbox Landing
+// Plain text fallback for Dual Multipart
 function convertHtmlToText(html) {
   if (!html) return "";
   return html
@@ -78,7 +104,9 @@ function convertHtmlToText(html) {
     .trim();
 }
 
-// Authentication API
+/* ==========================================================================
+   AUTH & VERIFY ROUTES
+   ========================================================================== */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (!password) {
@@ -90,11 +118,18 @@ app.post("/api/auth", (req, res) => {
   return res.status(401).json({ success: false, message: "Incorrect password" });
 });
 
-// Verify SMTP API
 app.post("/api/verify", async (req, res) => {
-  const { email, appPassword } = req.body;
+  const { email, appPassword, cfToken } = req.body;
+
   if (!email || !appPassword) {
-    return res.status(400).json({ success: false, message: "Email and App Password are required" });
+    return res.status(400).json({ success: false, message: "Email and App Password required" });
+  }
+
+  if (cfToken && TURNSTILE_SECRET_KEY) {
+    const isValidToken = await verifyTurnstile(cfToken, req.ip);
+    if (!isValidToken) {
+      return res.status(400).json({ success: false, message: "Spam check failed." });
+    }
   }
 
   try {
@@ -103,11 +138,13 @@ app.post("/api/verify", async (req, res) => {
     return res.json({ success: true, message: "SMTP verification successful" });
   } catch (error) {
     console.error("SMTP Verify Error:", error.message);
-    return res.status(401).json({ success: false, message: "SMTP Authentication Failed. Check App Password." });
+    return res.status(401).json({ success: false, message: "Authentication failed." });
   }
 });
 
-// Real-time Email Stream Route (SSE)
+/* ==========================================================================
+   1-BY-1 SSE STREAM ROUTE
+   ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -129,7 +166,6 @@ app.post("/api/send-stream", async (req, res) => {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
-    // Stop signal check
     if (activeSessions['global_stop']) {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Stopped by user" })}\n\n`);
       continue;
@@ -160,9 +196,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // LINE 140: SPEED DELAY CONTROL (800ms = ~0.8 second per email)
+    // SPEED INTERVAL: ~1.2 Seconds Delay (Balanced & Smooth)
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 800));
+      await new Promise(resolve => setTimeout(resolve, 1200));
     }
   }
 
@@ -170,10 +206,12 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
-// Stop Route
+/* ==========================================================================
+   STOP ROUTE
+   ========================================================================== */
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
-  res.json({ success: true, message: "Stop signal received" });
+  res.json({ success: true, message: "Stopping send process." });
   setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
 });
 
