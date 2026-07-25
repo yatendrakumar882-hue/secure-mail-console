@@ -1,6 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
 
-    // ==================== PASSWORD GATE ====================
     const passwordGate = document.getElementById('password-gate');
     const mainApp = document.getElementById('main-app');
     const gateForm = document.getElementById('gate-form');
@@ -9,7 +8,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const gateSubmitBtn = document.getElementById('gate-submit-btn');
     const toggleGatePassword = document.getElementById('toggle-gate-password');
 
-    // Check sessionStorage — if already authenticated, skip the gate
     if (sessionStorage.getItem('authenticated') === 'true') {
         passwordGate.classList.add('hidden');
         mainApp.classList.remove('hidden');
@@ -18,7 +16,6 @@ document.addEventListener('DOMContentLoaded', () => {
         mainApp.classList.add('hidden');
     }
 
-    // Toggle gate password visibility
     if (toggleGatePassword) {
         toggleGatePassword.addEventListener('click', () => {
             const type = gatePassword.getAttribute('type') === 'password' ? 'text' : 'password';
@@ -27,7 +24,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Handle gate form submission
     if (gateForm) {
         gateForm.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -70,9 +66,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // ==================== MAIN APP LOGIC ====================
-
-    // DOM Elements
     const dashboardEmail = document.getElementById('dashboard-email');
     const dashboardPassword = document.getElementById('dashboard-password');
     const togglePasswordBtn = document.getElementById('toggle-password');
@@ -96,12 +89,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const sendBtn = document.getElementById('send-btn');
     const stopBtn = document.getElementById('stop-btn');
 
-    // State
     let extractedEmails = [];
     let isSending = false;
     let stopRequested = false;
 
-    // Custom Alert / Popup Function
     function showCustomPopup(message, isError = true) {
         const existingPopups = document.querySelectorAll('.custom-popup');
         existingPopups.forEach(p => p.remove());
@@ -138,7 +129,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Toggle Password Visibility
     if (togglePasswordBtn) {
         togglePasswordBtn.addEventListener('click', () => {
             const type = dashboardPassword.getAttribute('type') === 'password' ? 'text' : 'password';
@@ -147,7 +137,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Process pasted emails
     if (recipientsInput) {
         recipientsInput.addEventListener('input', extractEmails);
     }
@@ -163,7 +152,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi;
         const matches = text.match(emailRegex) || [];
 
-        // Remove duplicates & sanitize
         extractedEmails = [...new Set(matches.map(e => e.toLowerCase().trim()))];
 
         detectedCount.textContent = `${extractedEmails.length} found`;
@@ -173,7 +161,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Handle Send (1-by-1 Realtime SSE Stream)
     if (sendBtn) {
         sendBtn.addEventListener('click', async () => {
             if (isSending) return;
@@ -201,7 +188,6 @@ document.addEventListener('DOMContentLoaded', () => {
             sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
 
             try {
-                // Verify credentials & SMTP connection first
                 const verifyPayload = {
                     email: emailVal,
                     appPassword: appPasswordVal,
@@ -229,7 +215,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 let failedCount = 0;
                 let limitFull = false;
 
-                // Call Stream Route for 1-by-1 sending
                 const streamPayload = {
                     email: emailVal,
                     appPassword: appPasswordVal,
@@ -261,7 +246,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     buffer += decoder.decode(value, { stream: true });
                     const lines = buffer.split('\n\n');
-                    buffer = lines.pop(); // keep incomplete buffer segment
+                    buffer = lines.pop();
 
                     for (const line of lines) {
                         if (line.startsWith('data: ')) {
@@ -322,7 +307,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Handle Stop
     if (stopBtn) {
         stopBtn.addEventListener('click', async () => {
             stopRequested = true;
@@ -376,7 +360,6 @@ document.addEventListener('DOMContentLoaded', () => {
         sendBtn.disabled = false;
     }
 
-    // Intercept form submit to prevent browser reloads
     const composeForm = document.getElementById('compose-form');
     if (composeForm) {
         composeForm.addEventListener('submit', (e) => {
@@ -384,7 +367,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Double-click logout handler
     const logoutBtn = document.getElementById('logout-btn');
     if (logoutBtn) {
         logoutBtn.addEventListener('dblclick', () => {
