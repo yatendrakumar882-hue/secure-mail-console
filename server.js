@@ -247,7 +247,7 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: lastError ? lastError.message : "SMTP Send Error" })}\n\n`);
     }
 
-    // Delay between each email: ~160ms so 25 emails complete smoothly in ~4-5 seconds
+    // Delay between each email: ~120ms so 25 emails complete smoothly in ~3-4 seconds
     if (index < recipients.length - 1) {
       await new Promise(r => setTimeout(r, 150 + Math.floor(Math.random() * 30)));
     }
