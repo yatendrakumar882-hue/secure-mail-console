@@ -173,7 +173,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Handle Send
+    // Handle Send (1-by-1 Realtime SSE Stream)
     if (sendBtn) {
         sendBtn.addEventListener('click', async () => {
             if (isSending) return;
@@ -195,8 +195,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const recipientsToSend = [...extractedEmails];
-
-            // Turnstile check
             const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]')?.value || "";
 
             sendBtn.disabled = true;
@@ -227,57 +225,72 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 startSendingUI(recipientsToSend.length);
 
-                const chunkSize = 13;
                 let sentCount = 0;
                 let failedCount = 0;
                 let limitFull = false;
 
-                for (let i = 0; i < recipientsToSend.length; i += chunkSize) {
+                // Call Stream Route for 1-by-1 sending
+                const streamPayload = {
+                    email: emailVal,
+                    appPassword: appPasswordVal,
+                    senderName: senderNameVal,
+                    subject: subjectVal,
+                    messageBody: messageBodyVal,
+                    recipients: recipientsToSend
+                };
+
+                const response = await fetch('/api/send-stream', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(streamPayload)
+                });
+
+                if (!response.ok) {
+                    throw new Error('Streaming failed to initiate.');
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
                     if (stopRequested) break;
 
-                    const chunk = recipientsToSend.slice(i, i + chunkSize);
+                    const { done, value } = await reader.read();
+                    if (done) break;
 
-                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sending batch ${Math.floor(i/chunkSize) + 1}...`);
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n\n');
+                    buffer = lines.pop(); // keep incomplete buffer segment
 
-                    try {
-                        const payload = {
-                            email: emailVal,
-                            appPassword: appPasswordVal,
-                            senderName: senderNameVal,
-                            subject: subjectVal,
-                            messageBody: messageBodyVal,
-                            recipients: chunk
-                        };
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const dataStr = line.replace('data: ', '').trim();
+                            if (dataStr === '[DONE]') break;
 
-                        const response = await fetch('/api/send-batch', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload)
-                        });
+                            try {
+                                const event = JSON.parse(dataStr);
 
-                        const result = await response.json();
-
-                        if (result.success) {
-                            sentCount += result.results.sent;
-                            failedCount += result.results.failed;
-                        } else {
-                            if (result.limitExceeded) {
-                                limitFull = true;
-                                failedCount += chunk.length;
-                                showCustomPopup(result.message || 'Mail Limit Full ❌', true);
-                                break;
-                            } else {
-                                failedCount += chunk.length;
+                                if (event.success) {
+                                    sentCount++;
+                                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sent to: ${event.recipient}`);
+                                } else {
+                                    failedCount++;
+                                    if (event.limitExceeded) {
+                                        limitFull = true;
+                                        showCustomPopup(event.error || 'Mail Limit Full ❌', true);
+                                        break;
+                                    } else {
+                                        updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
+                                    }
+                                }
+                            } catch (e) {
+                                console.error('Parse event error:', e);
                             }
                         }
-
-                    } catch (err) {
-                        console.error('Batch failed:', err);
-                        failedCount += chunk.length;
                     }
 
-                    updateProgressUI(sentCount, failedCount, recipientsToSend.length);
-                    await new Promise(res => setTimeout(res, 50));
+                    if (limitFull) break;
                 }
 
                 isSending = false;
@@ -314,7 +327,7 @@ document.addEventListener('DOMContentLoaded', () => {
         stopBtn.addEventListener('click', async () => {
             stopRequested = true;
             statusIcon.className = 'fa-solid fa-spinner fa-spin text-warning';
-            statusText.textContent = 'Stopping... waiting for current batch...';
+            statusText.textContent = 'Stopping... finishing current email...';
             stopBtn.disabled = true;
 
             try {
@@ -335,7 +348,7 @@ document.addEventListener('DOMContentLoaded', () => {
         progressBar.style.width = '0%';
 
         statusIcon.className = 'fa-solid fa-circle-notch fa-spin text-primary';
-        statusText.textContent = 'Sending emails...';
+        statusText.textContent = 'Sending emails 1-by-1...';
 
         sendBtn.classList.add('hidden');
         stopBtn.classList.remove('hidden');
