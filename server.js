@@ -15,6 +15,9 @@ const server = http.createServer(app);
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
+/* ==========================================================================
+   HELPER: CLOUDFLARE TURNSTILE VERIFICATION
+   ========================================================================== */
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY || !token) return true;
 
@@ -44,6 +47,9 @@ const activeSessions = {};
 const emailHistory = {};
 const transporters = {};
 
+/* ==========================================================================
+   SMTP TRANSPORTER POOLING (WARM CONNECTIONS FOR MAXIMUM SPEED)
+   ========================================================================== */
 function getTransporter(email, appPassword) {
   const cacheKey = `${email.toLowerCase().trim()}_${appPassword}`;
   if (!transporters[cacheKey]) {
@@ -53,7 +59,7 @@ function getTransporter(email, appPassword) {
         user: email,
         pass: appPassword
       },
-      pool: true,
+      pool: true,             // Keeps TLS connections open for ultra-fast dispatch
       maxConnections: 5,
       maxMessages: 100,
       rateDelta: 1000,
@@ -63,6 +69,9 @@ function getTransporter(email, appPassword) {
   return transporters[cacheKey];
 }
 
+/* ==========================================================================
+   AUTHENTICATION ROUTE
+   ========================================================================== */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
 
@@ -77,6 +86,9 @@ app.post("/api/auth", (req, res) => {
   }
 });
 
+/* ==========================================================================
+   SMTP VERIFY ROUTE
+   ========================================================================== */
 app.post("/api/verify", async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
 
@@ -112,6 +124,9 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
+/* ==========================================================================
+   SPINTAX PARSER FOR DYNAMIC UNIQUE CONTENT
+   ========================================================================== */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -127,6 +142,9 @@ function parseSpintax(text) {
   return spun;
 }
 
+/* ==========================================================================
+   CLEAN TEXT CONVERTER (FOR DUAL MULTIPART INBOX LANDING)
+   ========================================================================== */
 function convertHtmlToText(html) {
   if (!html) return "";
   return html
@@ -146,6 +164,9 @@ function convertHtmlToText(html) {
     .trim();
 }
 
+/* ==========================================================================
+   1-BY-1 REALTIME SSE STREAM ROUTE
+   ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -176,11 +197,13 @@ app.post("/api/send-stream", async (req, res) => {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
+    // Stop requested check
     if (activeSessions['global_stop']) {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Stopped by user" })}\n\n`);
       continue;
     }
 
+    // Rate Limit Check (28 emails/hr per sender)
     if (currentSentCount >= 28) {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Mail Limit Full ❌", limitExceeded: true })}\n\n`);
       continue;
@@ -190,6 +213,7 @@ app.post("/api/send-stream", async (req, res) => {
     const spunBody = parseSpintax(messageBody);
     const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
+    // Completely clean email object. Zero footers and zero tracking links added.
     const mailOptions = {
       from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
       to: recipient,
@@ -227,6 +251,7 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: lastError ? lastError.message : "SMTP Send Error" })}\n\n`);
     }
 
+    // Micro-delay between emails (~160ms) to ensure ~25 emails take ~4-5 seconds smoothly
     if (index < recipients.length - 1) {
       await new Promise(r => setTimeout(r, 150 + Math.floor(Math.random() * 30)));
     }
@@ -236,6 +261,9 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
+/* ==========================================================================
+   STOP ROUTE
+   ========================================================================== */
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stopping future sends." });
@@ -243,6 +271,9 @@ app.post("/api/stop", (req, res) => {
   setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
 });
 
+/* ==========================================================================
+   SERVER INITIALIZATION
+   ========================================================================== */
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, '0.0.0.0', () => {
