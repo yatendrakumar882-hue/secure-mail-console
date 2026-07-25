@@ -238,11 +238,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     buffer += decoder.decode(value, { stream: true });
                     const lines = buffer.split('\n\n');
-                    buffer = lines.pop();
+                    buffer = lines.pop(); // Keep incomplete trailing line in buffer
 
                     for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const dataStr = line.replace('data: ', '').trim();
+                        const trimmedLine = line.trim();
+                        if (trimmedLine.startsWith('data: ')) {
+                            const dataStr = trimmedLine.replace('data: ', '').trim();
                             if (dataStr === '[DONE]') break;
 
                             try {
@@ -255,7 +256,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
                                 }
                             } catch (e) {
-                                console.error('Parse error:', e);
+                                console.error('Parse error:', e, dataStr);
                             }
                         }
                     }
