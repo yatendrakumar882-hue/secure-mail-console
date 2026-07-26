@@ -226,34 +226,42 @@ document.addEventListener('DOMContentLoaded', () => {
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let buffer = '';
+                let isStreamDone = false;
 
-                while (true) {
+                // CRITICAL SSE READER STREAM LOOP
+                while (!isStreamDone) {
                     if (stopRequested) break;
 
                     const { done, value } = await reader.read();
                     if (done) break;
 
                     buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split('\n\n');
-                    buffer = lines.pop() || '';
+                    const chunks = buffer.split('\n\n');
+                    buffer = chunks.pop() || ''; // Buffer incompletely received chunk
 
-                    for (const line of lines) {
-                        const trimmed = line.trim();
-                        if (trimmed.startsWith('data: ')) {
-                            const dataStr = trimmed.replace('data: ', '').trim();
-                            if (dataStr === '[DONE]') break;
-
-                            try {
-                                const event = JSON.parse(dataStr);
-                                if (event.success) {
-                                    sentCount++;
-                                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sent: ${event.recipient}`);
-                                } else if (event.recipient) {
-                                    failedCount++;
-                                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
+                    for (const chunk of chunks) {
+                        const lines = chunk.split('\n');
+                        for (const line of lines) {
+                            const trimmed = line.trim();
+                            if (trimmed.startsWith('data: ')) {
+                                const dataStr = trimmed.replace('data: ', '').trim();
+                                if (dataStr === '[DONE]') {
+                                    isStreamDone = true;
+                                    break;
                                 }
-                            } catch (e) {
-                                console.error('Parse error:', e);
+
+                                try {
+                                    const event = JSON.parse(dataStr);
+                                    if (event.success) {
+                                        sentCount++;
+                                        updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sent: ${event.recipient}`);
+                                    } else if (event.recipient) {
+                                        failedCount++;
+                                        updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
+                                    }
+                                } catch (e) {
+                                    // Ignore parse errors from keep-alive pings
+                                }
                             }
                         }
                     }
@@ -271,7 +279,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             } catch (err) {
                 console.error(err);
-                alert('Network or connection error occurred.');
+                alert('Network connection error.');
             } finally {
                 isSending = false;
                 finishSendingUI();
