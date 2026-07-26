@@ -21,13 +21,15 @@ const activeSessions = {};
 const transporters = new Map();
 
 /* ==========================================================================
-   ROOT ROUTE FIX (Site Open Na Hone Ka Bug Solve)
+   ROOT ROUTE (Fixes 500 Vercel Open Error)
    ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-/* Transporter Pooling */
+/* ==========================================================================
+   TRANSPORTER POOLING (Connection & TLS Reuse)
+   ========================================================================== */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cacheKey = `${cleanEmail}_${appPassword}`;
@@ -45,7 +47,9 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-/* Spintax Parser */
+/* ==========================================================================
+   SPINTAX PARSER ({Hi|Hello|Hey})
+   ========================================================================== */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -61,7 +65,9 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* Plain Text Fallback */
+/* ==========================================================================
+   HTML TO PLAIN-TEXT FALLBACK (Dual Multipart MIME)
+   ========================================================================== */
 function convertHtmlToText(html) {
   if (!html) return "";
   return html
@@ -79,7 +85,9 @@ function convertHtmlToText(html) {
     .trim();
 }
 
-/* Auth Routes */
+/* ==========================================================================
+   AUTHENTICATION ROUTES
+   ========================================================================== */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (password === SITE_PASSWORD) return res.json({ success: true });
@@ -95,11 +103,13 @@ app.post("/api/verify", async (req, res) => {
     await transporter.verify();
     return res.json({ success: true, message: "SMTP verified successfully" });
   } catch (error) {
-    return res.status(401).json({ success: false, message: "Authentication failed." });
+    return res.status(401).json({ success: false, message: "Authentication failed. Check App Password." });
   }
 });
 
-/* SSE Stream Route */
+/* ==========================================================================
+   1-BY-1 SSE STREAM ROUTE (STABLE LOOP)
+   ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -128,6 +138,7 @@ app.post("/api/send-stream", async (req, res) => {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
+    // Send keep-alive ping to maintain Vercel gateway socket
     res.write(': keep-alive\n\n');
 
     try {
@@ -157,6 +168,7 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
+    // 500ms Delay to avoid hitting Vercel execution timeout limits
     if (index < recipients.length - 1) {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
@@ -166,9 +178,15 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
+/* ==========================================================================
+   STOP ROUTE
+   ========================================================================== */
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stop process registered" });
 });
 
+/* ==========================================================================
+   VERCEL EXPORT
+   ========================================================================== */
 export default app;
