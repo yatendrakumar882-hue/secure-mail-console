@@ -12,7 +12,7 @@ const app = express();
 
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 
-// Middleware Setup
+// Express Middleware Setup
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -20,16 +20,12 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const transporters = new Map();
 
-/* ==========================================================================
-   ROOT ROUTE (Fixes 500 Vercel Page Open Bug)
-   ========================================================================== */
+/* Root Route (Fixes Vercel 500 Route Crash) */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-/* ==========================================================================
-   TRANSPORTER POOLING (Connection & TLS Reuse)
-   ========================================================================== */
+/* Transporter Pooling (Connection Reuse) */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cacheKey = `${cleanEmail}_${appPassword}`;
@@ -47,9 +43,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-/* ==========================================================================
-   SPINTAX PARSER ({Hi|Hello|Hey})
-   ========================================================================== */
+/* Spintax Parser */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -65,9 +59,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* ==========================================================================
-   HTML TO PLAIN-TEXT FALLBACK (Dual Multipart MIME)
-   ========================================================================== */
+/* Plain Text Fallback For Dual Multipart MIME */
 function convertHtmlToText(html) {
   if (!html) return "";
   return html
@@ -85,9 +77,7 @@ function convertHtmlToText(html) {
     .trim();
 }
 
-/* ==========================================================================
-   AUTHENTICATION ROUTES
-   ========================================================================== */
+/* Auth Routes */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (password === SITE_PASSWORD) return res.json({ success: true });
@@ -107,9 +97,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ==========================================================================
-   1-BY-1 SSE STREAM ROUTE (SLOW PACING - 3 SECONDS DELAY)
-   ========================================================================== */
+/* SSE Stream Route (Safe Pacing Interval) */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -138,7 +126,7 @@ app.post("/api/send-stream", async (req, res) => {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
-    // Send HTTP keep-alive ping to maintain Vercel connection
+    // Ping to prevent socket timeout
     res.write(': keep-alive\n\n');
 
     try {
@@ -168,9 +156,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // DELAY SLOWED DOWN TO 3 SECONDS (300ms)
+    // Safe 1-second delay
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
   }
 
@@ -178,15 +166,10 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
-/* ==========================================================================
-   STOP ROUTE
-   ========================================================================== */
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stop process registered" });
 });
 
-/* ==========================================================================
-   VERCEL HANDLER EXPORT
-   ========================================================================== */
+/* Vercel Export */
 export default app;
