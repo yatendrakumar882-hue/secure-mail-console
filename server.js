@@ -20,9 +20,7 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const transporters = new Map();
 
-/* ==========================================================================
-   TRANSPORTER POOLING (TLS Connection Reuse)
-   ========================================================================== */
+/* Connection Pooling */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cacheKey = `${cleanEmail}_${appPassword}`;
@@ -40,9 +38,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-/* ==========================================================================
-   SPINTAX PARSER ({Hi|Hello|Hey})
-   ========================================================================== */
+/* Spintax Parser ({Hi|Hello|Hey}) */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -58,9 +54,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* ==========================================================================
-   HTML TO PLAIN TEXT FALLBACK
-   ========================================================================== */
+/* HTML to Plain Text Fallback */
 function convertHtmlToText(html) {
   if (!html) return "";
   return html
@@ -78,9 +72,7 @@ function convertHtmlToText(html) {
     .trim();
 }
 
-/* ==========================================================================
-   AUTHENTICATION ROUTES
-   ========================================================================== */
+/* Authentication Routes */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (password === SITE_PASSWORD) return res.json({ success: true });
@@ -96,13 +88,11 @@ app.post("/api/verify", async (req, res) => {
     await transporter.verify();
     return res.json({ success: true, message: "SMTP verified successfully" });
   } catch (error) {
-    return res.status(401).json({ success: false, message: "Authentication failed. Check App Password." });
+    return res.status(401).json({ success: false, message: "Authentication failed." });
   }
 });
 
-/* ==========================================================================
-   SSE STREAM ROUTE (SLOW PACING - 2 SECONDS DELAY)
-   ========================================================================== */
+/* SSE Stream Route (Optimized For Vercel Serverless Execution) */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -131,7 +121,7 @@ app.post("/api/send-stream", async (req, res) => {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
-    // Send HTTP keep-alive ping to maintain connection
+    // Send keep-alive ping
     res.write(': keep-alive\n\n');
 
     try {
@@ -161,7 +151,7 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // DELAY SLOWED DOWN TO 2 SECONDS (200ms)
+    // Fast 200ms Delay to avoid hitting Vercel 15s execution timeout limit
     if (index < recipients.length - 1) {
       await new Promise(resolve => setTimeout(resolve, 200));
     }
@@ -171,15 +161,11 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
-/* ==========================================================================
-   STOP ROUTE
-   ========================================================================== */
+/* Stop Route */
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stop process registered" });
 });
 
-/* ==========================================================================
-   VERCEL EXPORT
-   ========================================================================== */
+/* Vercel Serverless Export */
 export default app;
