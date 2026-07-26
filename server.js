@@ -14,7 +14,7 @@ const server = http.createServer(app);
 
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 
-// Express Middleware
+// Middleware Setup
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -22,7 +22,9 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const transporters = new Map();
 
-/* Connection Pooling */
+/* ==========================================================================
+   TRANSPORTER POOLING
+   ========================================================================== */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cacheKey = `${cleanEmail}_${appPassword}`;
@@ -40,7 +42,9 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-/* Spintax Parser ({Hi|Hello|Hey}) */
+/* ==========================================================================
+   SPINTAX PARSER ({Hi|Hello|Hey})
+   ========================================================================== */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -56,7 +60,9 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* HTML to Plain Text Fallback */
+/* ==========================================================================
+   HTML TO PLAIN TEXT FALLBACK
+   ========================================================================== */
 function convertHtmlToText(html) {
   if (!html) return "";
   return html
@@ -74,7 +80,9 @@ function convertHtmlToText(html) {
     .trim();
 }
 
-/* Authentication Routes */
+/* ==========================================================================
+   AUTHENTICATION ROUTES
+   ========================================================================== */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (password === SITE_PASSWORD) return res.json({ success: true });
@@ -94,7 +102,9 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* SSE Stream Route */
+/* ==========================================================================
+   SSE STREAM ROUTE (STABLE SEQUENTIAL PROCESSING)
+   ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -103,7 +113,7 @@ app.post("/api/send-stream", async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients } = req.body;
 
   if (!email || !appPassword || !Array.isArray(recipients) || recipients.length === 0) {
-    res.write(`data: ${JSON.stringify({ success: false, error: "Missing fields" })}\n\n`);
+    res.write(`data: ${JSON.stringify({ success: false, error: "Missing required fields" })}\n\n`);
     res.end();
     return;
   }
@@ -114,6 +124,7 @@ app.post("/api/send-stream", async (req, res) => {
   const senderEmail = email.toLowerCase().trim();
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
 
+  // Reset stop status on new run
   activeSessions['global_stop'] = false;
 
   for (let index = 0; index < recipients.length; index++) {
@@ -125,35 +136,39 @@ app.post("/api/send-stream", async (req, res) => {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
-    const transporter = getTransporter(email, appPassword);
-    const spunSubject = parseSpintax(subject);
-    const spunBody = parseSpintax(messageBody);
-    const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
-
-    const mailOptions = {
-      from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
-      to: recipient,
-      subject: spunSubject
-    };
-
-    if (isHtml) {
-      mailOptions.html = spunBody;
-      mailOptions.text = convertHtmlToText(spunBody);
-    } else {
-      mailOptions.text = spunBody;
-    }
+    // Send HTTP keep-alive ping to prevent socket timeout
+    res.write(': keep-alive\n\n');
 
     try {
+      const transporter = getTransporter(email, appPassword);
+      const spunSubject = parseSpintax(subject);
+      const spunBody = parseSpintax(messageBody);
+      const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
+
+      const mailOptions = {
+        from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
+        to: recipient,
+        subject: spunSubject
+      };
+
+      if (isHtml) {
+        mailOptions.html = spunBody;
+        mailOptions.text = convertHtmlToText(spunBody);
+      } else {
+        mailOptions.text = spunBody;
+      }
+
       await transporter.sendMail(mailOptions);
       res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
+
     } catch (error) {
       console.error(`Error sending to ${recipient}:`, error.message);
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Standard safe pacing delay (1s)
+    // Safe pacing delay (1.5 seconds) to prevent socket crash
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 1500));
     }
   }
 
@@ -161,11 +176,17 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
+/* ==========================================================================
+   STOP ROUTE
+   ========================================================================== */
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true });
 });
 
+/* ==========================================================================
+   SERVER INITIALIZATION
+   ========================================================================== */
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
