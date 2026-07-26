@@ -1,5 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
 
+    // ==================== AUTHENTICATION & UI ====================
     const passwordGate = document.getElementById('password-gate');
     const mainApp = document.getElementById('main-app');
     const gateForm = document.getElementById('gate-form');
@@ -8,11 +9,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const gateSubmitBtn = document.getElementById('gate-submit-btn');
     const toggleGatePassword = document.getElementById('toggle-gate-password');
     const logoutBtn = document.getElementById('logout-btn');
-
-    // Prevent URL query string bugs on page load
-    if (window.location.search.includes('?')) {
-        window.history.replaceState({}, document.title, window.location.pathname);
-    }
 
     if (sessionStorage.getItem('authenticated') === 'true') {
         passwordGate?.classList.add('hidden');
@@ -23,8 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (toggleGatePassword && gatePassword) {
-        toggleGatePassword.addEventListener('click', (e) => {
-            e.preventDefault();
+        toggleGatePassword.addEventListener('click', () => {
             const type = gatePassword.getAttribute('type') === 'password' ? 'text' : 'password';
             gatePassword.setAttribute('type', type);
             toggleGatePassword.innerHTML = type === 'password' ? '<i class="fa-regular fa-eye"></i>' : '<i class="fa-regular fa-eye-slash"></i>';
@@ -33,7 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (gateForm) {
         gateForm.addEventListener('submit', async (e) => {
-            e.preventDefault(); // STOPS '?' FROM ADDING TO URL
+            e.preventDefault();
             const password = gatePassword.value.trim();
             if (!password) return;
 
@@ -60,7 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     gatePassword.focus();
                 }
             } catch (err) {
-                alert('Connection error.');
+                alert('Connection error. Try again.');
             } finally {
                 gateSubmitBtn.disabled = false;
                 gateSubmitBtn.innerHTML = '<i class="fa-solid fa-arrow-right-to-bracket"></i> Enter';
@@ -69,13 +64,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (logoutBtn) {
-        logoutBtn.addEventListener('dblclick', (e) => {
-            e.preventDefault();
+        logoutBtn.addEventListener('dblclick', () => {
             sessionStorage.removeItem('authenticated');
-            window.location.href = window.location.pathname; // Clean redirect without '?'
+            window.location.reload();
         });
     }
 
+    // ==================== MAIN CONSOLE & LIVE MONITOR ====================
     const dashboardEmail = document.getElementById('dashboard-email');
     const dashboardPassword = document.getElementById('dashboard-password');
     const togglePasswordBtn = document.getElementById('toggle-password');
@@ -104,8 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let stopRequested = false;
 
     if (togglePasswordBtn && dashboardPassword) {
-        togglePasswordBtn.addEventListener('click', (e) => {
-            e.preventDefault();
+        togglePasswordBtn.addEventListener('click', () => {
             const type = dashboardPassword.getAttribute('type') === 'password' ? 'text' : 'password';
             dashboardPassword.setAttribute('type', type);
             togglePasswordBtn.innerHTML = type === 'password' ? '<i class="fa-regular fa-eye"></i>' : '<i class="fa-regular fa-eye-slash"></i>';
@@ -143,7 +137,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (progressBar) progressBar.style.width = '0%';
 
         if (statusIcon) statusIcon.className = 'fa-solid fa-circle-notch fa-spin text-primary';
-        if (statusText) statusText.textContent = 'Sending emails...';
+        if (statusText) statusText.textContent = 'Sending emails 1-by-1...';
 
         sendBtn?.classList.add('hidden');
         stopBtn?.classList.remove('hidden');
@@ -175,8 +169,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (sendBtn) {
-        sendBtn.addEventListener('click', async (e) => {
-            e.preventDefault(); // PREVENTS FORM SUBMISSION BUGS
+        sendBtn.addEventListener('click', async () => {
             if (isSending) return;
 
             const emailVal = dashboardEmail.value.trim();
@@ -194,6 +187,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const recipientsToSend = [...extractedEmails];
+            const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]')?.value || "";
 
             sendBtn.disabled = true;
             sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
@@ -202,7 +196,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const verifyRes = await fetch('/api/verify', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: emailVal, appPassword: appPasswordVal })
+                    body: JSON.stringify({ email: emailVal, appPassword: appPasswordVal, cfToken: turnstileResponse })
                 });
 
                 const verifyResult = await verifyRes.json();
@@ -235,41 +229,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let buffer = '';
-                let isStreamDone = false;
 
-                while (!isStreamDone) {
+                while (true) {
                     if (stopRequested) break;
 
                     const { done, value } = await reader.read();
                     if (done) break;
 
                     buffer += decoder.decode(value, { stream: true });
-                    const chunks = buffer.split('\n\n');
-                    buffer = chunks.pop() || '';
+                    const lines = buffer.split('\n\n');
+                    buffer = lines.pop();
 
-                    for (const chunk of chunks) {
-                        const lines = chunk.split('\n');
-                        for (const line of lines) {
-                            const trimmed = line.trim();
-                            if (trimmed.startsWith('data: ')) {
-                                const dataStr = trimmed.replace('data: ', '').trim();
-                                if (dataStr === '[DONE]') {
-                                    isStreamDone = true;
-                                    break;
-                                }
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const dataStr = line.replace('data: ', '').trim();
+                            if (dataStr === '[DONE]') break;
 
-                                try {
-                                    const event = JSON.parse(dataStr);
-                                    if (event.success) {
-                                        sentCount++;
-                                        updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sent: ${event.recipient}`);
-                                    } else if (event.recipient) {
-                                        failedCount++;
-                                        updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
-                                    }
-                                } catch (e) {
-                                    // Ignore parse errors from keep-alive pings
+                            try {
+                                const event = JSON.parse(dataStr);
+                                if (event.success) {
+                                    sentCount++;
+                                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sent: ${event.recipient}`);
+                                } else {
+                                    failedCount++;
+                                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
                                 }
+                            } catch (e) {
+                                console.error('Parse error:', e);
                             }
                         }
                     }
@@ -287,7 +273,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             } catch (err) {
                 console.error(err);
-                alert('Network connection error.');
+                alert('Connection error occurred.');
             } finally {
                 isSending = false;
                 finishSendingUI();
@@ -296,11 +282,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (stopBtn) {
-        stopBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
+        stopBtn.addEventListener('click', async () => {
             stopRequested = true;
             if (statusIcon) statusIcon.className = 'fa-solid fa-spinner fa-spin text-warning';
-            if (statusText) statusText.textContent = 'Stopping process...';
+            if (statusText) statusText.textContent = 'Stopping send process...';
             stopBtn.disabled = true;
 
             try {
