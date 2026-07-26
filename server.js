@@ -12,9 +12,10 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 
-const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
+const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
-// Middleware
+// Security & Parsing Middleware
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -22,7 +23,33 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const transporters = new Map();
 
-/* Transporter Connection Pool */
+/* ==========================================================================
+   TURNSTILE CAPTCHA CHECK
+   ========================================================================== */
+async function verifyTurnstile(token, ip) {
+  if (!TURNSTILE_SECRET_KEY || !token) return true;
+
+  try {
+    const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        secret: TURNSTILE_SECRET_KEY,
+        response: token,
+        remoteip: ip || ''
+      })
+    });
+    const data = await response.json();
+    return data.success;
+  } catch (error) {
+    console.error("Turnstile Verification Error:", error);
+    return false;
+  }
+}
+
+/* ==========================================================================
+   TRANSPORTER POOLING (FAST TLS REUSE)
+   ========================================================================== */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cacheKey = `${cleanEmail}_${appPassword}`;
@@ -30,9 +57,12 @@ function getTransporter(email, appPassword) {
   if (!transporters.has(cacheKey)) {
     const transporter = nodemailer.createTransport({
       service: "gmail",
-      auth: { user: cleanEmail, pass: appPassword },
+      auth: {
+        user: cleanEmail,
+        pass: appPassword
+      },
       pool: true,
-      maxConnections: 3,
+      maxConnections: 5,
       maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
@@ -40,7 +70,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-/* Spintax Helper */
+// Spintax Helper: {Hi|Hello|Hey}
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -56,7 +86,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* Plain Text Fallback */
+// Plain text fallback for Dual Multipart
 function convertHtmlToText(html) {
   if (!html) return "";
   return html
@@ -74,28 +104,47 @@ function convertHtmlToText(html) {
     .trim();
 }
 
-/* Auth Route */
+/* ==========================================================================
+   AUTH & VERIFY ROUTES
+   ========================================================================== */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
-  if (password === SITE_PASSWORD) return res.json({ success: true });
+  if (!password) {
+    return res.status(400).json({ success: false, message: "Password is required" });
+  }
+  if (password === SITE_PASSWORD) {
+    return res.json({ success: true, message: "Access granted" });
+  }
   return res.status(401).json({ success: false, message: "Incorrect password" });
 });
 
-/* SMTP Verification Route */
 app.post("/api/verify", async (req, res) => {
-  const { email, appPassword } = req.body;
-  if (!email || !appPassword) return res.status(400).json({ success: false, message: "Credentials required" });
+  const { email, appPassword, cfToken } = req.body;
+
+  if (!email || !appPassword) {
+    return res.status(400).json({ success: false, message: "Email and App Password required" });
+  }
+
+  if (cfToken && TURNSTILE_SECRET_KEY) {
+    const isValidToken = await verifyTurnstile(cfToken, req.ip);
+    if (!isValidToken) {
+      return res.status(400).json({ success: false, message: "Spam check failed." });
+    }
+  }
 
   try {
     const transporter = getTransporter(email, appPassword);
     await transporter.verify();
-    return res.json({ success: true, message: "SMTP verified" });
+    return res.json({ success: true, message: "SMTP verification successful" });
   } catch (error) {
-    return res.status(401).json({ success: false, message: "Authentication failed. Check App Password." });
+    console.error("SMTP Verify Error:", error.message);
+    return res.status(401).json({ success: false, message: "Authentication failed." });
   }
 });
 
-/* SSE Stream Route */
+/* ==========================================================================
+   1-BY-1 SSE STREAM ROUTE
+   ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -109,25 +158,19 @@ app.post("/api/send-stream", async (req, res) => {
     return;
   }
 
-  let clientDisconnected = false;
-  req.on('close', () => { clientDisconnected = true; });
-
   const senderEmail = email.toLowerCase().trim();
+  const transporter = getTransporter(email, appPassword);
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
 
-  // Reset global stop flag on every new run
-  activeSessions['global_stop'] = false;
-
   for (let index = 0; index < recipients.length; index++) {
-    if (clientDisconnected || activeSessions['global_stop']) {
-      res.write(`data: ${JSON.stringify({ success: false, error: "Stopped" })}\n\n`);
-      break;
-    }
-
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
-    const transporter = getTransporter(email, appPassword);
+    if (activeSessions['global_stop']) {
+      res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Stopped by user" })}\n\n`);
+      continue;
+    }
+
     const spunSubject = parseSpintax(subject);
     const spunBody = parseSpintax(messageBody);
     const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
@@ -153,9 +196,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Standard rate limit delay (0.05 seconds)
+    // SPEED INTERVAL: ~0.2 Seconds Delay (Balanced & Smooth)
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
   }
 
@@ -163,10 +206,13 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
-/* Stop Route */
+/* ==========================================================================
+   STOP ROUTE
+   ========================================================================== */
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
-  res.json({ success: true });
+  res.json({ success: true, message: "Stopping send process." });
+  setTimeout(() => { activeSessions['global_stop'] = false; }, 9000);
 });
 
 const PORT = process.env.PORT || 3000;
