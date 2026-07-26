@@ -14,7 +14,7 @@ const server = http.createServer(app);
 
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 
-// Middleware
+// Middleware Setup
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -22,7 +22,9 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const transporters = new Map();
 
-/* Fast Transporter Reuse */
+/* ==========================================================================
+   TRANSPORTER CONNECTION POOLING
+   ========================================================================== */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cacheKey = `${cleanEmail}_${appPassword}`;
@@ -32,15 +34,17 @@ function getTransporter(email, appPassword) {
       service: "gmail",
       auth: { user: cleanEmail, pass: appPassword },
       pool: true,
-      maxConnections: 5,
-      maxMessages: 200
+      maxConnections: 3,
+      maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
   }
   return transporters.get(cacheKey);
 }
 
-/* Spintax Parser */
+/* ==========================================================================
+   SPINTAX PARSER ({Hi|Hello|Hey})
+   ========================================================================== */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -56,7 +60,9 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* HTML to Clean Plain Text */
+/* ==========================================================================
+   HTML TO PLAIN TEXT FALLBACK
+   ========================================================================== */
 function convertHtmlToText(html) {
   if (!html) return "";
   return html
@@ -74,27 +80,35 @@ function convertHtmlToText(html) {
     .trim();
 }
 
-/* Routes */
+/* ==========================================================================
+   AUTH & VERIFICATION ROUTES
+   ========================================================================== */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
-  if (password === SITE_PASSWORD) return res.json({ success: true });
+  if (password === SITE_PASSWORD) {
+    return res.json({ success: true, message: "Access granted" });
+  }
   return res.status(401).json({ success: false, message: "Incorrect password" });
 });
 
 app.post("/api/verify", async (req, res) => {
   const { email, appPassword } = req.body;
-  if (!email || !appPassword) return res.status(400).json({ success: false, message: "Credentials required" });
+  if (!email || !appPassword) {
+    return res.status(400).json({ success: false, message: "Credentials required" });
+  }
 
   try {
     const transporter = getTransporter(email, appPassword);
     await transporter.verify();
-    return res.json({ success: true, message: "SMTP verified" });
+    return res.json({ success: true, message: "SMTP credentials verified" });
   } catch (error) {
     return res.status(401).json({ success: false, message: "Authentication failed. Check App Password." });
   }
 });
 
-/* Full Non-Stop 1-by-1 Stream Route */
+/* ==========================================================================
+   SSE STREAM ROUTE (SAFE SEQUENTIAL DELIVERY)
+   ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -108,14 +122,17 @@ app.post("/api/send-stream", async (req, res) => {
     return;
   }
 
+  let clientDisconnected = false;
+  req.on('close', () => { clientDisconnected = true; });
+
   const senderEmail = email.toLowerCase().trim();
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
   activeSessions['global_stop'] = false;
 
   for (let index = 0; index < recipients.length; index++) {
-    if (activeSessions['global_stop']) {
-      res.write(`data: ${JSON.stringify({ success: false, recipient: recipients[index], error: "Stopped by user" })}\n\n`);
-      continue;
+    if (clientDisconnected || activeSessions['global_stop']) {
+      res.write(`data: ${JSON.stringify({ success: false, error: "Process stopped" })}\n\n`);
+      break;
     }
 
     const recipient = recipients[index] ? recipients[index].trim() : "";
@@ -143,13 +160,13 @@ app.post("/api/send-stream", async (req, res) => {
       await transporter.sendMail(mailOptions);
       res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
     } catch (error) {
-      console.error(`Send error for ${recipient}:`, error.message);
+      console.error(`Error sending to ${recipient}:`, error.message);
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Fast 1-by-1 Pacing (100ms delay - prevents server lockup & processes ALL recipients)
-    if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 100));
+    // SAFE SPEED DELAY: 0.2 Seconds (80ms) - Optimal for server stability
+    if (index < recipients.length - 2) {
+      await new Promise(resolve => setTimeout(resolve, 80));
     }
   }
 
@@ -157,11 +174,17 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
+/* ==========================================================================
+   STOP ROUTE
+   ========================================================================== */
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
-  res.json({ success: true });
+  res.json({ success: true, message: "Stop requested" });
 });
 
+/* ==========================================================================
+   SERVER START
+   ========================================================================== */
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
