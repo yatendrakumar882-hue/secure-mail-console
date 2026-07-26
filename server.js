@@ -20,7 +20,7 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const transporters = new Map();
 
-/* Connection Pooling */
+/* Transporter Pooling (Fast TLS Reuse) */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cacheKey = `${cleanEmail}_${appPassword}`;
@@ -38,7 +38,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-/* Spintax Parser ({Hi|Hello|Hey}) */
+/* Spintax Parser */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -54,7 +54,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* HTML to Plain Text Fallback */
+/* Plain Text Fallback for Dual Multipart */
 function convertHtmlToText(html) {
   if (!html) return "";
   return html
@@ -72,7 +72,7 @@ function convertHtmlToText(html) {
     .trim();
 }
 
-/* Authentication Routes */
+/* Auth Routes */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (password === SITE_PASSWORD) return res.json({ success: true });
@@ -92,7 +92,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* SSE Stream Route (Optimized For Vercel Serverless Execution) */
+/* SSE Stream Route (Uninterrupted Stream Execution) */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -121,7 +121,7 @@ app.post("/api/send-stream", async (req, res) => {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
-    // Send keep-alive ping
+    // Send SSE Keep-Alive Ping
     res.write(': keep-alive\n\n');
 
     try {
@@ -151,9 +151,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Fast 200ms Delay to avoid hitting Vercel 15s execution timeout limit
+    // Balanced Speed Interval (~500ms) for stability and smooth execution
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
   }
 
@@ -164,8 +164,8 @@ app.post("/api/send-stream", async (req, res) => {
 /* Stop Route */
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
-  res.json({ success: true, message: "Stop process registered" });
+  res.json({ success: true, message: "Stop request registered" });
 });
 
-/* Vercel Serverless Export */
+/* Export for Vercel / Serverless */
 export default app;
