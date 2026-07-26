@@ -14,7 +14,6 @@ const server = http.createServer(app);
 
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 
-// Middleware Setup
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -22,9 +21,7 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const transporters = new Map();
 
-/* ==========================================================================
-   TRANSPORTER CONNECTION POOLING
-   ========================================================================== */
+// Transporter connection pool
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cacheKey = `${cleanEmail}_${appPassword}`;
@@ -42,9 +39,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-/* ==========================================================================
-   SPINTAX PARSER ({Hi|Hello|Hey})
-   ========================================================================== */
+// Spintax helper
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -60,9 +55,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* ==========================================================================
-   HTML TO PLAIN TEXT FALLBACK
-   ========================================================================== */
+// Plain text fallback
 function convertHtmlToText(html) {
   if (!html) return "";
   return html
@@ -80,35 +73,26 @@ function convertHtmlToText(html) {
     .trim();
 }
 
-/* ==========================================================================
-   AUTH & VERIFICATION ROUTES
-   ========================================================================== */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
-  if (password === SITE_PASSWORD) {
-    return res.json({ success: true, message: "Access granted" });
-  }
+  if (password === SITE_PASSWORD) return res.json({ success: true });
   return res.status(401).json({ success: false, message: "Incorrect password" });
 });
 
 app.post("/api/verify", async (req, res) => {
   const { email, appPassword } = req.body;
-  if (!email || !appPassword) {
-    return res.status(400).json({ success: false, message: "Credentials required" });
-  }
+  if (!email || !appPassword) return res.status(400).json({ success: false, message: "Credentials required" });
 
   try {
     const transporter = getTransporter(email, appPassword);
     await transporter.verify();
-    return res.json({ success: true, message: "SMTP credentials verified" });
+    return res.json({ success: true, message: "SMTP verified" });
   } catch (error) {
-    return res.status(401).json({ success: false, message: "Authentication failed. Check App Password." });
+    return res.status(401).json({ success: false, message: "Authentication failed." });
   }
 });
 
-/* ==========================================================================
-   SSE STREAM ROUTE (SAFE SEQUENTIAL DELIVERY)
-   ========================================================================== */
+// Stream endpoint with 1.5s delay
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -117,7 +101,7 @@ app.post("/api/send-stream", async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients } = req.body;
 
   if (!email || !appPassword || !Array.isArray(recipients) || recipients.length === 0) {
-    res.write(`data: ${JSON.stringify({ success: false, error: "Missing required fields" })}\n\n`);
+    res.write(`data: ${JSON.stringify({ success: false, error: "Missing fields" })}\n\n`);
     res.end();
     return;
   }
@@ -131,7 +115,7 @@ app.post("/api/send-stream", async (req, res) => {
 
   for (let index = 0; index < recipients.length; index++) {
     if (clientDisconnected || activeSessions['global_stop']) {
-      res.write(`data: ${JSON.stringify({ success: false, error: "Process stopped" })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: false, error: "Stopped" })}\n\n`);
       break;
     }
 
@@ -164,7 +148,7 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // SAFE SPEED DELAY: 0.2 Seconds (100ms) - Optimal for server stability
+    // Safe 0.05s delay to keep connection stable
     if (index < recipients.length - 1) {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
@@ -174,17 +158,11 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
-/* ==========================================================================
-   STOP ROUTE
-   ========================================================================== */
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
-  res.json({ success: true, message: "Stop requested" });
+  res.json({ success: true });
 });
 
-/* ==========================================================================
-   SERVER START
-   ========================================================================== */
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
