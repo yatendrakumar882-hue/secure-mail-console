@@ -148,7 +148,7 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Safe 0.05s delay to keep connection stable
+    // Safe 2s delay to keep connection stable
     if (index < recipients.length - 1) {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
