@@ -169,8 +169,8 @@ app.post("/api/send-stream", async (req, res) => {
 
     // Safe 1.2s delay to prevent connection resets
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 1200));
-    }
+      await new Promise(resolve => setTimeout(resolve, 300));
+    
   }
 
   res.write("data: [DONE]\n\n");
