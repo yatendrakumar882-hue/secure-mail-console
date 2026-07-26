@@ -15,7 +15,7 @@ const server = http.createServer(app);
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
-// Security & Parsing Middleware
+// Security & Body Parsing Middleware
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -48,7 +48,7 @@ async function verifyTurnstile(token, ip) {
 }
 
 /* ==========================================================================
-   TRANSPORTER POOLING (FAST TLS REUSE)
+   TRANSPORTER POOLING (STABLE TLS REUSE)
    ========================================================================== */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -62,7 +62,7 @@ function getTransporter(email, appPassword) {
         pass: appPassword
       },
       pool: true,
-      maxConnections: 5,
+      maxConnections: 3,
       maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
@@ -162,7 +162,7 @@ app.post("/api/send-stream", async (req, res) => {
   const transporter = getTransporter(email, appPassword);
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
 
-  // Reset global stop flag on start
+  // Reset global stop flag on new run
   activeSessions['global_stop'] = false;
 
   for (let index = 0; index < recipients.length; index++) {
