@@ -133,14 +133,13 @@ app.post("/api/send-stream", async (req, res) => {
   const senderEmail = email.toLowerCase().trim();
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
 
-  // Always reset global stop flag when initiating a stream
+  // Reset global stop flag
   activeSessions['global_stop'] = false;
 
   for (let index = 0; index < recipients.length; index++) {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
-    // Check user stop command
     if (activeSessions['global_stop']) {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Stopped by user" })}\n\n`);
       continue;
@@ -172,9 +171,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Fast 200ms Interval Speed
+    // MODIFIED DELAY: .5 Seconds (500ms) for steady pacing
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
   }
 
