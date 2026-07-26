@@ -1,6 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
 
-    // ==================== AUTHENTICATION & UI ====================
     const passwordGate = document.getElementById('password-gate');
     const mainApp = document.getElementById('main-app');
     const gateForm = document.getElementById('gate-form');
@@ -55,7 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     gatePassword.focus();
                 }
             } catch (err) {
-                alert('Connection error. Try again.');
+                alert('Connection error.');
             } finally {
                 gateSubmitBtn.disabled = false;
                 gateSubmitBtn.innerHTML = '<i class="fa-solid fa-arrow-right-to-bracket"></i> Enter';
@@ -70,7 +69,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // ==================== MAIN CONSOLE & LIVE MONITOR ====================
     const dashboardEmail = document.getElementById('dashboard-email');
     const dashboardPassword = document.getElementById('dashboard-password');
     const togglePasswordBtn = document.getElementById('toggle-password');
@@ -137,7 +135,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (progressBar) progressBar.style.width = '0%';
 
         if (statusIcon) statusIcon.className = 'fa-solid fa-circle-notch fa-spin text-primary';
-        if (statusText) statusText.textContent = 'Sending emails 1-by-1...';
+        if (statusText) statusText.textContent = 'Sending emails...';
 
         sendBtn?.classList.add('hidden');
         stopBtn?.classList.remove('hidden');
@@ -187,7 +185,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const recipientsToSend = [...extractedEmails];
-            const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]')?.value || "";
 
             sendBtn.disabled = true;
             sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
@@ -196,7 +193,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const verifyRes = await fetch('/api/verify', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: emailVal, appPassword: appPasswordVal, cfToken: turnstileResponse })
+                    body: JSON.stringify({ email: emailVal, appPassword: appPasswordVal })
                 });
 
                 const verifyResult = await verifyRes.json();
@@ -238,11 +235,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     buffer += decoder.decode(value, { stream: true });
                     const lines = buffer.split('\n\n');
-                    buffer = lines.pop();
+                    buffer = lines.pop() || '';
 
                     for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const dataStr = line.replace('data: ', '').trim();
+                        const trimmed = line.trim();
+                        if (trimmed.startsWith('data: ')) {
+                            const dataStr = trimmed.replace('data: ', '').trim();
                             if (dataStr === '[DONE]') break;
 
                             try {
@@ -250,7 +248,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 if (event.success) {
                                     sentCount++;
                                     updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sent: ${event.recipient}`);
-                                } else {
+                                } else if (event.recipient) {
                                     failedCount++;
                                     updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
                                 }
@@ -273,7 +271,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             } catch (err) {
                 console.error(err);
-                alert('Connection error occurred.');
+                alert('Network or connection error occurred.');
             } finally {
                 isSending = false;
                 finishSendingUI();
@@ -285,7 +283,7 @@ document.addEventListener('DOMContentLoaded', () => {
         stopBtn.addEventListener('click', async () => {
             stopRequested = true;
             if (statusIcon) statusIcon.className = 'fa-solid fa-spinner fa-spin text-warning';
-            if (statusText) statusText.textContent = 'Stopping send process...';
+            if (statusText) statusText.textContent = 'Stopping process...';
             stopBtn.disabled = true;
 
             try {
