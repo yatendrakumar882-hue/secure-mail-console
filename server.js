@@ -158,7 +158,7 @@ app.post("/api/send-stream", async (req, res) => {
 
     // 1.2 Seconds Safe Delay
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 1200));
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
   }
 
