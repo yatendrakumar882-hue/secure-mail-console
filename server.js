@@ -1,4 +1,4 @@
-aimport 'dotenv/config';
+import 'dotenv/config';
 import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
@@ -12,6 +12,7 @@ const app = express();
 
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 
+// Middleware Setup
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -19,6 +20,14 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const transporters = new Map();
 
+/* ==========================================================================
+   ROOT ROUTE FIX (Site Open Na Hone Ka Bug Solve)
+   ========================================================================== */
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+/* Transporter Pooling */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cacheKey = `${cleanEmail}_${appPassword}`;
@@ -36,6 +45,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
+/* Spintax Parser */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -51,6 +61,7 @@ function parseSpintax(text) {
   return spun;
 }
 
+/* Plain Text Fallback */
 function convertHtmlToText(html) {
   if (!html) return "";
   return html
@@ -68,6 +79,7 @@ function convertHtmlToText(html) {
     .trim();
 }
 
+/* Auth Routes */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (password === SITE_PASSWORD) return res.json({ success: true });
@@ -87,6 +99,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
+/* SSE Stream Route */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
