@@ -151,9 +151,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Standard safe pacing delay (1.5s)
+    // Standard safe pacing delay (1s)
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
   }
 
