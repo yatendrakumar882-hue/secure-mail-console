@@ -14,7 +14,7 @@ const server = http.createServer(app);
 
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 
-// Middleware Setup
+// Security & Parsing Middleware
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -22,9 +22,7 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const transporters = new Map();
 
-/* ==========================================================================
-   TRANSPORTER POOLING (Connection & TLS Reuse)
-   ========================================================================== */
+/* Connection Pooling */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cacheKey = `${cleanEmail}_${appPassword}`;
@@ -32,10 +30,7 @@ function getTransporter(email, appPassword) {
   if (!transporters.has(cacheKey)) {
     const transporter = nodemailer.createTransport({
       service: "gmail",
-      auth: {
-        user: cleanEmail,
-        pass: appPassword
-      },
+      auth: { user: cleanEmail, pass: appPassword },
       pool: true,
       maxConnections: 3,
       maxMessages: 100
@@ -45,9 +40,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-/* ==========================================================================
-   SPINTAX PARSER ({Hi|Hello|Hey})
-   ========================================================================== */
+/* Spintax Helper */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -63,9 +56,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* ==========================================================================
-   HTML TO CLEAN PLAIN-TEXT FALLBACK
-   ========================================================================== */
+/* Plain Text Fallback */
 function convertHtmlToText(html) {
   if (!html) return "";
   return html
@@ -83,40 +74,27 @@ function convertHtmlToText(html) {
     .trim();
 }
 
-/* ==========================================================================
-   AUTHENTICATION ROUTES
-   ========================================================================== */
+/* Auth & Verify Routes */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
-  if (!password) {
-    return res.status(400).json({ success: false, message: "Password is required" });
-  }
-  if (password === SITE_PASSWORD) {
-    return res.json({ success: true, message: "Access granted" });
-  }
+  if (password === SITE_PASSWORD) return res.json({ success: true });
   return res.status(401).json({ success: false, message: "Incorrect password" });
 });
 
 app.post("/api/verify", async (req, res) => {
   const { email, appPassword } = req.body;
-
-  if (!email || !appPassword) {
-    return res.status(400).json({ success: false, message: "Email and App Password required" });
-  }
+  if (!email || !appPassword) return res.status(400).json({ success: false, message: "Credentials required" });
 
   try {
     const transporter = getTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: "SMTP verification successful" });
   } catch (error) {
-    console.error("SMTP Verify Error:", error.message);
-    return res.status(401).json({ success: false, message: "Authentication failed. Check App Password." });
+    return res.status(401).json({ success: false, message: "Authentication failed." });
   }
 });
 
-/* ==========================================================================
-   1-BY-1 SSE STREAM ROUTE
-   ========================================================================== */
+/* SSE Stream Delivery Route */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -125,7 +103,7 @@ app.post("/api/send-stream", async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients } = req.body;
 
   if (!email || !appPassword || !Array.isArray(recipients) || recipients.length === 0) {
-    res.write(`data: ${JSON.stringify({ success: false, error: "Missing required fields" })}\n\n`);
+    res.write(`data: ${JSON.stringify({ success: false, error: "Missing fields" })}\n\n`);
     res.end();
     return;
   }
@@ -133,7 +111,6 @@ app.post("/api/send-stream", async (req, res) => {
   const senderEmail = email.toLowerCase().trim();
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
 
-  // Reset global stop flag
   activeSessions['global_stop'] = false;
 
   for (let index = 0; index < recipients.length; index++) {
@@ -141,7 +118,7 @@ app.post("/api/send-stream", async (req, res) => {
     if (!recipient) continue;
 
     if (activeSessions['global_stop']) {
-      res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Stopped by user" })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Stopped" })}\n\n`);
       continue;
     }
 
@@ -171,9 +148,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // MODIFIED DELAY: 1.0 Seconds (500ms) for steady pacing
+    // Standard 1.5 Second Delay
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 600));
     }
   }
 
@@ -181,18 +158,11 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
-/* ==========================================================================
-   STOP ROUTE
-   ========================================================================== */
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
-  res.json({ success: true, message: "Stopping send process." });
-  setTimeout(() => { activeSessions['global_stop'] = false; }, 9000);
+  res.json({ success: true });
 });
 
-/* ==========================================================================
-   SERVER INITIALIZATION
-   ========================================================================== */
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
