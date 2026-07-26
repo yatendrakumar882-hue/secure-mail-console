@@ -12,7 +12,7 @@ const app = express();
 
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 
-// Express Middlewares
+// Middleware Setup
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -21,7 +21,7 @@ const activeSessions = {};
 const transporters = new Map();
 
 /* ==========================================================================
-   TRANSPORTER POOLING
+   TRANSPORTER POOLING (Fast TLS Reuse)
    ========================================================================== */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -59,7 +59,7 @@ function parseSpintax(text) {
 }
 
 /* ==========================================================================
-   HTML TO PLAIN-TEXT FALLBACK
+   HTML TO PLAIN TEXT FALLBACK
    ========================================================================== */
 function convertHtmlToText(html) {
   if (!html) return "";
@@ -94,17 +94,17 @@ app.post("/api/verify", async (req, res) => {
   try {
     const transporter = getTransporter(email, appPassword);
     await transporter.verify();
-    return res.json({ success: true, message: "SMTP verified" });
+    return res.json({ success: true, message: "SMTP verified successfully" });
   } catch (error) {
-    return res.status(401).json({ success: false, message: "Authentication failed." });
+    return res.status(401).json({ success: false, message: "Authentication failed. Check App Password." });
   }
 });
 
 /* ==========================================================================
-   SSE STREAM ROUTE (VERCEL COMPATIBLE LOOP)
+   1-BY-1 SSE STREAM ROUTE (VERCEL COMPATIBLE)
    ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
-  // Prevent Vercel Proxy Buffering & Timeouts
+  // Essential headers to avoid Vercel / Nginx buffering
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
@@ -121,10 +121,10 @@ app.post("/api/send-stream", async (req, res) => {
   const senderEmail = email.toLowerCase().trim();
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
 
+  // Reset global stop flag when a new request starts
   activeSessions['global_stop'] = false;
 
   for (let index = 0; index < recipients.length; index++) {
-    // Check manual stop request
     if (activeSessions['global_stop']) {
       res.write(`data: ${JSON.stringify({ success: false, error: "Stopped by user" })}\n\n`);
       break;
@@ -133,7 +133,7 @@ app.post("/api/send-stream", async (req, res) => {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
-    // Keep connection alive for Vercel Serverless Gateway
+    // Send HTTP keep-alive comment to prevent Vercel Serverless timeout
     res.write(': keep-alive\n\n');
 
     try {
@@ -160,13 +160,13 @@ app.post("/api/send-stream", async (req, res) => {
 
     } catch (error) {
       console.error(`Error sending to ${recipient}:`, error.message);
-      // Continuous loop even on error
+      // Write error event but do NOT break the loop for remaining recipients
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Optimized Delay (300ms) for Vercel Execution Limits
+    // 300ms Delay to avoid hitting Vercel Serverless Function Execution Timeout
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
   }
 
@@ -179,10 +179,10 @@ app.post("/api/send-stream", async (req, res) => {
    ========================================================================== */
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
-  res.json({ success: true, message: "Stop request registered" });
+  res.json({ success: true, message: "Stop process registered" });
 });
 
 /* ==========================================================================
-   VERCEL HANDLER EXPORT
+   VERCEL SERVERLESS HANDLER EXPORT
    ========================================================================== */
 export default app;
