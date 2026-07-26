@@ -15,7 +15,7 @@ const server = http.createServer(app);
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
-// Security & Body Parsing Middleware
+// Security & Parsing Middleware
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -24,31 +24,7 @@ const activeSessions = {};
 const transporters = new Map();
 
 /* ==========================================================================
-   TURNSTILE CAPTCHA CHECK
-   ========================================================================== */
-async function verifyTurnstile(token, ip) {
-  if (!TURNSTILE_SECRET_KEY || !token) return true;
-
-  try {
-    const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        secret: TURNSTILE_SECRET_KEY,
-        response: token,
-        remoteip: ip || ''
-      })
-    });
-    const data = await response.json();
-    return data.success;
-  } catch (error) {
-    console.error("Turnstile Verification Error:", error);
-    return false;
-  }
-}
-
-/* ==========================================================================
-   TRANSPORTER POOLING (STABLE TLS REUSE)
+   TRANSPORTER POOLING (TLS REUSE)
    ========================================================================== */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -86,7 +62,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-// Plain text fallback for Dual Multipart
+// Plain Text Fallback
 function convertHtmlToText(html) {
   if (!html) return "";
   return html
@@ -119,17 +95,10 @@ app.post("/api/auth", (req, res) => {
 });
 
 app.post("/api/verify", async (req, res) => {
-  const { email, appPassword, cfToken } = req.body;
+  const { email, appPassword } = req.body;
 
   if (!email || !appPassword) {
     return res.status(400).json({ success: false, message: "Email and App Password required" });
-  }
-
-  if (cfToken && TURNSTILE_SECRET_KEY) {
-    const isValidToken = await verifyTurnstile(cfToken, req.ip);
-    if (!isValidToken) {
-      return res.status(400).json({ success: false, message: "Spam check failed." });
-    }
   }
 
   try {
@@ -162,7 +131,6 @@ app.post("/api/send-stream", async (req, res) => {
   const transporter = getTransporter(email, appPassword);
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
 
-  // Reset global stop flag on new run
   activeSessions['global_stop'] = false;
 
   for (let index = 0; index < recipients.length; index++) {
@@ -199,7 +167,7 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // SPEED INTERVAL: ~0.2 Seconds Delay (200ms)
+    // SPEED DELAY: 200ms
     if (index < recipients.length - 1) {
       await new Promise(resolve => setTimeout(resolve, 200));
     }
