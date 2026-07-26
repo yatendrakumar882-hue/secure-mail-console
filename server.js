@@ -12,7 +12,7 @@ const app = express();
 
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 
-// Express Middleware
+// Express Middlewares
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -20,7 +20,9 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const transporters = new Map();
 
-/* Connection Pooling */
+/* ==========================================================================
+   TRANSPORTER POOLING
+   ========================================================================== */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cacheKey = `${cleanEmail}_${appPassword}`;
@@ -38,7 +40,9 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-/* Spintax Parser */
+/* ==========================================================================
+   SPINTAX PARSER ({Hi|Hello|Hey})
+   ========================================================================== */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -54,7 +58,9 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* Plain Text Fallback */
+/* ==========================================================================
+   HTML TO PLAIN-TEXT FALLBACK
+   ========================================================================== */
 function convertHtmlToText(html) {
   if (!html) return "";
   return html
@@ -72,7 +78,9 @@ function convertHtmlToText(html) {
     .trim();
 }
 
-/* Auth Routes */
+/* ==========================================================================
+   AUTHENTICATION ROUTES
+   ========================================================================== */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (password === SITE_PASSWORD) return res.json({ success: true });
@@ -92,17 +100,20 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* SSE Stream Route */
+/* ==========================================================================
+   SSE STREAM ROUTE (VERCEL COMPATIBLE LOOP)
+   ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
+  // Prevent Vercel Proxy Buffering & Timeouts
   res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
 
   const { email, appPassword, senderName, subject, messageBody, recipients } = req.body;
 
   if (!email || !appPassword || !Array.isArray(recipients) || recipients.length === 0) {
-    res.write(`data: ${JSON.stringify({ success: false, error: "Missing fields" })}\n\n`);
+    res.write(`data: ${JSON.stringify({ success: false, error: "Missing required fields" })}\n\n`);
     res.end();
     return;
   }
@@ -113,14 +124,16 @@ app.post("/api/send-stream", async (req, res) => {
   activeSessions['global_stop'] = false;
 
   for (let index = 0; index < recipients.length; index++) {
+    // Check manual stop request
     if (activeSessions['global_stop']) {
-      res.write(`data: ${JSON.stringify({ success: false, error: "Stopped" })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: false, error: "Stopped by user" })}\n\n`);
       break;
     }
 
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
+    // Keep connection alive for Vercel Serverless Gateway
     res.write(': keep-alive\n\n');
 
     try {
@@ -147,9 +160,11 @@ app.post("/api/send-stream", async (req, res) => {
 
     } catch (error) {
       console.error(`Error sending to ${recipient}:`, error.message);
+      // Continuous loop even on error
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
+    // Optimized Delay (300ms) for Vercel Execution Limits
     if (index < recipients.length - 1) {
       await new Promise(resolve => setTimeout(resolve, 300));
     }
@@ -159,10 +174,15 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
+/* ==========================================================================
+   STOP ROUTE
+   ========================================================================== */
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
-  res.json({ success: true });
+  res.json({ success: true, message: "Stop request registered" });
 });
 
-// VERCEL EXPORT FIX (CRITICAL)
+/* ==========================================================================
+   VERCEL HANDLER EXPORT
+   ========================================================================== */
 export default app;
