@@ -21,7 +21,7 @@ const activeSessions = {};
 const transporters = new Map();
 
 /* ==========================================================================
-   ROOT ROUTE (Fixes 500 Vercel Open Error)
+   ROOT ROUTE (Fixes 500 Vercel Page Open Bug)
    ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -108,7 +108,7 @@ app.post("/api/verify", async (req, res) => {
 });
 
 /* ==========================================================================
-   1-BY-1 SSE STREAM ROUTE (STABLE LOOP)
+   1-BY-1 SSE STREAM ROUTE (SLOW PACING - 3 SECONDS DELAY)
    ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -138,7 +138,7 @@ app.post("/api/send-stream", async (req, res) => {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
-    // Send keep-alive ping to maintain Vercel gateway socket
+    // Send HTTP keep-alive ping to maintain Vercel connection
     res.write(': keep-alive\n\n');
 
     try {
@@ -168,9 +168,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // 500ms Delay to avoid hitting Vercel execution timeout limits
+    // DELAY SLOWED DOWN TO 3 SECONDS (300ms)
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 300));
     }
   }
 
@@ -187,6 +187,6 @@ app.post("/api/stop", (req, res) => {
 });
 
 /* ==========================================================================
-   VERCEL EXPORT
+   VERCEL HANDLER EXPORT
    ========================================================================== */
 export default app;
