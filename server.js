@@ -162,6 +162,9 @@ app.post("/api/send-stream", async (req, res) => {
   const transporter = getTransporter(email, appPassword);
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
 
+  // Reset global stop flag on start
+  activeSessions['global_stop'] = false;
+
   for (let index = 0; index < recipients.length; index++) {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
@@ -196,7 +199,7 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // SPEED INTERVAL: ~0.2 Seconds Delay (Balanced & Smooth)
+    // SPEED INTERVAL: ~0.2 Seconds Delay (200ms)
     if (index < recipients.length - 1) {
       await new Promise(resolve => setTimeout(resolve, 200));
     }
