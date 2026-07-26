@@ -171,7 +171,7 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // MODIFIED DELAY: .5 Seconds (500ms) for steady pacing
+    // MODIFIED DELAY: 1.0 Seconds (500ms) for steady pacing
     if (index < recipients.length - 1) {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
