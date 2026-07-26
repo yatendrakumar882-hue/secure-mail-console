@@ -164,9 +164,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // SAFE SPEED DELAY: 0.2 Seconds (80ms) - Optimal for server stability
-    if (index < recipients.length - 2) {
-      await new Promise(resolve => setTimeout(resolve, 80));
+    // SAFE SPEED DELAY: 0.2 Seconds (100ms) - Optimal for server stability
+    if (index < recipients.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
   }
 
