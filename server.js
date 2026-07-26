@@ -14,7 +14,7 @@ const server = http.createServer(app);
 
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 
-// Security & Parsing Middleware
+// Express Middleware
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -40,7 +40,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-/* Spintax Helper */
+/* Spintax Parser ({Hi|Hello|Hey}) */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -56,7 +56,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* Plain Text Fallback */
+/* HTML to Plain Text Fallback */
 function convertHtmlToText(html) {
   if (!html) return "";
   return html
@@ -74,7 +74,7 @@ function convertHtmlToText(html) {
     .trim();
 }
 
-/* Auth & Verify Routes */
+/* Authentication Routes */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (password === SITE_PASSWORD) return res.json({ success: true });
@@ -88,13 +88,13 @@ app.post("/api/verify", async (req, res) => {
   try {
     const transporter = getTransporter(email, appPassword);
     await transporter.verify();
-    return res.json({ success: true, message: "SMTP verification successful" });
+    return res.json({ success: true, message: "SMTP verified" });
   } catch (error) {
     return res.status(401).json({ success: false, message: "Authentication failed." });
   }
 });
 
-/* SSE Stream Delivery Route */
+/* SSE Stream Route */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -108,19 +108,22 @@ app.post("/api/send-stream", async (req, res) => {
     return;
   }
 
+  let clientDisconnected = false;
+  req.on('close', () => { clientDisconnected = true; });
+
   const senderEmail = email.toLowerCase().trim();
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
 
   activeSessions['global_stop'] = false;
 
   for (let index = 0; index < recipients.length; index++) {
+    if (clientDisconnected || activeSessions['global_stop']) {
+      res.write(`data: ${JSON.stringify({ success: false, error: "Stopped by user" })}\n\n`);
+      break;
+    }
+
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
-
-    if (activeSessions['global_stop']) {
-      res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Stopped" })}\n\n`);
-      continue;
-    }
 
     const transporter = getTransporter(email, appPassword);
     const spunSubject = parseSpintax(subject);
@@ -148,9 +151,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Standard 1.5 Second Delay
+    // Standard safe pacing delay (1.5s)
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 600));
+      await new Promise(resolve => setTimeout(resolve, 1500));
     }
   }
 
