@@ -135,7 +135,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (progressBar) progressBar.style.width = '0%';
 
         if (statusIcon) statusIcon.className = 'fa-solid fa-circle-notch fa-spin text-primary';
-        if (statusText) statusText.textContent = 'Sending all emails 1-by-1...';
+        if (statusText) statusText.textContent = 'Sending emails...';
 
         sendBtn?.classList.add('hidden');
         stopBtn?.classList.remove('hidden');
@@ -187,7 +187,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const recipientsToSend = [...extractedEmails];
 
             sendBtn.disabled = true;
-            sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying Credentials...';
+            sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
 
             try {
                 const verifyRes = await fetch('/api/verify', {
@@ -235,12 +235,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     buffer += decoder.decode(value, { stream: true });
                     const lines = buffer.split('\n\n');
-                    buffer = lines.pop(); 
+                    buffer = lines.pop() || '';
 
                     for (const line of lines) {
-                        const trimmedLine = line.trim();
-                        if (trimmedLine.startsWith('data: ')) {
-                            const dataStr = trimmedLine.replace('data: ', '').trim();
+                        const trimmed = line.trim();
+                        if (trimmed.startsWith('data: ')) {
+                            const dataStr = trimmed.replace('data: ', '').trim();
                             if (dataStr === '[DONE]') break;
 
                             try {
@@ -248,7 +248,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 if (event.success) {
                                     sentCount++;
                                     updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sent: ${event.recipient}`);
-                                } else {
+                                } else if (event.recipient) {
                                     failedCount++;
                                     updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
                                 }
@@ -266,12 +266,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     if (statusIcon) statusIcon.className = 'fa-solid fa-circle-check text-success';
                     if (statusText) statusText.textContent = 'Completed!';
-                    alert(`Finished sending batch! Sent: ${sentCount}, Failed: ${failedCount}`);
+                    alert(`Completed! Sent: ${sentCount}, Failed: ${failedCount}`);
                 }
 
             } catch (err) {
                 console.error(err);
-                alert('Network/Connection error occurred.');
+                alert('Network or connection error occurred.');
             } finally {
                 isSending = false;
                 finishSendingUI();
