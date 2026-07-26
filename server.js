@@ -21,7 +21,7 @@ const activeSessions = {};
 const transporters = new Map();
 
 /* ==========================================================================
-   TRANSPORTER POOLING (Fast TLS Reuse)
+   TRANSPORTER POOLING (TLS Connection Reuse)
    ========================================================================== */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -101,10 +101,9 @@ app.post("/api/verify", async (req, res) => {
 });
 
 /* ==========================================================================
-   1-BY-1 SSE STREAM ROUTE (VERCEL COMPATIBLE)
+   SSE STREAM ROUTE (SLOW PACING - 2 SECONDS DELAY)
    ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
-  // Essential headers to avoid Vercel / Nginx buffering
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
@@ -121,7 +120,6 @@ app.post("/api/send-stream", async (req, res) => {
   const senderEmail = email.toLowerCase().trim();
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
 
-  // Reset global stop flag when a new request starts
   activeSessions['global_stop'] = false;
 
   for (let index = 0; index < recipients.length; index++) {
@@ -133,7 +131,7 @@ app.post("/api/send-stream", async (req, res) => {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
-    // Send HTTP keep-alive comment to prevent Vercel Serverless timeout
+    // Send HTTP keep-alive ping to maintain connection
     res.write(': keep-alive\n\n');
 
     try {
@@ -160,13 +158,12 @@ app.post("/api/send-stream", async (req, res) => {
 
     } catch (error) {
       console.error(`Error sending to ${recipient}:`, error.message);
-      // Write error event but do NOT break the loop for remaining recipients
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // 300ms Delay to avoid hitting Vercel Serverless Function Execution Timeout
+    // DELAY SLOWED DOWN TO 2 SECONDS (2000ms)
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }
 
@@ -183,6 +180,6 @@ app.post("/api/stop", (req, res) => {
 });
 
 /* ==========================================================================
-   VERCEL SERVERLESS HANDLER EXPORT
+   VERCEL EXPORT
    ========================================================================== */
 export default app;
