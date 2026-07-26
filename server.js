@@ -13,9 +13,8 @@ const app = express();
 const server = http.createServer(app);
 
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
-const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
-// Security & Parsing Middleware
+// Middleware Setup
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -24,7 +23,7 @@ const activeSessions = {};
 const transporters = new Map();
 
 /* ==========================================================================
-   TRANSPORTER POOLING (TLS REUSE)
+   TRANSPORTER POOLING (Connection & TLS Reuse)
    ========================================================================== */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -46,7 +45,9 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-// Spintax Helper: {Hi|Hello|Hey}
+/* ==========================================================================
+   SPINTAX PARSER ({Hi|Hello|Hey})
+   ========================================================================== */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -62,7 +63,9 @@ function parseSpintax(text) {
   return spun;
 }
 
-// Plain Text Fallback
+/* ==========================================================================
+   HTML TO CLEAN PLAIN-TEXT FALLBACK
+   ========================================================================== */
 function convertHtmlToText(html) {
   if (!html) return "";
   return html
@@ -81,7 +84,7 @@ function convertHtmlToText(html) {
 }
 
 /* ==========================================================================
-   AUTH & VERIFY ROUTES
+   AUTHENTICATION ROUTES
    ========================================================================== */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
@@ -107,7 +110,7 @@ app.post("/api/verify", async (req, res) => {
     return res.json({ success: true, message: "SMTP verification successful" });
   } catch (error) {
     console.error("SMTP Verify Error:", error.message);
-    return res.status(401).json({ success: false, message: "Authentication failed." });
+    return res.status(401).json({ success: false, message: "Authentication failed. Check App Password." });
   }
 });
 
@@ -128,20 +131,22 @@ app.post("/api/send-stream", async (req, res) => {
   }
 
   const senderEmail = email.toLowerCase().trim();
-  const transporter = getTransporter(email, appPassword);
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
 
+  // Always reset global stop flag when initiating a stream
   activeSessions['global_stop'] = false;
 
   for (let index = 0; index < recipients.length; index++) {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
+    // Check user stop command
     if (activeSessions['global_stop']) {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Stopped by user" })}\n\n`);
       continue;
     }
 
+    const transporter = getTransporter(email, appPassword);
     const spunSubject = parseSpintax(subject);
     const spunBody = parseSpintax(messageBody);
     const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
@@ -167,7 +172,7 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // SPEED DELAY: 200ms
+    // Fast 200ms Interval Speed
     if (index < recipients.length - 1) {
       await new Promise(resolve => setTimeout(resolve, 200));
     }
@@ -186,6 +191,9 @@ app.post("/api/stop", (req, res) => {
   setTimeout(() => { activeSessions['global_stop'] = false; }, 9000);
 });
 
+/* ==========================================================================
+   SERVER INITIALIZATION
+   ========================================================================== */
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
