@@ -161,9 +161,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // DELAY SLOWED DOWN TO 2 SECONDS (2000ms)
+    // DELAY SLOWED DOWN TO 2 SECONDS (200ms)
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
   }
 
