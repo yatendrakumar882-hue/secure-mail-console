@@ -228,7 +228,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 let buffer = '';
                 let isStreamDone = false;
 
-                // CRITICAL SSE READER STREAM LOOP
                 while (!isStreamDone) {
                     if (stopRequested) break;
 
@@ -237,7 +236,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     buffer += decoder.decode(value, { stream: true });
                     const chunks = buffer.split('\n\n');
-                    buffer = chunks.pop() || ''; // Buffer incompletely received chunk
+                    buffer = chunks.pop() || ''; // Hold incomplete payload chunk in buffer
 
                     for (const chunk of chunks) {
                         const lines = chunk.split('\n');
@@ -260,7 +259,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                         updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
                                     }
                                 } catch (e) {
-                                    // Ignore parse errors from keep-alive pings
+                                    // Ignore heartbeat keep-alive pings
                                 }
                             }
                         }
@@ -279,7 +278,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             } catch (err) {
                 console.error(err);
-                alert('Network connection error.');
+                alert('Connection error occurred.');
             } finally {
                 isSending = false;
                 finishSendingUI();
