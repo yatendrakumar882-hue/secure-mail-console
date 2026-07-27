@@ -13,7 +13,7 @@ const app = express();
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
-// Express Middleware
+// Express Middleware Setup
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -21,12 +21,12 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const transporters = new Map();
 
-/* Root Route (Fixes Vercel 500 Page Open Error) */
+/* Root Route (Vercel Serverless File Handling) */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-/* Cloudflare Turnstile Check */
+/* Cloudflare Turnstile Security Verification */
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY) return true;
   try {
@@ -42,7 +42,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-/* Connection Transporter Pooling */
+/* Transporter Pooling (Active Socket Connection Reuse) */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cacheKey = `${cleanEmail}_${appPassword}`;
@@ -52,8 +52,8 @@ function getTransporter(email, appPassword) {
       service: "gmail",
       auth: { user: cleanEmail, pass: appPassword },
       pool: true,
-      maxConnections: 1, // Single socket connection for natural human behavior
-      maxMessages: 50
+      maxConnections: 3, // Safe concurrency for fast routing
+      maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
   }
@@ -76,7 +76,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* Plain Text Fallback For Dual Multipart MIME */
+/* Dual Multipart HTML to Clean Plain Text Engine */
 function convertHtmlToCleanText(html) {
   if (!html) return "";
   return html
@@ -94,7 +94,7 @@ function convertHtmlToCleanText(html) {
     .trim();
 }
 
-/* Auth Routes */
+/* Auth & SMTP Verification Routes */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (password === SITE_PASSWORD) return res.json({ success: true, message: "Access granted" });
@@ -119,7 +119,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* SSE Stream Route (ORGANIC SLOW PACING: 6 - 12 SECONDS DELAY) */
+/* SSE Stream Route (SAFE FAST PACING: 1.5 TO 3 SECONDS DELAY) */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -165,13 +165,12 @@ app.post("/api/send-stream", async (req, res) => {
       const spunBody = parseSpintax(messageBody);
       const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
-      // Clean RFC-Compliant Mail Structure
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
         to: recipient,
         subject: spunSubject,
         headers: {
-          'X-Mailer': 'Gmail', // Natural Header Signature
+          'X-Mailer': 'Gmail',
           'Date': new Date().toUTCString()
         }
       };
@@ -191,15 +190,10 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // ORGANIC HUMAN DELAY: 600ms to 1200ms (3-6 seconds)
+    // BALANCED SAFE PACING: 1500ms to 3000ms randomized delay
     if (index < recipients.length - 1) {
-      const randomDelay = Math.floor(6000 + Math.random() * 6000);
-      
-      const pings = Math.floor(randomDelay / 2000);
-      for (let i = 0; i < pings; i++) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        res.write(': keep-alive\n\n');
-      }
+      const fastSafeDelay = Math.floor(1500 + Math.random() * 1500);
+      await new Promise(resolve => setTimeout(resolve, fastSafeDelay));
     }
   }
 
