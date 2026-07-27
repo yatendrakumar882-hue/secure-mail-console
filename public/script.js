@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const toggleGatePassword = document.getElementById('toggle-gate-password');
     const logoutBtn = document.getElementById('logout-btn');
 
+    // Clean URL query mark bug if present
     if (window.location.search.includes('?')) {
         window.history.replaceState({}, document.title, window.location.pathname);
     }
