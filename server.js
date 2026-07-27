@@ -12,7 +12,7 @@ const app = express();
 
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 
-// Express Middleware
+// Express Middleware Setup
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -20,12 +20,16 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const transporters = new Map();
 
-/* Root Route (Vercel Web Page Open Fix) */
+/* ==========================================================================
+   ROOT ROUTE (Fixes Page Load & 500 Vercel Open Bug)
+   ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-/* Connection Pooling */
+/* ==========================================================================
+   TRANSPORTER POOLING (Fast Connection & TLS Socket Reuse)
+   ========================================================================== */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cacheKey = `${cleanEmail}_${appPassword}`;
@@ -43,7 +47,9 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-/* Spintax Parser */
+/* ==========================================================================
+   SPINTAX PARSER ({Hi|Hello|Hey})
+   ========================================================================== */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -59,7 +65,9 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* Plain Text Fallback */
+/* ==========================================================================
+   HTML TO PLAIN-TEXT FALLBACK (Dual Multipart MIME Support)
+   ========================================================================== */
 function convertHtmlToText(html) {
   if (!html) return "";
   return html
@@ -77,7 +85,9 @@ function convertHtmlToText(html) {
     .trim();
 }
 
-/* Auth Routes */
+/* ==========================================================================
+   AUTHENTICATION ROUTES
+   ========================================================================== */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (password === SITE_PASSWORD) return res.json({ success: true });
@@ -93,11 +103,13 @@ app.post("/api/verify", async (req, res) => {
     await transporter.verify();
     return res.json({ success: true, message: "SMTP verified successfully" });
   } catch (error) {
-    return res.status(401).json({ success: false, message: "Authentication failed." });
+    return res.status(401).json({ success: false, message: "Authentication failed. Check App Password." });
   }
 });
 
-/* SSE Stream Route (Uninterrupted Loop) */
+/* ==========================================================================
+   SSE STREAM ROUTE (STABLE & SECURE LOOP)
+   ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -126,7 +138,7 @@ app.post("/api/send-stream", async (req, res) => {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
-    // Send HTTP keep-alive ping
+    // Send HTTP Keep-Alive Ping
     res.write(': keep-alive\n\n');
 
     try {
@@ -156,9 +168,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Stable 1-second delay
+    // Safe 1-Second Delay to avoid hitting socket crashes
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 300));
     }
   }
 
@@ -166,10 +178,15 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
+/* ==========================================================================
+   STOP ROUTE
+   ========================================================================== */
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stop process registered" });
 });
 
-/* Vercel Handler Export */
+/* ==========================================================================
+   VERCEL EXPORT
+   ========================================================================== */
 export default app;
