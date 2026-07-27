@@ -13,7 +13,7 @@ const app = express();
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
-// Express Middleware Setup
+// Middleware Configuration
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -22,14 +22,14 @@ const activeSessions = {};
 const transporters = new Map();
 
 /* ==========================================================================
-   ROOT ROUTE (Fixes Page Load & 500 Vercel Open Bug)
+   ROOT ROUTE (Fixes Page Load & 500 Vercel Open Issue)
    ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 /* ==========================================================================
-   HELPER: CLOUDFLARE TURNSTILE VERIFICATION
+   CLOUDFLARE TURNSTILE VERIFICATION (OPTIONAL SECURITY)
    ========================================================================== */
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY) return true;
@@ -53,7 +53,7 @@ async function verifyTurnstile(token, ip) {
 }
 
 /* ==========================================================================
-   TRANSPORTER POOLING (Socket Connection Reuse)
+   TRANSPORTER POOLING (Connection & Socket Reuse)
    ========================================================================== */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -91,9 +91,9 @@ function parseSpintax(text) {
 }
 
 /* ==========================================================================
-   CLEAN PLAIN-TEXT FALLBACK (Dual Multipart MIME Support)
+   CLEAN PLAIN-TEXT CONVERTER (For Clean Dual Multipart MIME)
    ========================================================================== */
-function convertHtmlToText(html) {
+function convertHtmlToCleanText(html) {
   if (!html) return "";
   return html
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
@@ -111,7 +111,7 @@ function convertHtmlToText(html) {
 }
 
 /* ==========================================================================
-   AUTHENTICATION ROUTES
+   AUTHENTICATION & VERIFY ROUTES
    ========================================================================== */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
@@ -144,13 +144,13 @@ app.post("/api/verify", async (req, res) => {
 });
 
 /* ==========================================================================
-   SSE STREAM ROUTE (SLOW HUMAN-LIKE PACING: 4-8 SECONDS DELAY)
+   SSE STREAM ROUTE (SLOW HUMAN-LIKE PACING: 5 TO 10 SECONDS DELAY)
    ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
+  res.setHeader('X-Accel-Buffering', 'no'); // Prevents proxy buffering
 
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
 
@@ -163,7 +163,7 @@ app.post("/api/send-stream", async (req, res) => {
   if (cfToken && TURNSTILE_SECRET_KEY) {
     const isValidToken = await verifyTurnstile(cfToken, req.ip);
     if (!isValidToken) {
-      res.write(`data: ${JSON.stringify({ success: false, error: "Turnstile verification failed" })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: false, error: "Security check failed" })}\n\n`);
       res.end();
       return;
     }
@@ -183,7 +183,7 @@ app.post("/api/send-stream", async (req, res) => {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
-    // Send HTTP keep-alive ping during slow delays to prevent connection drops
+    // Send HTTP keep-alive ping to maintain connection during delays
     res.write(': keep-alive\n\n');
 
     try {
@@ -192,7 +192,7 @@ app.post("/api/send-stream", async (req, res) => {
       const spunBody = parseSpintax(messageBody);
       const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
-      // Clean, standard MIME structure without spammy custom headers
+      // Clean Standard Mail Options without suspicious custom headers
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
         to: recipient,
@@ -201,7 +201,7 @@ app.post("/api/send-stream", async (req, res) => {
 
       if (isHtml) {
         mailOptions.html = spunBody;
-        mailOptions.text = convertHtmlToText(spunBody);
+        mailOptions.text = convertHtmlToCleanText(spunBody);
       } else {
         mailOptions.text = spunBody;
       }
@@ -214,13 +214,13 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // ORGANIC PACING: Random delay between 4.0s and 8.0s to simulate natural sending
+    // SLOW HUMAN PACING: 5000ms to 10000ms randomized delay between emails
     if (index < recipients.length - 1) {
-      const randomDelay = Math.floor(1000 + Math.random() * 1000);
+      const randomDelay = Math.floor(5000 + Math.random() * 5000);
       
-      // Ping client every 2 seconds during the long wait to keep socket alive
-      const delayIntervals = Math.floor(randomDelay / 2000);
-      for (let i = 0; i < delayIntervals; i++) {
+      // Keep socket alive by sending pings every 2 seconds during the delay
+      const iterations = Math.floor(randomDelay / 2000);
+      for (let i = 0; i < iterations; i++) {
         await new Promise(resolve => setTimeout(resolve, 2000));
         res.write(': keep-alive\n\n');
       }
@@ -236,10 +236,10 @@ app.post("/api/send-stream", async (req, res) => {
    ========================================================================== */
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
-  res.json({ success: true, message: "Stop process registered" });
+  res.json({ success: true, message: "Stop request registered" });
 });
 
 /* ==========================================================================
-   VERCEL HANDLER EXPORT
+   EXPORT FOR VERCEL SERVERLESS
    ========================================================================== */
 export default app;
