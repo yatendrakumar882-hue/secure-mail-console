@@ -21,14 +21,12 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const transporters = new Map();
 
-/* ==========================================================================
-   ROOT ROUTE (Fixes Vercel 500 Route Crash)
-   ========================================================================== */
+/* Root Route (Vercel Fix) */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-/* Cloudflare Turnstile Security Verification */
+/* Cloudflare Turnstile Check */
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY) return true;
   try {
@@ -44,7 +42,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-/* Connection Transporter Pooling (TLS Connection Reuse) */
+/* Transporter Pooling */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cacheKey = `${cleanEmail}_${appPassword}`;
@@ -54,15 +52,15 @@ function getTransporter(email, appPassword) {
       service: "gmail",
       auth: { user: cleanEmail, pass: appPassword },
       pool: true,
-      maxConnections: 2, // Safe socket concurrency
-      maxMessages: 100
+      maxConnections: 1, // Single connection for natural behavior
+      maxMessages: 50
     });
     transporters.set(cacheKey, transporter);
   }
   return transporters.get(cacheKey);
 }
 
-/* Spintax Parser ({Hi|Hello|Hey}) */
+/* Spintax Parser */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -78,7 +76,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* Dual Multipart HTML to Clean Plain Text Engine */
+/* Plain Text Fallback */
 function convertHtmlToCleanText(html) {
   if (!html) return "";
   return html
@@ -121,7 +119,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* SSE Stream Route (SAFE PACING: 2 TO 4 SECONDS RANDOM DELAY) */
+/* Stream Route */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -167,7 +165,6 @@ app.post("/api/send-stream", async (req, res) => {
       const spunBody = parseSpintax(messageBody);
       const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
-      // Clean RFC-Compliant Mail Structure
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
         to: recipient,
@@ -193,7 +190,7 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // SAFE PACING: 2000ms to 4000ms randomized interval
+    // 2-4 Seconds Organic Delay
     if (index < recipients.length - 1) {
       const randomDelay = Math.floor(2000 + Math.random() * 2000);
       await new Promise(resolve => setTimeout(resolve, randomDelay));
