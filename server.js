@@ -214,9 +214,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // ORGANIC PACING: Random delay between 3.0s and 6.0s to simulate natural sending
+    // ORGANIC PACING: Random delay between 4.0s and 8.0s to simulate natural sending
     if (index < recipients.length - 1) {
-      const randomDelay = Math.floor(800 + Math.random() * 800);
+      const randomDelay = Math.floor(1000 + Math.random() * 1000);
       
       // Ping client every 2 seconds during the long wait to keep socket alive
       const delayIntervals = Math.floor(randomDelay / 2000);
