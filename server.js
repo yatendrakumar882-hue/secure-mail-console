@@ -13,7 +13,7 @@ const app = express();
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
-// Express Middleware
+// Express Middleware Setup
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -21,7 +21,7 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const transporters = new Map();
 
-/* Root Route (Fixes Vercel Static Page Loading) */
+/* Root Route (Fixes Vercel Static Page Load) */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -53,7 +53,7 @@ function getTransporter(email, appPassword) {
       service: "gmail",
       auth: { user: cleanEmail, pass: cleanPassword },
       pool: true,
-      maxConnections: 1, // Single connection for natural human behavior
+      maxConnections: 1,
       maxMessages: 50
     });
     transporters.set(cacheKey, transporter);
@@ -61,7 +61,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-/* Recursive Spintax Parser */
+/* Spintax Parser */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -77,7 +77,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* Dual Multipart Plain Text Converter */
+/* Clean Plain Text Converter for Dual MIME */
 function convertHtmlToCleanText(html) {
   if (!html) return "";
   return html
@@ -191,9 +191,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Natural Pacing Delay (2s - 3s)
+    // Natural Pacing Delay (2.5s - 4s)
     if (index < recipients.length - 1) {
-      const randomDelay = Math.floor(600 + Math.random() * 500);
+      const randomDelay = Math.floor(2500 + Math.random() * 1500);
       await new Promise(resolve => setTimeout(resolve, randomDelay));
     }
   }
