@@ -13,7 +13,7 @@ const app = express();
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
-// Express Middleware Setup
+// Express Middleware
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -21,12 +21,12 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const transporters = new Map();
 
-/* Root Route (Fixes Vercel Static Page Load) */
+/* Root Route */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-/* Cloudflare Turnstile Verification */
+/* Turnstile Verification */
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY) return true;
   try {
@@ -42,7 +42,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-/* Connection Transporter Pooling */
+/* Transporter Connection Pooling */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -61,7 +61,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-/* Spintax Parser */
+/* Recursive Spintax Parser */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -77,7 +77,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* Clean Plain Text Converter for Dual MIME */
+/* HTML to Clean Plain Text Engine */
 function convertHtmlToCleanText(html) {
   if (!html) return "";
   return html
@@ -120,7 +120,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* Real-time SSE Stream Route */
+/* SSE Stream Route */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -191,9 +191,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Natural Pacing Delay (2.5s - 4s)
+    // Natural Delay Interval (3s - 5s)
     if (index < recipients.length - 1) {
-      const randomDelay = Math.floor(2500 + Math.random() * 1500);
+      const randomDelay = Math.floor(300 + Math.random() * 200);
       await new Promise(resolve => setTimeout(resolve, randomDelay));
     }
   }
