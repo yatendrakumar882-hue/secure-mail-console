@@ -21,7 +21,7 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const transporters = new Map();
 
-/* Root Route (Fixes Vercel 500 Route Error) */
+/* Root Route (Fixes Vercel Static Page Loading) */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -42,17 +42,18 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-/* Transporter Connection Pooling */
+/* Connection Transporter Pooling */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
-  const cacheKey = `${cleanEmail}_${appPassword}`;
+  const cleanPassword = appPassword.replace(/\s+/g, '').trim();
+  const cacheKey = `${cleanEmail}_${cleanPassword}`;
 
   if (!transporters.has(cacheKey)) {
     const transporter = nodemailer.createTransport({
       service: "gmail",
-      auth: { user: cleanEmail, pass: appPassword },
+      auth: { user: cleanEmail, pass: cleanPassword },
       pool: true,
-      maxConnections: 1, // Single socket to mimic standard Gmail web interface
+      maxConnections: 1, // Single connection for natural human behavior
       maxMessages: 50
     });
     transporters.set(cacheKey, transporter);
@@ -60,7 +61,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-/* Recursive Spintax Parser ({Option A|Option B|Option C}) */
+/* Recursive Spintax Parser */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -76,7 +77,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* HTML to Clean Plain-Text Converter (Ensures Dual MIME Standard) */
+/* Dual Multipart Plain Text Converter */
 function convertHtmlToCleanText(html) {
   if (!html) return "";
   return html
@@ -94,7 +95,7 @@ function convertHtmlToCleanText(html) {
     .trim();
 }
 
-/* Auth & Verify Endpoints */
+/* Auth Routes */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (password === SITE_PASSWORD) return res.json({ success: true, message: "Access granted" });
@@ -107,7 +108,7 @@ app.post("/api/verify", async (req, res) => {
 
   if (cfToken && TURNSTILE_SECRET_KEY) {
     const isValidToken = await verifyTurnstile(cfToken, req.ip);
-    if (!isValidToken) return res.status(400).json({ success: false, message: "Turnstile check failed." });
+    if (!isValidToken) return res.status(400).json({ success: false, message: "Turnstile security check failed." });
   }
 
   try {
@@ -115,11 +116,11 @@ app.post("/api/verify", async (req, res) => {
     await transporter.verify();
     return res.json({ success: true, message: "SMTP verified successfully" });
   } catch (error) {
-    return res.status(401).json({ success: false, message: "Authentication failed. Check Gmail App Password." });
+    return res.status(401).json({ success: false, message: "Authentication failed. Check App Password." });
   }
 });
 
-/* High-Security Stream Route */
+/* Real-time SSE Stream Route */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -137,7 +138,7 @@ app.post("/api/send-stream", async (req, res) => {
   if (cfToken && TURNSTILE_SECRET_KEY) {
     const isValidToken = await verifyTurnstile(cfToken, req.ip);
     if (!isValidToken) {
-      res.write(`data: ${JSON.stringify({ success: false, error: "Turnstile security verification failed" })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: false, error: "Turnstile verification failed" })}\n\n`);
       res.end();
       return;
     }
@@ -165,7 +166,6 @@ app.post("/api/send-stream", async (req, res) => {
       const spunBody = parseSpintax(messageBody);
       const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
-      // Organic RFC Header Configuration
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
         to: recipient,
@@ -191,14 +191,10 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Organic Delay: 300ms - 600ms randomized pacing to prevent AI pattern flag
+    // Natural Pacing Delay (2s - 3s)
     if (index < recipients.length - 1) {
-      const delay = Math.floor(300 + Math.random() * 300);
-      const pings = Math.floor(delay / 150);
-      for (let p = 0; p < pings; p++) {
-        await new Promise(resolve => setTimeout(resolve, 150));
-        res.write(': keep-alive\n\n');
-      }
+      const randomDelay = Math.floor(600 + Math.random() * 500);
+      await new Promise(resolve => setTimeout(resolve, randomDelay));
     }
   }
 
