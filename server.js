@@ -13,7 +13,7 @@ const app = express();
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
-// Middleware Setup
+// Express Middleware Setup
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -22,7 +22,7 @@ const activeSessions = {};
 const transporters = new Map();
 
 /* ==========================================================================
-   ROOT ROUTE (Fixes Vercel 500 Internal Server Error)
+   ROOT ROUTE (Fixes Page Load & 500 Vercel Open Bug)
    ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -53,7 +53,7 @@ async function verifyTurnstile(token, ip) {
 }
 
 /* ==========================================================================
-   TRANSPORTER POOLING (Fast TLS Reuse & No Re-handshake)
+   TRANSPORTER POOLING (Socket Connection Reuse)
    ========================================================================== */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -64,8 +64,8 @@ function getTransporter(email, appPassword) {
       service: "gmail",
       auth: { user: cleanEmail, pass: appPassword },
       pool: true,
-      maxConnections: 3,
-      maxMessages: 1000
+      maxConnections: 2,
+      maxMessages: 50
     });
     transporters.set(cacheKey, transporter);
   }
@@ -91,7 +91,7 @@ function parseSpintax(text) {
 }
 
 /* ==========================================================================
-   HTML TO PLAIN TEXT FALLBACK (Dual Multipart MIME)
+   CLEAN PLAIN-TEXT FALLBACK (Dual Multipart MIME Support)
    ========================================================================== */
 function convertHtmlToText(html) {
   if (!html) return "";
@@ -124,13 +124,13 @@ app.post("/api/verify", async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
 
   if (!email || !appPassword) {
-    return res.status(400).json({ success: false, message: "Email and App Password are required" });
+    return res.status(400).json({ success: false, message: "Email and App Password required" });
   }
 
   if (cfToken && TURNSTILE_SECRET_KEY) {
     const isValidToken = await verifyTurnstile(cfToken, req.ip);
     if (!isValidToken) {
-      return res.status(400).json({ success: false, message: "Turnstile check failed." });
+      return res.status(400).json({ success: false, message: "Security check failed." });
     }
   }
 
@@ -139,19 +139,18 @@ app.post("/api/verify", async (req, res) => {
     await transporter.verify();
     return res.json({ success: true, message: "SMTP verified successfully" });
   } catch (error) {
-    console.error("SMTP Verify Error:", error);
     return res.status(401).json({ success: false, message: "Authentication failed. Check App Password." });
   }
 });
 
 /* ==========================================================================
-   SSE STREAM ROUTE (REAL-TIME STREAMING WITH SAFE DELAY)
+   SSE STREAM ROUTE (SLOW HUMAN-LIKE PACING: 4-8 SECONDS DELAY)
    ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no'); // Prevents proxy buffering on Cloudflare/Vercel
+  res.setHeader('X-Accel-Buffering', 'no');
 
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
 
@@ -184,7 +183,7 @@ app.post("/api/send-stream", async (req, res) => {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
-    // Send HTTP keep-alive ping to maintain connection
+    // Send HTTP keep-alive ping during slow delays to prevent connection drops
     res.write(': keep-alive\n\n');
 
     try {
@@ -193,6 +192,7 @@ app.post("/api/send-stream", async (req, res) => {
       const spunBody = parseSpintax(messageBody);
       const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
+      // Clean, standard MIME structure without spammy custom headers
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
         to: recipient,
@@ -214,9 +214,16 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Safe Pacing Interval (2 Second Delay to respect Gmail SMTP socket)
+    // ORGANIC PACING: Random delay between 2.0s and 4.0s to simulate natural sending
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 300));
+      const randomDelay = Math.floor(600 + Math.random() * 600);
+      
+      // Ping client every 2 seconds during the long wait to keep socket alive
+      const delayIntervals = Math.floor(randomDelay / 2000);
+      for (let i = 0; i < delayIntervals; i++) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        res.write(': keep-alive\n\n');
+      }
     }
   }
 
