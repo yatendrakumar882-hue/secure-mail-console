@@ -179,12 +179,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (isSending) return;
 
             const emailVal = dashboardEmail.value.trim();
-            const appPasswordVal = dashboardPassword.value.replace(/\s+/g, '').trim(); // Strip internal spaces
+            const appPasswordVal = dashboardPassword.value.replace(/\s+/g, '').trim();
             const senderNameVal = senderName.value.trim();
             const subjectVal = subject.value.trim();
             const messageBodyVal = messageBody.value.trim();
 
-            // Cloudflare turnstile token
             const cfToken = document.querySelector('[name="cf-turnstile-response"]')?.value || '';
 
             if (!emailVal || !appPasswordVal || !senderNameVal || !subjectVal || !messageBodyVal) {
@@ -198,7 +197,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const recipientsToSend = [...extractedEmails];
 
             sendBtn.disabled = true;
-            sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying SMTP...';
+            sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
 
             try {
                 const verifyRes = await fetch('/api/verify', {
@@ -209,7 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const verifyResult = await verifyRes.json();
                 if (!verifyResult.success) {
-                    alert('SMTP Auth Failed: ' + (verifyResult.message || 'Check Email & App Password'));
+                    alert('SMTP Auth Error: ' + (verifyResult.message || 'Check App Password'));
                     finishSendingUI();
                     return;
                 }
@@ -233,7 +232,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     })
                 });
 
-                if (!response.ok) throw new Error('Streaming connection failed.');
+                if (!response.ok) throw new Error('Streaming failed.');
 
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
@@ -268,10 +267,10 @@ document.addEventListener('DOMContentLoaded', () => {
                                         updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sent: ${event.recipient}`);
                                     } else if (event.recipient) {
                                         failedCount++;
-                                        updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient} (${event.error || 'Error'})`);
+                                        updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
                                     }
                                 } catch (e) {
-                                    // Keep-alive ping ignore
+                                    // Ignore keep-alive pings
                                 }
                             }
                         }
@@ -281,22 +280,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 isSending = false;
                 if (stopRequested) {
                     if (statusIcon) statusIcon.className = 'fa-solid fa-circle-stop text-danger';
-                    if (statusText) statusText.textContent = 'Process stopped by user.';
+                    if (statusText) statusText.textContent = 'Process stopped.';
                 } else {
                     if (failedCount === 0 && sentCount > 0) {
                         if (statusIcon) statusIcon.className = 'fa-solid fa-circle-check text-success';
-                        if (statusText) statusText.textContent = 'All emails delivered successfully!';
-                        alert(`Success! ${sentCount} email(s) sent successfully.`);
+                        if (statusText) statusText.textContent = 'Completed!';
+                        alert(`Success! All ${sentCount} emails sent successfully.`);
                     } else {
                         if (statusIcon) statusIcon.className = 'fa-solid fa-triangle-exclamation text-warning';
-                        if (statusText) statusText.textContent = `Completed with errors. Sent: ${sentCount}, Failed: ${failedCount}`;
-                        alert(`Finished: ${sentCount} Sent, ${failedCount} Failed. Please check SMTP App Password.`);
+                        if (statusText) statusText.textContent = `Completed with errors.`;
+                        alert(`Finished: Sent: ${sentCount}, Failed: ${failedCount}`);
                     }
                 }
 
             } catch (err) {
                 console.error(err);
-                alert('Connection error occurred during execution.');
+                alert('Connection error occurred.');
             } finally {
                 isSending = false;
                 finishSendingUI();
@@ -315,7 +314,7 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 await fetch('/api/stop', { method: 'POST' });
             } catch (e) {
-                console.error("Stop request error", e);
+                console.error("Stop error", e);
             }
         });
     }
