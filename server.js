@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
 // Express Middleware Setup
@@ -21,28 +21,40 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const transporters = new Map();
 
-/* Root Route (Vercel Fix) */
+/* ==========================================================================
+   ROOT ROUTE (Fixes Static Asset Delivery & 500 Vercel Issues)
+   ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-/* Cloudflare Turnstile Check */
+/* ==========================================================================
+   HELPER: CLOUDFLARE TURNSTILE VERIFICATION
+   ========================================================================== */
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY) return true;
+
   try {
     const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ secret: TURNSTILE_SECRET_KEY, response: token, remoteip: ip })
+      body: new URLSearchParams({
+        secret: TURNSTILE_SECRET_KEY,
+        response: token,
+        remoteip: ip
+      })
     });
     const data = await response.json();
     return data.success;
   } catch (error) {
+    console.error("Turnstile Verification Error:", error);
     return false;
   }
 }
 
-/* Transporter Pooling */
+/* ==========================================================================
+   TRANSPORTER POOLING (TLS Socket Reuse)
+   ========================================================================== */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cacheKey = `${cleanEmail}_${appPassword}`;
@@ -52,15 +64,17 @@ function getTransporter(email, appPassword) {
       service: "gmail",
       auth: { user: cleanEmail, pass: appPassword },
       pool: true,
-      maxConnections: 1, // Single connection for natural behavior
-      maxMessages: 50
+      maxConnections: 2,
+      maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
   }
   return transporters.get(cacheKey);
 }
 
-/* Spintax Parser */
+/* ==========================================================================
+   SPINTAX PARSER ({Hi|Hello|Hey})
+   ========================================================================== */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -76,7 +90,9 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* Plain Text Fallback */
+/* ==========================================================================
+   PLAIN TEXT FALLBACK (Dual Multipart MIME Support)
+   ========================================================================== */
 function convertHtmlToCleanText(html) {
   if (!html) return "";
   return html
@@ -94,20 +110,28 @@ function convertHtmlToCleanText(html) {
     .trim();
 }
 
-/* Auth & Verify Routes */
+/* ==========================================================================
+   AUTHENTICATION ROUTES
+   ========================================================================== */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
+  if (!password) return res.status(400).json({ success: false, message: "Password is required" });
   if (password === SITE_PASSWORD) return res.json({ success: true, message: "Access granted" });
   return res.status(401).json({ success: false, message: "Incorrect password" });
 });
 
 app.post("/api/verify", async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
-  if (!email || !appPassword) return res.status(400).json({ success: false, message: "Credentials required" });
+
+  if (!email || !appPassword) {
+    return res.status(400).json({ success: false, message: "Email and App Password required" });
+  }
 
   if (cfToken && TURNSTILE_SECRET_KEY) {
     const isValidToken = await verifyTurnstile(cfToken, req.ip);
-    if (!isValidToken) return res.status(400).json({ success: false, message: "Security check failed." });
+    if (!isValidToken) {
+      return res.status(400).json({ success: false, message: "Security check failed." });
+    }
   }
 
   try {
@@ -119,7 +143,9 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* Stream Route */
+/* ==========================================================================
+   SSE STREAM ROUTE (SAFE PACING & REAL-TIME FEEDBACK)
+   ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -137,7 +163,7 @@ app.post("/api/send-stream", async (req, res) => {
   if (cfToken && TURNSTILE_SECRET_KEY) {
     const isValidToken = await verifyTurnstile(cfToken, req.ip);
     if (!isValidToken) {
-      res.write(`data: ${JSON.stringify({ success: false, error: "Turnstile verification failed" })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: false, error: "Security check failed" })}\n\n`);
       res.end();
       return;
     }
@@ -157,6 +183,7 @@ app.post("/api/send-stream", async (req, res) => {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
+    // HTTP Keep-Alive Ping
     res.write(': keep-alive\n\n');
 
     try {
@@ -190,7 +217,7 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // 2-4 Seconds Organic Delay
+    // Organic Delay Interval (200ms - 400ms)
     if (index < recipients.length - 1) {
       const randomDelay = Math.floor(2000 + Math.random() * 2000);
       await new Promise(resolve => setTimeout(resolve, randomDelay));
@@ -201,9 +228,22 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
+/* ==========================================================================
+   STOP ROUTE
+   ========================================================================== */
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stop process registered" });
 });
+
+/* ==========================================================================
+   SERVER INITIALIZATION & EXPORT
+   ========================================================================== */
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`Server listening on port ${PORT}`);
+  });
+}
 
 export default app;
