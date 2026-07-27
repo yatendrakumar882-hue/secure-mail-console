@@ -208,7 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const verifyResult = await verifyRes.json();
                 if (!verifyResult.success) {
-                    alert('SMTP Auth Error: ' + (verifyResult.message || 'Check App Password'));
+                    alert('SMTP Auth Error: ' + (verifyResult.message || 'Check Gmail App Password'));
                     finishSendingUI();
                     return;
                 }
