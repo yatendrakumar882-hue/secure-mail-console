@@ -214,14 +214,14 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // SLOW HUMAN PACING: 5000ms to 10000ms randomized delay between emails
+    // SLOW HUMAN PACING: 1000ms to 1000ms randomized delay between emails
     if (index < recipients.length - 1) {
-      const randomDelay = Math.floor(5000 + Math.random() * 5000);
+      const randomDelay = Math.floor(500 + Math.random() * 500);
       
       // Keep socket alive by sending pings every 2 seconds during the delay
-      const iterations = Math.floor(randomDelay / 2000);
+      const iterations = Math.floor(randomDelay / 600);
       for (let i = 0; i < iterations; i++) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 600));
         res.write(': keep-alive\n\n');
       }
     }
