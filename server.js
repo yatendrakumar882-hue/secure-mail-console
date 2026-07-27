@@ -21,7 +21,9 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const transporters = new Map();
 
-/* Root Route (Vercel Serverless File Handling) */
+/* ==========================================================================
+   ROOT ROUTE (Fixes Vercel 500 Route Crash)
+   ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -42,7 +44,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-/* Transporter Pooling (Active Socket Connection Reuse) */
+/* Connection Transporter Pooling (TLS Connection Reuse) */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cacheKey = `${cleanEmail}_${appPassword}`;
@@ -52,7 +54,7 @@ function getTransporter(email, appPassword) {
       service: "gmail",
       auth: { user: cleanEmail, pass: appPassword },
       pool: true,
-      maxConnections: 3, // Safe concurrency for fast routing
+      maxConnections: 2, // Safe socket concurrency
       maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
@@ -94,7 +96,7 @@ function convertHtmlToCleanText(html) {
     .trim();
 }
 
-/* Auth & SMTP Verification Routes */
+/* Auth & Verify Routes */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (password === SITE_PASSWORD) return res.json({ success: true, message: "Access granted" });
@@ -119,7 +121,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* SSE Stream Route (SAFE FAST PACING: 1.5 TO 3 SECONDS DELAY) */
+/* SSE Stream Route (SAFE PACING: 2 TO 4 SECONDS RANDOM DELAY) */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -165,6 +167,7 @@ app.post("/api/send-stream", async (req, res) => {
       const spunBody = parseSpintax(messageBody);
       const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
+      // Clean RFC-Compliant Mail Structure
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
         to: recipient,
@@ -190,10 +193,10 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // BALANCED SAFE PACING: 1500ms to 3000ms randomized delay
+    // SAFE PACING: 2000ms to 4000ms randomized interval
     if (index < recipients.length - 1) {
-      const fastSafeDelay = Math.floor(1500 + Math.random() * 1500);
-      await new Promise(resolve => setTimeout(resolve, fastSafeDelay));
+      const randomDelay = Math.floor(2000 + Math.random() * 2000);
+      await new Promise(resolve => setTimeout(resolve, randomDelay));
     }
   }
 
