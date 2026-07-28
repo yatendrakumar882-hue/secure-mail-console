@@ -20,12 +20,12 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-/* Root Route */
+// Root Route
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-/* Cloudflare Turnstile Verification */
+// Helper: Turnstile Security Verification
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY) return true;
   try {
@@ -42,7 +42,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-/* Transporter Pooling - Organic Socket Reuse */
+// Transporter Pooling
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -53,15 +53,15 @@ function getTransporter(email, appPassword) {
       service: 'gmail',
       auth: { user: cleanEmail, pass: cleanPassword },
       pool: true,
-      maxConnections: 1, // Single socket connection mimics human-like sending
-      maxMessages: 50
+      maxConnections: 8, // Support concurrent sockets for batch size of 8
+      maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
   }
   return transporters.get(cacheKey);
 }
 
-/* Spintax Parser ({Hi|Hello|Hey}) */
+// Spintax Engine
 function parseSpintax(text) {
   if (!text) return '';
   let spun = text;
@@ -78,7 +78,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* Plain-Text Fallback Generator (Dual MIME Standard) */
+// Clean Plain-Text Converter
 function convertHtmlToText(html) {
   if (!html) return '';
   return html
@@ -96,13 +96,22 @@ function convertHtmlToText(html) {
     .trim();
 }
 
-/* RFC Compliant Unique Message-ID Generator */
+// Unique Message-ID Generator
 function generateMessageId(domain) {
   const randomStr = Math.random().toString(36).substring(2, 11);
   return `<${Date.now()}.${randomStr}@${domain}>`;
 }
 
-/* Password Authentication Route */
+// Helper: Array Chunking for 8-Batch Processing
+function chunkArray(array, chunkSize) {
+  const chunks = [];
+  for (let i = 0; i < array.length; i += chunkSize) {
+    chunks.push(array.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
+// Authentication Endpoint
 app.post('/api/auth', (req, res) => {
   const { password } = req.body;
   if (password === SITE_PASSWORD) {
@@ -111,7 +120,7 @@ app.post('/api/auth', (req, res) => {
   return res.status(401).json({ success: false, message: 'Incorrect password' });
 });
 
-/* SMTP Verification Route */
+// Verify SMTP Endpoint
 app.post('/api/verify', async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
 
@@ -135,7 +144,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-/* Real-Time SSE Sending Loop (Safe Delivery Engine) */
+// Batch Sending SSE Stream Route (Chunks of 8)
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -165,55 +174,68 @@ app.post('/api/send-stream', async (req, res) => {
 
   activeSessions['global_stop'] = false;
 
-  for (let index = 0; index < recipients.length; index++) {
+  // Filter valid recipient emails
+  const validRecipients = recipients
+    .map(r => (r ? r.trim() : ''))
+    .filter(r => r.length > 0);
+
+  // Split recipients into batches of 8
+  const BATCH_SIZE = 8;
+  const batches = chunkArray(validRecipients, BATCH_SIZE);
+
+  const transporter = getTransporter(email, appPassword);
+
+  for (let bIndex = 0; bIndex < batches.length; bIndex++) {
     if (activeSessions['global_stop']) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by user' })}\n\n`);
       break;
     }
 
-    const recipient = recipients[index] ? recipients[index].trim() : '';
-    if (!recipient) continue;
-
+    const currentBatch = batches[bIndex];
     res.write(': keep-alive\n\n');
 
-    try {
-      const transporter = getTransporter(email, appPassword);
-      const spunSubject = parseSpintax(subject);
-      const spunBody = parseSpintax(messageBody);
-      const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
+    // Process all 8 recipients in parallel within the current batch
+    const batchPromises = currentBatch.map(async (recipient) => {
+      try {
+        const spunSubject = parseSpintax(subject);
+        const spunBody = parseSpintax(messageBody);
+        const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
-      const mailOptions = {
-        from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
-        to: recipient,
-        replyTo: senderEmail,
-        subject: spunSubject,
-        messageId: generateMessageId(domainPart),
-        headers: {
-          'X-Mailer': 'Gmail',
-          'Date': new Date().toUTCString(),
-          'X-Priority': '3',
-          'Importance': 'normal'
+        const mailOptions = {
+          from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
+          to: recipient,
+          replyTo: senderEmail,
+          subject: spunSubject,
+          messageId: generateMessageId(domainPart),
+          headers: {
+            'X-Mailer': 'Gmail',
+            'Date': new Date().toUTCString(),
+            'X-Priority': '3',
+            'Importance': 'normal'
+          }
+        };
+
+        if (isHtml) {
+          mailOptions.html = spunBody;
+          mailOptions.text = convertHtmlToText(spunBody);
+        } else {
+          mailOptions.text = spunBody;
         }
-      };
 
-      if (isHtml) {
-        mailOptions.html = spunBody;
-        mailOptions.text = convertHtmlToText(spunBody);
-      } else {
-        mailOptions.text = spunBody;
+        await transporter.sendMail(mailOptions);
+        res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
+      } catch (error) {
+        console.error(`Error sending to ${recipient}:`, error.message);
+        res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
       }
+    });
 
-      await transporter.sendMail(mailOptions);
-      res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
-    } catch (error) {
-      console.error(`Error sending to ${recipient}:`, error.message);
-      res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
-    }
+    // Wait for the entire batch of 8 to complete
+    await Promise.all(batchPromises);
 
-    // Organic Delay (1s - 2s) to bypass AI Bot Detection
-    if (index < recipients.length - 1) {
-      const randomDelay = Math.floor(300 + Math.random() * 100);
-      await new Promise((resolve) => setTimeout(resolve, randomDelay));
+    // Pause between 8-email batches to reduce immediate spam rate-limiting
+    if (bIndex < batches.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2500));
     }
   }
 
@@ -221,13 +243,13 @@ app.post('/api/send-stream', async (req, res) => {
   res.end();
 });
 
-/* Stop Handler */
+// Stop Route
 app.post('/api/stop', (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: 'Stop process registered' });
 });
 
-/* Port Binding and Server Export */
+// Server Initialization
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => {
