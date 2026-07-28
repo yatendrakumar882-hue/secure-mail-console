@@ -221,7 +221,7 @@ app.post("/api/send-stream", async (req, res) => {
     await Promise.all(batchPromises);
 
     if (bIndex < batches.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
     }
   }
 
