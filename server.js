@@ -6,27 +6,27 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// Directory Path Setup
+// ES Module Directory Resolution
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
 
-// Configuration & Constants
+// Configuration Constants
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
 const activeSessions = {};
 const transporters = new Map();
 
-// Express Middleware
+// Express Middlewares
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 /* ==========================================================================
-   UTILITY HELPER FUNCTIONS
+   UTILITY & HELPER FUNCTIONS
    ========================================================================== */
 
 // Cloudflare Turnstile Verification Helper
@@ -41,12 +41,12 @@ async function verifyTurnstile(token, ip) {
     const data = await response.json();
     return data.success;
   } catch (error) {
-    console.error('Turnstile verification failed:', error);
+    console.error('Turnstile verification error:', error);
     return false;
   }
 }
 
-// SMTP Transporter Pooling
+// SMTP Transporter Pooling (Optimized Socket Pool)
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -68,7 +68,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-// Spintax Text Engine
+// Spintax Text Parser ({Option 1|Option 2})
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -84,7 +84,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-// Array Chunking Helper
+// Safe Array Chunking Helper
 function chunkArray(array, chunkSize) {
   const chunks = [];
   for (let i = 0; i < array.length; i += chunkSize) {
@@ -97,12 +97,12 @@ function chunkArray(array, chunkSize) {
    API ENDPOINTS
    ========================================================================== */
 
-// Root Route
+// Serve Frontend Home
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Admin Authentication Route
+// Admin Password Verification
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (!password) {
@@ -115,7 +115,7 @@ app.post("/api/auth", (req, res) => {
   }
 });
 
-// Verify SMTP Connection Route
+// Verify SMTP Connection
 app.post("/api/verify", async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
 
@@ -140,7 +140,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-// SSE Email Batch Stream Route
+// SSE Email Batch Stream Route (Safe 8 Parallel Batch Execution)
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -205,7 +205,7 @@ app.post("/api/send-stream", async (req, res) => {
 
         if (isHtml) {
           mailOptions.html = spunBody;
-          mailOptions.text = spunBody.replace(/<[^>]*>/g, '').trim();
+          mailOptions.text = spunBody.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
         } else {
           mailOptions.text = spunBody;
         }
@@ -221,7 +221,7 @@ app.post("/api/send-stream", async (req, res) => {
     await Promise.all(batchPromises);
 
     if (bIndex < batches.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await new Promise((resolve) => setTimeout(resolve, 2500));
     }
   }
 
@@ -229,7 +229,7 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
-// Stop Handler
+// Stop Execution Handler
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stop process registered" });
