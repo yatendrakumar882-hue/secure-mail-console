@@ -12,13 +12,10 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 
-// Environment Configuration
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
-/* ==========================================================================
-   HELPER: CLOUDFLARE TURNSTILE VERIFICATION
-   ========================================================================== */
+/* Turnstile Security Check */
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY) return true;
 
@@ -35,7 +32,7 @@ async function verifyTurnstile(token, ip) {
     const data = await response.json();
     return data.success;
   } catch (error) {
-    console.error("Turnstile Verification Error:", error);
+    console.error("Turnstile Error:", error);
     return false;
   }
 }
@@ -47,31 +44,19 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const emailHistory = {};
 
-/* Root Static Entry */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-/* ==========================================================================
-   PASSWORD AUTHENTICATION
-   ========================================================================== */
+/* Auth Route */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
-
-  if (!password) {
-    return res.status(400).json({ success: false, message: "Password is required" });
-  }
-
-  if (password === SITE_PASSWORD) {
-    return res.json({ success: true, message: "Access granted" });
-  } else {
-    return res.status(401).json({ success: false, message: "Incorrect password" });
-  }
+  if (!password) return res.status(400).json({ success: false, message: "Password required" });
+  if (password === SITE_PASSWORD) return res.json({ success: true, message: "Access granted" });
+  return res.status(401).json({ success: false, message: "Incorrect password" });
 });
 
-/* ==========================================================================
-   SMTP TRANSPORTER POOLING & CACHING
-   ========================================================================== */
+/* Transporter Pooling */
 const transporters = {};
 
 function getTransporter(email, appPassword) {
@@ -82,59 +67,35 @@ function getTransporter(email, appPassword) {
   if (!transporters[cacheKey]) {
     transporters[cacheKey] = nodemailer.createTransport({
       service: "gmail",
-      auth: {
-        user: cleanEmail,
-        pass: cleanPassword
-      },
+      auth: { user: cleanEmail, pass: cleanPassword },
       pool: true,
-      maxConnections: 5,
-      maxMessages: 100
+      maxConnections: 1, // Single connection mimics natural human sending
+      maxMessages: 50
     });
   }
   return transporters[cacheKey];
 }
 
-/* ==========================================================================
-   VERIFY SMTP
-   ========================================================================== */
+/* SMTP Verify */
 app.post("/api/verify", async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
-
-  if (!email || !appPassword) {
-    return res.status(400).json({
-      success: false,
-      message: "Email and App Password are required"
-    });
-  }
+  if (!email || !appPassword) return res.status(400).json({ success: false, message: "Credentials required" });
 
   if (cfToken && TURNSTILE_SECRET_KEY) {
-    const isValidToken = await verifyTurnstile(cfToken, req.ip);
-    if (!isValidToken) {
-      return res.status(400).json({ success: false, message: "Spam check failed. Try again." });
-    }
+    const isValid = await verifyTurnstile(cfToken, req.ip);
+    if (!isValid) return res.status(400).json({ success: false, message: "Security check failed." });
   }
 
   try {
     const transporter = getTransporter(email, appPassword);
     await transporter.verify();
-
-    return res.json({
-      success: true,
-      message: "SMTP verified successfully"
-    });
-
+    return res.json({ success: true, message: "SMTP verified successfully" });
   } catch (error) {
-    console.error("SMTP Verify Error:", error);
-    return res.status(401).json({
-      success: false,
-      message: "SMTP Authentication Failed."
-    });
+    return res.status(401).json({ success: false, message: "SMTP Authentication Failed." });
   }
 });
 
-/* ==========================================================================
-   SPINTAX PARSER
-   ========================================================================== */
+/* Spintax Parser */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -150,144 +111,10 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* ==========================================================================
-   SEND BATCH (STANDARD)
-   ========================================================================== */
-app.post("/api/send-batch", async (req, res) => {
-  const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
-
-  if (!email || !appPassword || !recipients?.length) {
-    return res.status(400).json({
-      success: false,
-      message: "Missing required fields"
-    });
-  }
-
-  if (cfToken && TURNSTILE_SECRET_KEY) {
-    const isValidToken = await verifyTurnstile(cfToken, req.ip);
-    if (!isValidToken) {
-      return res.status(400).json({ success: false, message: "Spam check failed. Try again." });
-    }
-  }
-
-  const senderEmail = email.toLowerCase().trim();
-  const now = Date.now();
-  const oneHourAgo = now - 3600000;
-
-  if (!emailHistory[senderEmail]) {
-    emailHistory[senderEmail] = [];
-  }
-  emailHistory[senderEmail] = emailHistory[senderEmail].filter(ts => ts > oneHourAgo);
-
-  const currentSentCount = emailHistory[senderEmail].length;
-  if (currentSentCount >= 28) {
-    return res.status(400).json({
-      success: false,
-      limitExceeded: true,
-      message: `Mail Limit Full ❌ (Sent: ${currentSentCount}/28 in the last hour)`
-    });
-  }
-
-  const transporter = getTransporter(email, appPassword);
-  let sent = 0;
-  let failed = 0;
-  let limitExceeded = false;
-  const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
-  const results = [];
-  const allowedRemaining = 28 - currentSentCount;
-
-  for (let index = 0; index < recipients.length; index++) {
-    const recipient = recipients[index] ? recipients[index].trim() : "";
-    if (!recipient) continue;
-
-    if (activeSessions['global_stop']) {
-      results.push({ success: false, recipient, error: "Stopped by user" });
-      continue;
-    }
-
-    if (index >= allowedRemaining) {
-      limitExceeded = true;
-      results.push({ success: false, recipient, error: "Mail Limit Full ❌" });
-      continue;
-    }
-
-    const spunSubject = parseSpintax(subject);
-    const spunBody = parseSpintax(messageBody);
-    const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
-
-    const mailOptions = {
-      from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
-      to: recipient,
-      replyTo: email,
-      subject: spunSubject
-    };
-
-    if (isHtml) {
-      mailOptions.html = spunBody;
-      mailOptions.text = spunBody
-        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-        .replace(/<br\s*\/?>/gi, '\n')
-        .replace(/<p\s*[^>]*>/gi, '\n')
-        .replace(/<\/p>/gi, '\n')
-        .replace(/<[^>]*>/g, '')
-        .replace(/&nbsp;/gi, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-    } else {
-      mailOptions.text = spunBody;
-    }
-
-    let sentSuccessfully = false;
-    let lastError = null;
-    let attempts = 0;
-    const maxAttempts = 2;
-
-    while (attempts < maxAttempts) {
-      try {
-        if (attempts > 0) {
-          await new Promise(res => setTimeout(res, 100 + Math.random() * 100));
-        }
-        await transporter.sendMail(mailOptions);
-        emailHistory[senderEmail].push(Date.now());
-        results.push({ success: true, recipient });
-        sentSuccessfully = true;
-        break;
-      } catch (error) {
-        lastError = error;
-        attempts++;
-      }
-    }
-
-    if (!sentSuccessfully) {
-      results.push({ success: false, recipient, error: lastError ? lastError.message : "SMTP Send Error" });
-    }
-
-    // High Speed Delay Interval: 20ms - 40ms
-    if (index < recipients.length - 1) {
-      await new Promise(res => setTimeout(res, 20 + Math.random() * 20));
-    }
-  }
-
-  for (const result of results) {
-    if (result.success) sent++;
-    else failed++;
-  }
-
-  res.json({
-    success: true,
-    results: { sent, failed },
-    limitExceeded,
-    message: limitExceeded ? "Mail Limit Full ❌" : undefined
-  });
-});
-
-/* ==========================================================================
-   SEND STREAM (SERVER-SENT EVENTS) - ULTRA FAST PACING
-   ========================================================================== */
+/* SSE Send-Stream (Human Speed 2s-4s) */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
 
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
@@ -299,9 +126,9 @@ app.post("/api/send-stream", async (req, res) => {
   }
 
   if (cfToken && TURNSTILE_SECRET_KEY) {
-    const isValidToken = await verifyTurnstile(cfToken, req.ip);
-    if (!isValidToken) {
-      res.write(`data: ${JSON.stringify({ success: false, error: "Spam check failed. Try again." })}\n\n`);
+    const isValid = await verifyTurnstile(cfToken, req.ip);
+    if (!isValid) {
+      res.write(`data: ${JSON.stringify({ success: false, error: "Spam check failed." })}\n\n`);
       res.end();
       return;
     }
@@ -325,6 +152,8 @@ app.post("/api/send-stream", async (req, res) => {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
+    res.write(': keep-alive\n\n');
+
     if (activeSessions['global_stop']) {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Stopped by user" })}\n\n`);
       continue;
@@ -340,9 +169,9 @@ app.post("/api/send-stream", async (req, res) => {
     const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
     const mailOptions = {
-      from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
+      from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
       to: recipient,
-      replyTo: email,
+      replyTo: senderEmail,
       subject: spunSubject
     };
 
@@ -350,48 +179,28 @@ app.post("/api/send-stream", async (req, res) => {
       mailOptions.html = spunBody;
       mailOptions.text = spunBody
         .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<script[^>]*>[\s\S]*?<\/style>/gi, '')
         .replace(/<br\s*\/?>/gi, '\n')
-        .replace(/<p\s*[^>]*>/gi, '\n')
-        .replace(/<\/p>/gi, '\n')
+        .replace(/<\/p>/gi, '\n\n')
         .replace(/<[^>]*>/g, '')
-        .replace(/&nbsp;/gi, ' ')
-        .replace(/\s+/g, ' ')
         .trim();
     } else {
       mailOptions.text = spunBody;
     }
 
-    let sentSuccessfully = false;
-    let lastError = null;
-    let attempts = 0;
-    const maxAttempts = 2;
-
-    while (attempts < maxAttempts) {
-      try {
-        if (attempts > 0) {
-          await new Promise(res => setTimeout(res, 100 + Math.random() * 100));
-        }
-        await transporter.sendMail(mailOptions);
-        emailHistory[senderEmail].push(Date.now());
-        currentSentCount++;
-        sentSuccessfully = true;
-        break;
-      } catch (error) {
-        lastError = error;
-        attempts++;
-      }
-    }
-
-    if (sentSuccessfully) {
+    try {
+      await transporter.sendMail(mailOptions);
+      emailHistory[senderEmail].push(Date.now());
+      currentSentCount++;
       res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
-    } else {
-      res.write(`data: ${JSON.stringify({ success: false, recipient, error: lastError ? lastError.message : "SMTP Send Error" })}\n\n`);
+    } catch (error) {
+      res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // High Speed Delay Interval: 20ms - 40ms
+    // Organic delay: 1 to 2 seconds to maintain Gmail inbox reputation
     if (index < recipients.length - 1) {
-      await new Promise(res => setTimeout(res, 20 + Math.random() * 20));
+      const delay = Math.floor(500 + Math.random() * 400);
+      await new Promise(r => setTimeout(r, delay));
     }
   }
 
@@ -399,21 +208,14 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
-/* ==========================================================================
-   STOP ROUTE
-   ========================================================================== */
+/* Stop Route */
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
-  res.json({ success: true, message: "Stopping future batches." });
-
+  res.json({ success: true, message: "Stopping send process" });
   setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
 });
 
-/* ==========================================================================
-   SERVER INITIALIZATION
-   ========================================================================== */
 const PORT = process.env.PORT || 3000;
-
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
 });
