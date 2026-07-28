@@ -1,12 +1,9 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "my-safe-worker",
+  "name": "secure-mail-worker",
   "main": "worker.js",
   "compatibility_date": "2026-01-01",
   "compatibility_flags": [
     "nodejs_compat"
-  ],
-  "observability": {
-    "enabled": true
-  }
+  ]
 }
