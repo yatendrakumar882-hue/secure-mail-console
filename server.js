@@ -5,32 +5,27 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// ES Module Directory Path Resolution
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// Environment Variables & Constants
 const SITE_PASSWORD = process.env.SITE_PASSWORD || '##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
-// Transporter Cache & Session State
 const transporters = new Map();
 const activeSessions = {};
 
-// Express Middlewares
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-/* ==========================================================================
-   UTILITY & HELPER FUNCTIONS
-   ========================================================================== */
+/* Root Route */
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
-/**
- * Cloudflare Turnstile Verification
- */
+/* Cloudflare Turnstile Verification */
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY) return true;
   try {
@@ -42,14 +37,12 @@ async function verifyTurnstile(token, ip) {
     const data = await response.json();
     return data.success;
   } catch (error) {
-    console.error('Turnstile verification error:', error);
+    console.error('Turnstile Error:', error);
     return false;
   }
 }
 
-/**
- * SMTP Transporter Pooling (Single Socket for Human Behavior)
- */
+/* Transporter Pooling - Organic Socket Reuse */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -60,7 +53,7 @@ function getTransporter(email, appPassword) {
       service: 'gmail',
       auth: { user: cleanEmail, pass: cleanPassword },
       pool: true,
-      maxConnections: 1, // Single socket mimics natural typing
+      maxConnections: 1, // Single socket connection mimics human-like sending
       maxMessages: 50
     });
     transporters.set(cacheKey, transporter);
@@ -68,9 +61,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-/**
- * Spintax Parser ({Hi|Hello|Hey})
- */
+/* Spintax Parser ({Hi|Hello|Hey}) */
 function parseSpintax(text) {
   if (!text) return '';
   let spun = text;
@@ -87,9 +78,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-/**
- * HTML to Clean Plain-Text Converter (Dual MIME Standard)
- */
+/* Plain-Text Fallback Generator (Dual MIME Standard) */
 function convertHtmlToText(html) {
   if (!html) return '';
   return html
@@ -107,24 +96,13 @@ function convertHtmlToText(html) {
     .trim();
 }
 
-/**
- * Generate RFC Compliant Unique Message-ID
- */
+/* RFC Compliant Unique Message-ID Generator */
 function generateMessageId(domain) {
   const randomStr = Math.random().toString(36).substring(2, 11);
   return `<${Date.now()}.${randomStr}@${domain}>`;
 }
 
-/* ==========================================================================
-   API ENDPOINTS & ROUTES
-   ========================================================================== */
-
-// Serve Home Page
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// Access Password Auth
+/* Password Authentication Route */
 app.post('/api/auth', (req, res) => {
   const { password } = req.body;
   if (password === SITE_PASSWORD) {
@@ -133,7 +111,7 @@ app.post('/api/auth', (req, res) => {
   return res.status(401).json({ success: false, message: 'Incorrect password' });
 });
 
-// SMTP Credentials Verification
+/* SMTP Verification Route */
 app.post('/api/verify', async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
 
@@ -153,11 +131,11 @@ app.post('/api/verify', async (req, res) => {
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP verified successfully' });
   } catch (error) {
-    return res.status(401).json({ success: false, message: 'Authentication failed. Check Gmail App Password.' });
+    return res.status(401).json({ success: false, message: 'Authentication failed. Check App Password.' });
   }
 });
 
-// Real-Time SSE Email Stream Handler (Safe Organic Delay)
+/* Real-Time SSE Sending Loop (Safe Delivery Engine) */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -196,7 +174,6 @@ app.post('/api/send-stream', async (req, res) => {
     const recipient = recipients[index] ? recipients[index].trim() : '';
     if (!recipient) continue;
 
-    // HTTP Keep-Alive Ping
     res.write(': keep-alive\n\n');
 
     try {
@@ -233,9 +210,9 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Safe Organic Human Delay (2.0s to 4.0s) to prevent Google AI Bot Triggers
+    // Organic Delay (1s - 2s) to bypass AI Bot Detection
     if (index < recipients.length - 1) {
-      const randomDelay = Math.floor(300 + Math.random() * 200);
+      const randomDelay = Math.floor(300 + Math.random() * 100);
       await new Promise((resolve) => setTimeout(resolve, randomDelay));
     }
   }
@@ -244,16 +221,13 @@ app.post('/api/send-stream', async (req, res) => {
   res.end();
 });
 
-// Stop Execution Endpoint
+/* Stop Handler */
 app.post('/api/stop', (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: 'Stop process registered' });
 });
 
-/* ==========================================================================
-   SERVER LISTEN & EXPORT
-   ========================================================================== */
-
+/* Port Binding and Server Export */
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => {
