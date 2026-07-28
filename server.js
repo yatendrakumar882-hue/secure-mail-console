@@ -42,7 +42,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Transporter Pooling
+// Transporter Pooling - Max 8 connections for 8 parallel sockets
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -53,7 +53,7 @@ function getTransporter(email, appPassword) {
       service: 'gmail',
       auth: { user: cleanEmail, pass: cleanPassword },
       pool: true,
-      maxConnections: 8, // Support concurrent sockets for batch size of 8
+      maxConnections: 8,
       maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
@@ -102,7 +102,7 @@ function generateMessageId(domain) {
   return `<${Date.now()}.${randomStr}@${domain}>`;
 }
 
-// Helper: Array Chunking for 8-Batch Processing
+// Array Chunking Helper for Batch Size 8
 function chunkArray(array, chunkSize) {
   const chunks = [];
   for (let i = 0; i < array.length; i += chunkSize) {
@@ -111,7 +111,7 @@ function chunkArray(array, chunkSize) {
   return chunks;
 }
 
-// Authentication Endpoint
+// Password Auth Route
 app.post('/api/auth', (req, res) => {
   const { password } = req.body;
   if (password === SITE_PASSWORD) {
@@ -120,7 +120,7 @@ app.post('/api/auth', (req, res) => {
   return res.status(401).json({ success: false, message: 'Incorrect password' });
 });
 
-// Verify SMTP Endpoint
+// Verify SMTP Route
 app.post('/api/verify', async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
 
@@ -144,7 +144,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Batch Sending SSE Stream Route (Chunks of 8)
+// Batch Sending SSE Stream (8-Email Parallel Batches)
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -174,12 +174,10 @@ app.post('/api/send-stream', async (req, res) => {
 
   activeSessions['global_stop'] = false;
 
-  // Filter valid recipient emails
   const validRecipients = recipients
     .map(r => (r ? r.trim() : ''))
     .filter(r => r.length > 0);
 
-  // Split recipients into batches of 8
   const BATCH_SIZE = 8;
   const batches = chunkArray(validRecipients, BATCH_SIZE);
 
@@ -194,7 +192,7 @@ app.post('/api/send-stream', async (req, res) => {
     const currentBatch = batches[bIndex];
     res.write(': keep-alive\n\n');
 
-    // Process all 8 recipients in parallel within the current batch
+    // Process batch of 8 concurrently
     const batchPromises = currentBatch.map(async (recipient) => {
       try {
         const spunSubject = parseSpintax(subject);
@@ -230,10 +228,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     });
 
-    // Wait for the entire batch of 8 to complete
     await Promise.all(batchPromises);
 
-    // Pause between 8-email batches to reduce immediate spam rate-limiting
+    // Pause between batches to avoid connection reset
     if (bIndex < batches.length - 1) {
       await new Promise((resolve) => setTimeout(resolve, 2500));
     }
@@ -243,13 +240,12 @@ app.post('/api/send-stream', async (req, res) => {
   res.end();
 });
 
-// Stop Route
+// Stop Handler
 app.post('/api/stop', (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: 'Stop process registered' });
 });
 
-// Server Initialization
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => {
