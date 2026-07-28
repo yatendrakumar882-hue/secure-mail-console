@@ -57,7 +57,7 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 8,
+      maxConnections: 3, // Natural human connection limits
       maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
@@ -65,7 +65,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-/* ---------------- SPINTAX PARSER ---------------- */
+/* ---------------- SPINTAX PARSER ({Option 1|Option 2}) ---------------- */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -79,6 +79,31 @@ function parseSpintax(text) {
     iterations++;
   }
   return spun;
+}
+
+/* ---------------- HTML TO CLEAN PLAIN TEXT ---------------- */
+function convertHtmlToCleanText(html) {
+  if (!html) return "";
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\n\s*\n/g, '\n\n')
+    .trim();
+}
+
+/* ---------------- DYNAMIC RFC MESSAGE-ID ---------------- */
+function generateMessageId(domain) {
+  const randomStr = Math.random().toString(36).substring(2, 11);
+  const timestamp = Date.now();
+  return `<${timestamp}.${randomStr}@${domain}>`;
 }
 
 /* ---------------- HELPER: ARRAY CHUNKING ---------------- */
@@ -123,12 +148,11 @@ app.post("/api/verify", async (req, res) => {
     await transporter.verify();
     return res.json({ success: true, message: "SMTP verified successfully" });
   } catch (error) {
-    console.error("SMTP Verify Error:", error);
     return res.status(401).json({ success: false, message: error.message || "Authentication failed" });
   }
 });
 
-/* ---------------- STREAMING ROUTE (FIXES CONNECTION ERROR) ---------------- */
+/* ---------------- HIGH INBOX STREAMING ROUTE ---------------- */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -162,7 +186,7 @@ app.post("/api/send-stream", async (req, res) => {
     .map(r => (r ? r.trim() : ''))
     .filter(r => r.length > 0);
 
-  const BATCH_SIZE = 8;
+  const BATCH_SIZE = 5; // Safe Batching Size
   const batches = chunkArray(validRecipients, BATCH_SIZE);
   const transporter = getTransporter(email, appPassword);
 
@@ -186,15 +210,18 @@ app.post("/api/send-stream", async (req, res) => {
           to: recipient,
           replyTo: senderEmail,
           subject: spunSubject || "No Subject",
+          messageId: generateMessageId(domainPart),
           headers: {
             'Date': new Date().toUTCString(),
-            'X-Mailer': 'Gmail'
+            'X-Mailer': 'Gmail',
+            'X-Priority': '3',
+            'Importance': 'normal'
           }
         };
 
         if (isHtml) {
           mailOptions.html = spunBody;
-          mailOptions.text = spunBody.replace(/<[^>]*>/g, '').trim();
+          mailOptions.text = convertHtmlToCleanText(spunBody);
         } else {
           mailOptions.text = spunBody;
         }
@@ -209,8 +236,9 @@ app.post("/api/send-stream", async (req, res) => {
 
     await Promise.all(batchPromises);
 
+    // Natural Pacing Delay between Batches (2s)
     if (bIndex < batches.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
 
