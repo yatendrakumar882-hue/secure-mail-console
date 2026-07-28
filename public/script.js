@@ -1,6 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
 
-    // ==================== AUTHENTICATION & UI ====================
     const passwordGate = document.getElementById('password-gate');
     const mainApp = document.getElementById('main-app');
     const gateForm = document.getElementById('gate-form');
@@ -70,7 +69,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // ==================== MAIN CONSOLE & LIVE MONITOR ====================
     const dashboardEmail = document.getElementById('dashboard-email');
     const dashboardPassword = document.getElementById('dashboard-password');
     const togglePasswordBtn = document.getElementById('toggle-password');
@@ -173,7 +171,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (isSending) return;
 
             const emailVal = dashboardEmail.value.trim();
-            const appPasswordVal = dashboardPassword.value.trim();
+            const appPasswordVal = dashboardPassword.value.replace(/\s+/g, '').trim();
             const senderNameVal = senderName.value.trim();
             const subjectVal = subject.value.trim();
             const messageBodyVal = messageBody.value.trim();
@@ -220,7 +218,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         senderName: senderNameVal,
                         subject: subjectVal,
                         messageBody: messageBodyVal,
-                        recipients: recipientsToSend
+                        recipients: recipientsToSend,
+                        cfToken: turnstileResponse
                     })
                 });
 
