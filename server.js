@@ -218,10 +218,10 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // ORGANIC HUMAN PACING: 3 to 5 Seconds randomized delay between emails
+    // ORGANIC HUMAN PACING: 2 to 4 Seconds randomized delay between emails
     if (index < recipients.length - 1) {
-      const randomDelay = Math.floor(3000 + Math.random() * 2000);
-      const pingIntervals = Math.floor(randomDelay / 1500);
+      const randomDelay = Math.floor(300 + Math.random() * 200);
+      const pingIntervals = Math.floor(randomDelay / 150);
       
       for (let p = 0; p < pingIntervals; p++) {
         await new Promise(resolve => setTimeout(resolve, 1500));
