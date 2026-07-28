@@ -13,7 +13,6 @@ const app = express();
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
-// Express Middleware Setup
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -21,7 +20,7 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const transporters = new Map();
 
-/* Root Route (Vercel Static Route Fix) */
+/* Root Route */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -42,7 +41,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-/* Connection Pooling (Socket Reuse for Fast Execution) */
+/* Single Socket Human Transporter */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -53,15 +52,15 @@ function getTransporter(email, appPassword) {
       service: "gmail",
       auth: { user: cleanEmail, pass: cleanPassword },
       pool: true,
-      maxConnections: 2, // 2 Parallel sockets for fast response
-      maxMessages: 100
+      maxConnections: 1, // Single socket to match human behavior
+      maxMessages: 50
     });
     transporters.set(cacheKey, transporter);
   }
   return transporters.get(cacheKey);
 }
 
-/* Spintax Parser ({Hi|Hello|Hey}) */
+/* Recursive Spintax Engine */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -77,7 +76,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* Dual MIME Plain-Text Converter (Direct Inbox Protection) */
+/* Dual MIME Plain-Text Engine */
 function convertHtmlToCleanText(html) {
   if (!html) return "";
   return html
@@ -95,14 +94,14 @@ function convertHtmlToCleanText(html) {
     .trim();
 }
 
-/* Dynamic RFC Message-ID Generator */
+/* Dynamic Message-ID Generator */
 function generateMessageId(domain) {
   const randomStr = Math.random().toString(36).substring(2, 11);
   const timestamp = Date.now();
   return `<${timestamp}.${randomStr}@${domain}>`;
 }
 
-/* Auth Routes */
+/* Auth Endpoints */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (password === SITE_PASSWORD) return res.json({ success: true, message: "Access granted" });
@@ -115,7 +114,7 @@ app.post("/api/verify", async (req, res) => {
 
   if (cfToken && TURNSTILE_SECRET_KEY) {
     const isValidToken = await verifyTurnstile(cfToken, req.ip);
-    if (!isValidToken) return res.status(400).json({ success: false, message: "Security check failed." });
+    if (!isValidToken) return res.status(400).json({ success: false, message: "Turnstile check failed." });
   }
 
   try {
@@ -127,7 +126,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* SSE Stream Route - OPTIMIZED FAST SPEED (1-2s DELAY) */
+/* SSE Stream Route (SAFE HUMAN SPEED: 10s - 20s DELAY) */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -145,7 +144,7 @@ app.post("/api/send-stream", async (req, res) => {
   if (cfToken && TURNSTILE_SECRET_KEY) {
     const isValidToken = await verifyTurnstile(cfToken, req.ip);
     if (!isValidToken) {
-      res.write(`data: ${JSON.stringify({ success: false, error: "Security check failed" })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: false, error: "Turnstile security failed" })}\n\n`);
       res.end();
       return;
     }
@@ -202,10 +201,14 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // SAFE PACING DELAY: 1.0s to 2.0s
+    // SAFE HUMAN PACING: Random Delay between 2 to 3 seconds
     if (index < recipients.length - 1) {
-      const safeDelay = Math.floor(500 + Math.random() * 500);
-      await new Promise(resolve => setTimeout(resolve, safeDelay));
+      const safeDelay = Math.floor(1000 + Math.random() * 1000);
+      const pingIntervals = Math.floor(safeDelay / 200);
+      for (let p = 0; p < pingIntervals; p++) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        res.write(': keep-alive\n\n');
+      }
     }
   }
 
