@@ -46,7 +46,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// SMTP Transporter Pooling (Optimized Socket Pool)
+// SMTP Transporter Pooling (Optimized Pool Connections)
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -60,7 +60,7 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 8,
+      maxConnections: 3, // Lowered max connection pool for safe human-like behavior
       maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
@@ -140,7 +140,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-// SSE Email Batch Stream Route (Safe 8 Parallel Batch Execution)
+// SSE Email Batch Stream Route (Safe Slower Pacing For Maximum Inboxing)
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -186,7 +186,12 @@ app.post("/api/send-stream", async (req, res) => {
     const currentBatch = batches[bIndex];
     res.write(': keep-alive\n\n');
 
-    const batchPromises = currentBatch.map(async (recipient) => {
+    // Send emails in small controlled bursts
+    for (let rIndex = 0; rIndex < currentBatch.length; rIndex++) {
+      if (activeSessions['global_stop']) break;
+
+      const recipient = currentBatch[rIndex];
+
       try {
         const spunSubject = parseSpintax(subject);
         const spunBody = parseSpintax(messageBody);
@@ -216,12 +221,23 @@ app.post("/api/send-stream", async (req, res) => {
         console.error(`Error sending to ${recipient}:`, error.message);
         res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
       }
-    });
 
-    await Promise.all(batchPromises);
+      // Small 500ms micro-pause between individual emails within the batch
+      if (rIndex < currentBatch.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
 
+    // Safe Organic Pause (5 to 8 Seconds Random Delay) between 8-email batches
     if (bIndex < batches.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, 2500));
+      const batchPause = Math.floor(5000 + Math.random() * 3000);
+      const pingIntervals = Math.floor(batchPause / 1500);
+
+      // Keep HTTP Connection alive during long pause
+      for (let p = 0; p < pingIntervals; p++) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        res.write(': keep-alive\n\n');
+      }
     }
   }
 
