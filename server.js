@@ -12,7 +12,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 
-// Site password from environment variable
+// Environment Configuration
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
@@ -45,12 +45,16 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 const activeSessions = {};
-const emailHistory = {};
+const transporters = new Map();
+
+/* Static Root Entry Point */
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 /* ==========================================================================
    PASSWORD AUTHENTICATION
    ========================================================================== */
-
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
 
@@ -66,38 +70,32 @@ app.post("/api/auth", (req, res) => {
 });
 
 /* ==========================================================================
-   SMTP TRANSPORTER POOLING & CACHING
+   SMTP TRANSPORTER POOLING (HUMAN SINGLE SOCKET)
    ========================================================================== */
-
-const transporters = {};
-
-/**
- * Retrieves an existing or creates a new pooled nodemailer transport instance.
- * Using SMTP connection pooling is highly recommended for Gmail to maintain
- * connection state and avoid repeated SSL handshake overhead, which triggers
- * security/spam filters on rapid connections.
- */
 function getTransporter(email, appPassword) {
-  const cacheKey = `${email.toLowerCase().trim()}_${appPassword}`;
-  if (!transporters[cacheKey]) {
-    transporters[cacheKey] = nodemailer.createTransport({
+  const cleanEmail = email.toLowerCase().trim();
+  const cleanPassword = appPassword.replace(/\s+/g, '').trim();
+  const cacheKey = `${cleanEmail}_${cleanPassword}`;
+
+  if (!transporters.has(cacheKey)) {
+    const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
-        user: email,
-        pass: appPassword
+        user: cleanEmail,
+        pass: cleanPassword
       },
-      pool: true,             // Enable connection pooling for ultra-fast reuse
-      maxConnections: 5,      // Standard concurrent pool connections
-      maxMessages: 100
+      pool: true,
+      maxConnections: 1, // Single socket to match pure human email behavior
+      maxMessages: 50
     });
+    transporters.set(cacheKey, transporter);
   }
-  return transporters[cacheKey];
+  return transporters.get(cacheKey);
 }
 
 /* ==========================================================================
    VERIFY SMTP
    ========================================================================== */
-
 app.post("/api/verify", async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
 
@@ -119,192 +117,70 @@ app.post("/api/verify", async (req, res) => {
     const transporter = getTransporter(email, appPassword);
     await transporter.verify();
 
-    res.json({
+    return res.json({
       success: true,
       message: "SMTP verified successfully"
     });
 
   } catch (error) {
     console.error("SMTP Verify Error:", error);
-    res.status(401).json({
+    return res.status(401).json({
       success: false,
-      message: "SMTP Authentication Failed."
+      message: "SMTP Authentication Failed. Check App Password."
     });
   }
 });
 
 /* ==========================================================================
-   SPINTAX PARSER
+   SPINTAX PARSER & CLEAN TEXT CONVERTERS
    ========================================================================== */
-
-/**
- * Recursively parses spintax format {option1|option2|option3}
- * to generate unique, organic-looking emails that bypass copy-paste bulk spam detectors.
- */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
   const regex = /{([^{}]+)}/g;
-  while (regex.test(spun)) {
-    spun = spun.replace(regex, (match, choices) => {
+  let iterations = 0;
+  while (regex.test(spun) && iterations < 10) {
+    spun = spun.replace(regex, (_, choices) => {
       const options = choices.split('|');
       return options[Math.floor(Math.random() * options.length)];
     });
+    iterations++;
   }
   return spun;
 }
 
+function convertHtmlToCleanText(html) {
+  if (!html) return "";
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function generateMessageId(domain) {
+  const randomStr = Math.random().toString(36).substring(2, 11);
+  const timestamp = Date.now();
+  return `<${timestamp}.${randomStr}@${domain}>`;
+}
+
 /* ==========================================================================
-   SEND BATCH (STANDARD AND STREAMING)
+   HIGH-SECURITY SSE STREAM ROUTE (SAFE HUMAN PACING: 10s - 20s DELAY)
    ========================================================================== */
-
-/**
- * Standard batch route
- */
-app.post("/api/send-batch", async (req, res) => {
-  const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
-
-  if (!email || !appPassword || !recipients?.length) {
-    return res.status(400).json({
-      success: false,
-      message: "Missing required fields"
-    });
-  }
-
-  if (cfToken && TURNSTILE_SECRET_KEY) {
-    const isValidToken = await verifyTurnstile(cfToken, req.ip);
-    if (!isValidToken) {
-      return res.status(400).json({ success: false, message: "Spam check failed. Try again." });
-    }
-  }
-
-  const senderEmail = email.toLowerCase().trim();
-  const now = Date.now();
-  const oneHourAgo = now - 3600000;
-
-  if (!emailHistory[senderEmail]) {
-    emailHistory[senderEmail] = [];
-  }
-  emailHistory[senderEmail] = emailHistory[senderEmail].filter(ts => ts > oneHourAgo);
-
-  const currentSentCount = emailHistory[senderEmail].length;
-  if (currentSentCount >= 28) {
-    return res.status(400).json({
-      success: false,
-      limitExceeded: true,
-      message: `Mail Limit Full ❌ (Sent: ${currentSentCount}/28 in the last hour)`
-    });
-  }
-
-  const transporter = getTransporter(email, appPassword);
-  let sent = 0;
-  let failed = 0;
-  let limitExceeded = false;
-  const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
-  const results = [];
-  const allowedRemaining = 28 - currentSentCount;
-
-  for (let index = 0; index < recipients.length; index++) {
-    const recipient = recipients[index] ? recipients[index].trim() : "";
-    if (!recipient) continue;
-
-    if (activeSessions['global_stop']) {
-      results.push({ success: false, recipient, error: "Stopped by user" });
-      continue;
-    }
-
-    if (index >= allowedRemaining) {
-      limitExceeded = true;
-      results.push({ success: false, recipient, error: "Mail Limit Full ❌" });
-      continue;
-    }
-
-    const spunSubject = parseSpintax(subject);
-    const spunBody = parseSpintax(messageBody);
-    const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
-
-    // Completely natural, human-like email object.
-    // Zero custom headers and zero hidden spam footers or weird tracking codes.
-    const mailOptions = {
-      from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
-      to: recipient,
-      replyTo: email,
-      subject: spunSubject
-    };
-
-    if (isHtml) {
-      mailOptions.html = spunBody;
-      const textFallback = spunBody
-        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-        .replace(/<br\s*\/?>/gi, '\n')
-        .replace(/<p\s*[^>]*>/gi, '\n')
-        .replace(/<\/p>/gi, '\n')
-        .replace(/<[^>]*>/g, '')
-        .replace(/&nbsp;/gi, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      mailOptions.text = textFallback;
-    } else {
-      mailOptions.text = spunBody;
-    }
-
-    let sentSuccessfully = false;
-    let lastError = null;
-    let attempts = 0;
-    const maxAttempts = 2;
-
-    while (attempts < maxAttempts) {
-      try {
-        if (attempts > 0) {
-          await new Promise(res => setTimeout(res, 100 + Math.random() * 100));
-        }
-        await transporter.sendMail(mailOptions);
-        emailHistory[senderEmail].push(Date.now());
-        results.push({ success: true, recipient });
-        sentSuccessfully = true;
-        break;
-      } catch (error) {
-        lastError = error;
-        attempts++;
-      }
-    }
-
-    if (!sentSuccessfully) {
-      results.push({ success: false, recipient, error: lastError ? lastError.message : "SMTP Send Error" });
-    }
-
-    if (index < recipients.length - 1) {
-      await new Promise(res => setTimeout(res, 20 + Math.random() * 20));
-    }
-  }
-
-  for (const result of results) {
-    if (result.success) sent++;
-    else failed++;
-  }
-
-  res.json({
-    success: true,
-    results: { sent, failed },
-    limitExceeded,
-    message: limitExceeded ? "Mail Limit Full ❌" : undefined
-  });
-});
-
-/**
- * High-speed Server-Sent Events (SSE) streaming route
- * Sends 1-by-1 sequentially on the server side with warm pools,
- * and streams results instantly to the client in real-time.
- */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
 
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
 
-  if (!email || !appPassword || !recipients?.length) {
+  if (!email || !appPassword || !Array.isArray(recipients) || recipients.length === 0) {
     res.write(`data: ${JSON.stringify({ success: false, error: "Missing required fields" })}\n\n`);
     res.end();
     return;
@@ -313,98 +189,72 @@ app.post("/api/send-stream", async (req, res) => {
   if (cfToken && TURNSTILE_SECRET_KEY) {
     const isValidToken = await verifyTurnstile(cfToken, req.ip);
     if (!isValidToken) {
-      res.write(`data: ${JSON.stringify({ success: false, error: "Spam check failed. Try again." })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: false, error: "Turnstile security check failed" })}\n\n`);
       res.end();
       return;
     }
   }
 
   const senderEmail = email.toLowerCase().trim();
-  const now = Date.now();
-  const oneHourAgo = now - 3600000;
-
-  if (!emailHistory[senderEmail]) {
-    emailHistory[senderEmail] = [];
-  }
-  emailHistory[senderEmail] = emailHistory[senderEmail].filter(ts => ts > oneHourAgo);
-
-  let currentSentCount = emailHistory[senderEmail].length;
-  const transporter = getTransporter(email, appPassword);
+  const domainPart = senderEmail.split('@')[1] || 'gmail.com';
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
-  const allowedRemaining = 28 - currentSentCount;
+
+  activeSessions['global_stop'] = false;
 
   for (let index = 0; index < recipients.length; index++) {
+    if (activeSessions['global_stop']) {
+      res.write(`data: ${JSON.stringify({ success: false, error: "Stopped by user" })}\n\n`);
+      break;
+    }
+
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
-    if (activeSessions['global_stop']) {
-      res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Stopped by user" })}\n\n`);
-      continue;
-    }
+    res.write(': keep-alive\n\n');
 
-    if (currentSentCount >= 28 || index >= allowedRemaining) {
-      res.write(`data: ${JSON.stringify({ success: false, recipient, error: "Mail Limit Full ❌", limitExceeded: true })}\n\n`);
-      continue;
-    }
+    try {
+      const transporter = getTransporter(email, appPassword);
+      const spunSubject = parseSpintax(subject);
+      const spunBody = parseSpintax(messageBody);
+      const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
-    const spunSubject = parseSpintax(subject);
-    const spunBody = parseSpintax(messageBody);
-    const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
-
-    // Completely natural, highly-reputable, human-like structure with zero spam signals
-    const mailOptions = {
-      from: cleanSenderName ? `"${cleanSenderName}" <${email}>` : email,
-      to: recipient,
-      replyTo: email,
-      subject: spunSubject
-    };
-
-    if (isHtml) {
-      mailOptions.html = spunBody;
-      const textFallback = spunBody
-        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-        .replace(/<br\s*\/?>/gi, '\n')
-        .replace(/<p\s*[^>]*>/gi, '\n')
-        .replace(/<\/p>/gi, '\n')
-        .replace(/<[^>]*>/g, '')
-        .replace(/&nbsp;/gi, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      mailOptions.text = textFallback;
-    } else {
-      mailOptions.text = spunBody;
-    }
-
-    let sentSuccessfully = false;
-    let lastError = null;
-    let attempts = 0;
-    const maxAttempts = 2;
-
-    while (attempts < maxAttempts) {
-      try {
-        if (attempts > 0) {
-          await new Promise(res => setTimeout(res, 100 + Math.random() * 100));
+      const mailOptions = {
+        from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
+        to: recipient,
+        replyTo: senderEmail,
+        subject: spunSubject,
+        messageId: generateMessageId(domainPart),
+        headers: {
+          'X-Mailer': 'Gmail',
+          'Date': new Date().toUTCString(),
+          'X-Priority': '3',
+          'Importance': 'normal'
         }
-        await transporter.sendMail(mailOptions);
-        emailHistory[senderEmail].push(Date.now());
-        currentSentCount++;
-        sentSuccessfully = true;
-        break;
-      } catch (error) {
-        lastError = error;
-        attempts++;
+      };
+
+      if (isHtml) {
+        mailOptions.html = spunBody;
+        mailOptions.text = convertHtmlToCleanText(spunBody);
+      } else {
+        mailOptions.text = spunBody;
       }
-    }
 
-    if (sentSuccessfully) {
+      await transporter.sendMail(mailOptions);
       res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
-    } else {
-      res.write(`data: ${JSON.stringify({ success: false, recipient, error: lastError ? lastError.message : "SMTP Send Error" })}\n\n`);
+
+    } catch (error) {
+      console.error(`Error sending to ${recipient}:`, error.message);
+      res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
+    // ORGANIC HUMAN PACING: 10s to 20s randomized delay to prevent AI Spam Flagging
     if (index < recipients.length - 1) {
-      await new Promise(res => setTimeout(res, 20 + Math.random() * 20));
+      const safeDelay = Math.floor(10000 + Math.random() * 10000);
+      const pingIntervals = Math.floor(safeDelay / 2000);
+      for (let p = 0; p < pingIntervals; p++) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        res.write(': keep-alive\n\n');
+      }
     }
   }
 
@@ -415,21 +265,21 @@ app.post("/api/send-stream", async (req, res) => {
 /* ==========================================================================
    STOP SEND PROCESS
    ========================================================================== */
-
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
-  res.json({ success: true, message: "Stopping future batches." });
+  res.json({ success: true, message: "Stopping send process." });
 
-  // Reset stop state after 5 seconds to allow subsequent submissions
   setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
 });
 
 /* ==========================================================================
-   START SERVER
+   START SERVER & EXPORT
    ========================================================================== */
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+  const PORT = process.env.PORT || 3000;
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
 
-const PORT = process.env.PORT || 3000;
-
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
-});
+export default app;
