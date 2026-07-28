@@ -6,28 +6,30 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+// Directory Path Setup
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
 
+// Configuration & Constants
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
 const activeSessions = {};
 const transporters = new Map();
 
+// Express Middleware
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
-/* ---------------- ROOT ROUTE ---------------- */
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+/* ==========================================================================
+   UTILITY HELPER FUNCTIONS
+   ========================================================================== */
 
-/* ---------------- HELPER: TURNSTILE VERIFICATION ---------------- */
+// Cloudflare Turnstile Verification Helper
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY) return true;
   try {
@@ -39,11 +41,12 @@ async function verifyTurnstile(token, ip) {
     const data = await response.json();
     return data.success;
   } catch (error) {
+    console.error('Turnstile verification failed:', error);
     return false;
   }
 }
 
-/* ---------------- SMTP TRANSPORTER POOLING ---------------- */
+// SMTP Transporter Pooling
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -57,7 +60,7 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 3, // Natural human connection limits
+      maxConnections: 8,
       maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
@@ -65,7 +68,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-/* ---------------- SPINTAX PARSER ({Option 1|Option 2}) ---------------- */
+// Spintax Text Engine
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -81,32 +84,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* ---------------- HTML TO CLEAN PLAIN TEXT ---------------- */
-function convertHtmlToCleanText(html) {
-  if (!html) return "";
-  return html
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n\n')
-    .replace(/<\/div>/gi, '\n')
-    .replace(/<[^>]*>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/\n\s*\n/g, '\n\n')
-    .trim();
-}
-
-/* ---------------- DYNAMIC RFC MESSAGE-ID ---------------- */
-function generateMessageId(domain) {
-  const randomStr = Math.random().toString(36).substring(2, 11);
-  const timestamp = Date.now();
-  return `<${timestamp}.${randomStr}@${domain}>`;
-}
-
-/* ---------------- HELPER: ARRAY CHUNKING ---------------- */
+// Array Chunking Helper
 function chunkArray(array, chunkSize) {
   const chunks = [];
   for (let i = 0; i < array.length; i += chunkSize) {
@@ -115,7 +93,16 @@ function chunkArray(array, chunkSize) {
   return chunks;
 }
 
-/* ---------------- PASSWORD AUTH ---------------- */
+/* ==========================================================================
+   API ENDPOINTS
+   ========================================================================== */
+
+// Root Route
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Admin Authentication Route
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (!password) {
@@ -128,7 +115,7 @@ app.post("/api/auth", (req, res) => {
   }
 });
 
-/* ---------------- VERIFY SMTP ---------------- */
+// Verify SMTP Connection Route
 app.post("/api/verify", async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
 
@@ -148,11 +135,12 @@ app.post("/api/verify", async (req, res) => {
     await transporter.verify();
     return res.json({ success: true, message: "SMTP verified successfully" });
   } catch (error) {
+    console.error("SMTP Verify Error:", error);
     return res.status(401).json({ success: false, message: error.message || "Authentication failed" });
   }
 });
 
-/* ---------------- HIGH INBOX STREAMING ROUTE ---------------- */
+// SSE Email Batch Stream Route
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -177,7 +165,6 @@ app.post("/api/send-stream", async (req, res) => {
   }
 
   const senderEmail = email.toLowerCase().trim();
-  const domainPart = senderEmail.split('@')[1] || 'gmail.com';
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
 
   activeSessions['global_stop'] = false;
@@ -186,7 +173,7 @@ app.post("/api/send-stream", async (req, res) => {
     .map(r => (r ? r.trim() : ''))
     .filter(r => r.length > 0);
 
-  const BATCH_SIZE = 5; // Safe Batching Size
+  const BATCH_SIZE = 8;
   const batches = chunkArray(validRecipients, BATCH_SIZE);
   const transporter = getTransporter(email, appPassword);
 
@@ -210,18 +197,15 @@ app.post("/api/send-stream", async (req, res) => {
           to: recipient,
           replyTo: senderEmail,
           subject: spunSubject || "No Subject",
-          messageId: generateMessageId(domainPart),
           headers: {
             'Date': new Date().toUTCString(),
-            'X-Mailer': 'Gmail',
-            'X-Priority': '3',
-            'Importance': 'normal'
+            'X-Mailer': 'Gmail'
           }
         };
 
         if (isHtml) {
           mailOptions.html = spunBody;
-          mailOptions.text = convertHtmlToCleanText(spunBody);
+          mailOptions.text = spunBody.replace(/<[^>]*>/g, '').trim();
         } else {
           mailOptions.text = spunBody;
         }
@@ -236,7 +220,6 @@ app.post("/api/send-stream", async (req, res) => {
 
     await Promise.all(batchPromises);
 
-    // Natural Pacing Delay between Batches (2s)
     if (bIndex < batches.length - 1) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
@@ -246,14 +229,17 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
-/* ---------------- STOP PROCESS ---------------- */
+// Stop Handler
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stop process registered" });
   setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
 });
 
-/* ---------------- START SERVER ---------------- */
+/* ==========================================================================
+   SERVER INITIALIZATION
+   ========================================================================== */
+
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, () => {
