@@ -4,13 +4,11 @@ A high-speed, secure **web-based bulk email sending console** built with **Node.
 
 ## 🚀 Features
 * **1-by-1 Real-time Streaming**: Live Progress Monitor updates per email dispatched.
-* **Safe Fast Mode**: Dispatches ~25 emails in 4–5 seconds without triggering Google bot filters.
-* **Pure Clean Emails**: Zero added footers, zero tracking links, direct Primary Inbox delivery.
+* **Organic Safe Delay**: Prevents rapid trigger flags on ESP server endpoints.
+* **Dual MIME Fallback**: Dynamic HTML-to-Plain Text transformation.
 * **Spintax Support**: Dynamic subjects & bodies using `{Hi|Hello|Hey}` format.
 * **Password Gate**: Single-password login system for admin security.
-* **Cloudflare Turnstile**: Automated anti-spam protection.
 
-## 🛠 Setup & Deployment
-1. Run `npm install`
-2. Start server with `npm start`
-3. Set `SITE_PASSWORD` in Environment Variables.
+## 🛠 Setup
+1. `npm install`
+2. `npm start`
