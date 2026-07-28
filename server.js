@@ -22,7 +22,7 @@ const activeSessions = {};
 const transporters = new Map();
 
 /* ==========================================================================
-   ROOT ROUTE (Fixes Page Load & Static Route Errors)
+   ROOT ROUTE (Static Page Handler)
    ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -65,7 +65,7 @@ function getTransporter(email, appPassword) {
       service: "gmail",
       auth: { user: cleanEmail, pass: cleanPassword },
       pool: true,
-      maxConnections: 1, // Single connection to mimic standard human email behavior
+      maxConnections: 1, // Single connection for natural human behavior
       maxMessages: 50
     });
     transporters.set(cacheKey, transporter);
@@ -92,7 +92,7 @@ function parseSpintax(text) {
 }
 
 /* ==========================================================================
-   CLEAN PLAIN-TEXT FALLBACK (For Dual Multipart MIME Standard)
+   CLEAN PLAIN-TEXT FALLBACK (Dual Multipart MIME)
    ========================================================================== */
 function convertHtmlToCleanText(html) {
   if (!html) return "";
@@ -112,7 +112,7 @@ function convertHtmlToCleanText(html) {
 }
 
 /* ==========================================================================
-   AUTHENTICATION & SMTP VERIFICATION ROUTES
+   AUTHENTICATION & VERIFY ROUTES
    ========================================================================== */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
@@ -145,7 +145,7 @@ app.post("/api/verify", async (req, res) => {
 });
 
 /* ==========================================================================
-   REAL-TIME SSE STREAM ROUTE (SAFE ORGANIC PACING)
+   SSE STREAM ROUTE (SAFE ORGANIC PACING & INBOXING HEADERS)
    ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -184,7 +184,6 @@ app.post("/api/send-stream", async (req, res) => {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
-    // HTTP connection keep-alive ping
     res.write(': keep-alive\n\n');
 
     try {
@@ -193,6 +192,7 @@ app.post("/api/send-stream", async (req, res) => {
       const spunBody = parseSpintax(messageBody);
       const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
+      // Clean RFC-Compliant Standard Headers
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
         to: recipient,
@@ -218,9 +218,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // ORGANIC HUMAN PACING: 2 to 4 Seconds randomized delay between emails
+    // ORGANIC PACING: 1s to 2s delay to simulate natural human typing
     if (index < recipients.length - 1) {
-      const randomDelay = Math.floor(300 + Math.random() * 200);
+      const randomDelay = Math.floor(350 + Math.random() * 250);
       const pingIntervals = Math.floor(randomDelay / 150);
       
       for (let p = 0; p < pingIntervals; p++) {
@@ -243,7 +243,7 @@ app.post("/api/stop", (req, res) => {
 });
 
 /* ==========================================================================
-   SERVER INITIALIZATION & VERCEL EXPORT
+   SERVER INITIALIZATION & EXPORT
    ========================================================================== */
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   const PORT = process.env.PORT || 3000;
