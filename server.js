@@ -5,28 +5,32 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+// Path Resolution
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 
+// Configuration Variables
 const SITE_PASSWORD = process.env.SITE_PASSWORD || '##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
-// Express Middleware Setup
-app.use(cors());
-app.use(express.json({ limit: "50mb" }));
-app.use(express.static(path.join(__dirname, "public")));
-
-const activeSessions = {};
+// Transporter Cache & Active State
 const transporters = new Map();
+const activeSessions = {};
 
-/* Root Route Fix for Static Load */
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+// Express Middleware
+app.use(cors());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.static(path.join(__dirname, 'public')));
 
-/* Cloudflare Turnstile Verification Helper */
+/* ==========================================================================
+   UTILITY & HELPER FUNCTIONS
+   ========================================================================== */
+
+/**
+ * Cloudflare Turnstile Verification
+ */
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY) return true;
   try {
@@ -38,13 +42,14 @@ async function verifyTurnstile(token, ip) {
     const data = await response.json();
     return data.success;
   } catch (error) {
+    console.error('Turnstile verification error:', error);
     return false;
   }
 }
 
-/* ==========================================================================
-   TRANSPORTER POOLING (Connection Socket Reuse)
-   ========================================================================== */
+/**
+ * SMTP Transporter Cache Manager
+ */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -52,7 +57,7 @@ function getTransporter(email, appPassword) {
 
   if (!transporters.has(cacheKey)) {
     const transporter = nodemailer.createTransport({
-      service: "gmail",
+      service: 'gmail',
       auth: { user: cleanEmail, pass: cleanPassword },
       pool: true,
       maxConnections: 3,
@@ -63,14 +68,15 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-/* ==========================================================================
-   SPINTAX PARSER ({Hi|Hello|Hey})
-   ========================================================================== */
+/**
+ * Spintax Text Parser ({Option 1|Option 2})
+ */
 function parseSpintax(text) {
-  if (!text) return "";
+  if (!text) return '';
   let spun = text;
   const regex = /{([^{}]+)}/g;
   let iterations = 0;
+
   while (regex.test(spun) && iterations < 10) {
     spun = spun.replace(regex, (_, choices) => {
       const options = choices.split('|');
@@ -81,11 +87,11 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* ==========================================================================
-   HTML TO PLAIN-TEXT FALLBACK (Dual Multipart MIME Clean Text)
-   ========================================================================== */
+/**
+ * HTML to Plain Text Converter
+ */
 function convertHtmlToText(html) {
-  if (!html) return "";
+  if (!html) return '';
   return html
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
@@ -101,53 +107,67 @@ function convertHtmlToText(html) {
     .trim();
 }
 
-/* RFC Compliant Unique Message-ID Generator */
+/**
+ * Unique Message-ID Generator
+ */
 function generateMessageId(domain) {
   const randomStr = Math.random().toString(36).substring(2, 11);
-  const timestamp = Date.now();
-  return `<${timestamp}.${randomStr}@${domain}>`;
+  return `<${Date.now()}.${randomStr}@${domain}>`;
 }
 
 /* ==========================================================================
-   AUTHENTICATION ROUTES
+   API ROUTES
    ========================================================================== */
-app.post("/api/auth", (req, res) => {
-  const { password } = req.body;
-  if (password === SITE_PASSWORD) return res.json({ success: true });
-  return res.status(401).json({ success: false, message: "Incorrect password" });
+
+// Serve Static Frontend Index
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.post("/api/verify", async (req, res) => {
+// Admin Password Auth
+app.post('/api/auth', (req, res) => {
+  const { password } = req.body;
+  if (password === SITE_PASSWORD) {
+    return res.json({ success: true, message: 'Access granted' });
+  }
+  return res.status(401).json({ success: false, message: 'Incorrect password' });
+});
+
+// SMTP Credentials Verification
+app.post('/api/verify', async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
-  if (!email || !appPassword) return res.status(400).json({ success: false, message: "Credentials required" });
+
+  if (!email || !appPassword) {
+    return res.status(400).json({ success: false, message: 'Email and App Password required' });
+  }
 
   if (cfToken && TURNSTILE_SECRET_KEY) {
     const isValid = await verifyTurnstile(cfToken, req.ip);
-    if (!isValid) return res.status(400).json({ success: false, message: "Turnstile security check failed." });
+    if (!isValid) {
+      return res.status(400).json({ success: false, message: 'Turnstile security check failed.' });
+    }
   }
 
   try {
     const transporter = getTransporter(email, appPassword);
     await transporter.verify();
-    return res.json({ success: true, message: "SMTP verified successfully" });
+    return res.json({ success: true, message: 'SMTP verified successfully' });
   } catch (error) {
-    return res.status(401).json({ success: false, message: "Authentication failed. Check App Password." });
+    return res.status(401).json({ success: false, message: 'Authentication failed. Check App Password.' });
   }
 });
 
-/* ==========================================================================
-   SSE STREAM ROUTE (STABLE & SECURE LOOP)
-   ========================================================================== */
-app.post("/api/send-stream", async (req, res) => {
+// Real-time SSE Send Stream
+app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no'); // Prevents proxy buffering on Vercel/Nginx
+  res.setHeader('X-Accel-Buffering', 'no');
 
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
 
   if (!email || !appPassword || !Array.isArray(recipients) || recipients.length === 0) {
-    res.write(`data: ${JSON.stringify({ success: false, error: "Missing required fields" })}\n\n`);
+    res.write(`data: ${JSON.stringify({ success: false, error: 'Missing required fields' })}\n\n`);
     res.end();
     return;
   }
@@ -155,7 +175,7 @@ app.post("/api/send-stream", async (req, res) => {
   if (cfToken && TURNSTILE_SECRET_KEY) {
     const isValid = await verifyTurnstile(cfToken, req.ip);
     if (!isValid) {
-      res.write(`data: ${JSON.stringify({ success: false, error: "Turnstile verification failed" })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: false, error: 'Turnstile check failed' })}\n\n`);
       res.end();
       return;
     }
@@ -163,20 +183,19 @@ app.post("/api/send-stream", async (req, res) => {
 
   const senderEmail = email.toLowerCase().trim();
   const domainPart = senderEmail.split('@')[1] || 'gmail.com';
-  const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
+  const cleanSenderName = (senderName || '').replace(/"/g, '').trim();
 
   activeSessions['global_stop'] = false;
 
   for (let index = 0; index < recipients.length; index++) {
     if (activeSessions['global_stop']) {
-      res.write(`data: ${JSON.stringify({ success: false, error: "Stopped by user" })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by user' })}\n\n`);
       break;
     }
 
-    const recipient = recipients[index] ? recipients[index].trim() : "";
+    const recipient = recipients[index] ? recipients[index].trim() : '';
     if (!recipient) continue;
 
-    // Connection keep-alive ping
     res.write(': keep-alive\n\n');
 
     try {
@@ -208,35 +227,35 @@ app.post("/api/send-stream", async (req, res) => {
 
       await transporter.sendMail(mailOptions);
       res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
-
     } catch (error) {
       console.error(`Error sending to ${recipient}:`, error.message);
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Exact 300ms delay maintained as requested
+    // Delay between iterations (400ms)
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise((resolve) => setTimeout(resolve, 400));
     }
   }
 
-  res.write("data: [DONE]\n\n");
+  res.write('data: [DONE]\n\n');
   res.end();
 });
 
-/* ==========================================================================
-   STOP ROUTE
-   ========================================================================== */
-app.post("/api/stop", (req, res) => {
+// Stop Execution Handler
+app.post('/api/stop', (req, res) => {
   activeSessions['global_stop'] = true;
-  res.json({ success: true, message: "Stop process registered" });
+  res.json({ success: true, message: 'Stop process registered' });
 });
 
-/* Server Initialization for Local Dev */
+/* ==========================================================================
+   SERVER INITIALIZATION / EXPORT
+   ========================================================================== */
+
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Server listening on port ${PORT}`);
   });
 }
 
