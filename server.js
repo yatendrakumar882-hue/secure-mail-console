@@ -13,6 +13,7 @@ const app = express();
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
+// Express Middleware Setup
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -20,12 +21,16 @@ app.use(express.static(path.join(__dirname, "public")));
 const activeSessions = {};
 const transporters = new Map();
 
-/* Root Route */
+/* ==========================================================================
+   ROOT ROUTE (Fixes Vercel Static Page Loading)
+   ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-/* Cloudflare Turnstile Verification */
+/* ==========================================================================
+   HELPER: CLOUDFLARE TURNSTILE VERIFICATION
+   ========================================================================== */
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY) return true;
   try {
@@ -37,11 +42,14 @@ async function verifyTurnstile(token, ip) {
     const data = await response.json();
     return data.success;
   } catch (error) {
+    console.error("Turnstile Verification Error:", error);
     return false;
   }
 }
 
-/* Connection Transporter Pooling */
+/* ==========================================================================
+   TRANSPORTER POOLING (Connection & Socket Warm Re-use)
+   ========================================================================== */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -52,7 +60,7 @@ function getTransporter(email, appPassword) {
       service: "gmail",
       auth: { user: cleanEmail, pass: cleanPassword },
       pool: true,
-      maxConnections: 1,
+      maxConnections: 1, // Single connection to mimic standard human email behavior
       maxMessages: 50
     });
     transporters.set(cacheKey, transporter);
@@ -60,7 +68,9 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-/* Recursive Spintax Engine */
+/* ==========================================================================
+   RECURSIVE SPINTAX PARSER ({Hi|Hello|Hey})
+   ========================================================================== */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -76,7 +86,9 @@ function parseSpintax(text) {
   return spun;
 }
 
-/* Dual MIME Plain-Text Converter */
+/* ==========================================================================
+   DUAL MULTIPART MIME PLAIN TEXT ENGINE (Prevents Spam Filter Trigger)
+   ========================================================================== */
 function convertHtmlToCleanText(html) {
   if (!html) return "";
   return html
@@ -94,27 +106,37 @@ function convertHtmlToCleanText(html) {
     .trim();
 }
 
-/* Generate RFC Compliant Message-ID */
+/* ==========================================================================
+   DYNAMIC RFC MESSAGE-ID GENERATOR
+   ========================================================================== */
 function generateMessageId(domain) {
   const randomStr = Math.random().toString(36).substring(2, 11);
   const timestamp = Date.now();
   return `<${timestamp}.${randomStr}@${domain}>`;
 }
 
-/* Auth Endpoints */
+/* ==========================================================================
+   AUTH & VERIFY ENDPOINTS
+   ========================================================================== */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
+  if (!password) return res.status(400).json({ success: false, message: "Password is required" });
   if (password === SITE_PASSWORD) return res.json({ success: true, message: "Access granted" });
   return res.status(401).json({ success: false, message: "Incorrect password" });
 });
 
 app.post("/api/verify", async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
-  if (!email || !appPassword) return res.status(400).json({ success: false, message: "Credentials required" });
+
+  if (!email || !appPassword) {
+    return res.status(400).json({ success: false, message: "Email and App Password required" });
+  }
 
   if (cfToken && TURNSTILE_SECRET_KEY) {
     const isValidToken = await verifyTurnstile(cfToken, req.ip);
-    if (!isValidToken) return res.status(400).json({ success: false, message: "Turnstile check failed." });
+    if (!isValidToken) {
+      return res.status(400).json({ success: false, message: "Security check failed." });
+    }
   }
 
   try {
@@ -122,11 +144,13 @@ app.post("/api/verify", async (req, res) => {
     await transporter.verify();
     return res.json({ success: true, message: "SMTP verified successfully" });
   } catch (error) {
-    return res.status(401).json({ success: false, message: "Authentication failed. Check App Password." });
+    return res.status(401).json({ success: false, message: "Authentication failed. Check Gmail App Password." });
   }
 });
 
-/* SSE Stream Route */
+/* ==========================================================================
+   SSE STREAM ROUTE (ORGANIC JITTER PACING & HIGH-SECURITY INBOX HEADERS)
+   ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -165,6 +189,7 @@ app.post("/api/send-stream", async (req, res) => {
     const recipient = recipients[index] ? recipients[index].trim() : "";
     if (!recipient) continue;
 
+    // HTTP Connection Keep-Alive Ping
     res.write(': keep-alive\n\n');
 
     try {
@@ -173,6 +198,7 @@ app.post("/api/send-stream", async (req, res) => {
       const spunBody = parseSpintax(messageBody);
       const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
+      // Clean RFC-Compliant Headers
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
         to: recipient,
@@ -181,7 +207,7 @@ app.post("/api/send-stream", async (req, res) => {
         headers: {
           'X-Mailer': 'Gmail',
           'Date': new Date().toUTCString(),
-          'X-Priority': '3',
+          'X-Priority': '3', // Normal Priority
           'Importance': 'normal'
         }
       };
@@ -201,12 +227,13 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Natural Delay Interval (1s - 3s)
+    // ORGANIC PACING: 2s to 3s randomized delay with keep-alive pings
     if (index < recipients.length - 1) {
       const randomDelay = Math.floor(350 + Math.random() * 250);
       const pingIntervals = Math.floor(randomDelay / 150);
+      
       for (let p = 0; p < pingIntervals; p++) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 600));
         res.write(': keep-alive\n\n');
       }
     }
@@ -216,11 +243,17 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
+/* ==========================================================================
+   STOP ROUTE
+   ========================================================================== */
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stop process registered" });
 });
 
+/* ==========================================================================
+   SERVER INITIALIZATION & EXPORT
+   ========================================================================== */
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => {
