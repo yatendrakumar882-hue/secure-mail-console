@@ -12,10 +12,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 
-// Mock Turnstile secret for local dev if needed
-const TURNSTILE_SECRET = '1x0000000000000000000000000000000AA';
-
-// Site password from environment variable (hidden from GitHub via .env + .gitignore)
+// Environment Configuration
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 
 app.use(cors());
@@ -23,9 +20,14 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 const activeSessions = {};
+const transporters = new Map();
+
+/* ---------------- ROOT ROUTE ---------------- */
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 /* ---------------- PASSWORD AUTH ---------------- */
-
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
 
@@ -40,69 +42,62 @@ app.post("/api/auth", (req, res) => {
   }
 });
 
-/* ---------------- SMTP TRANSPORTER ---------------- */
+/* ---------------- SMTP TRANSPORTER POOLING ---------------- */
+function getTransporter(email, appPassword) {
+  const cleanEmail = email.toLowerCase().trim();
+  const cleanPassword = appPassword.replace(/\s+/g, '').trim();
+  const cacheKey = `${cleanEmail}_${cleanPassword}`;
 
-function createTransporter(email, appPassword) {
-  return nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 587,
-    secure: false,
-
-    auth: {
-      user: email,
-      pass: appPassword
-    },
-
-    tls: {
-      rejectUnauthorized: false
-    },
-
-    family: 4,
-
-    pool: true,
-    maxConnections: 20,
-    maxMessages: 100
-  });
+  if (!transporters.has(cacheKey)) {
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: cleanEmail,
+        pass: cleanPassword
+      },
+      pool: true,
+      maxConnections: 3,
+      maxMessages: 100
+    });
+    transporters.set(cacheKey, transporter);
+  }
+  return transporters.get(cacheKey);
 }
 
 /* ---------------- VERIFY SMTP ---------------- */
-
 app.post("/api/verify", async (req, res) => {
+  const { email, appPassword } = req.body;
 
-  const { email, appPassword, cfToken } = req.body;
-
-  if (!email || !appPassword || !cfToken) {
+  if (!email || !appPassword) {
     return res.status(400).json({
       success: false,
-      message: "Email, App Password, and Spam Check required"
+      message: "Email and App Password required"
     });
   }
 
   try {
-    const transporter = createTransporter(email, appPassword);
+    const transporter = getTransporter(email, appPassword);
     await transporter.verify();
 
-    res.json({
+    return res.json({
       success: true,
       message: "SMTP verified successfully"
     });
 
   } catch (error) {
     console.error("SMTP Verify Error:", error);
-    res.status(401).json({
+    return res.status(401).json({
       success: false,
-      message: error.message
+      message: error.message || "Authentication failed"
     });
   }
 });
 
-/* ---------------- SEND BATCH ---------------- */
-
+/* ---------------- SEND BATCH ROUTE ---------------- */
 app.post("/api/send-batch", async (req, res) => {
+  const { email, appPassword, senderName, subject, messageBody, recipients } = req.body;
 
-  const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
-
-  if (!email || !appPassword || !recipients?.length) {
+  if (!email || !appPassword || !Array.isArray(recipients) || recipients.length === 0) {
     return res.status(400).json({
       success: false,
       message: "Missing required fields"
@@ -111,58 +106,78 @@ app.post("/api/send-batch", async (req, res) => {
 
   if (recipients.length > 10) {
     return res.status(400).json({
-        success: false,
-        message: "Batch too large. Max 10."
+      success: false,
+      message: "Batch too large. Max 10."
     });
   }
 
-  const transporter = createTransporter(email, appPassword);
+  const senderEmail = email.toLowerCase().trim();
+  const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
+  const transporter = getTransporter(email, appPassword);
+
   let sent = 0;
   let failed = 0;
+  const results = [];
 
-  // Send all emails in parallel for maximum speed
-  const results = await Promise.allSettled(recipients.map(recipient =>
-      transporter.sendMail({
-          from: `"${senderName}" <${email}>`,
-          to: recipient,
-          subject: subject,
-          text: messageBody,
-          html: `<p>${messageBody}</p>`
-      }).then(() => ({ success: true, recipient }))
-      .catch(error => {
-          console.error("Email failed:", recipient, error);
-          return { success: false, recipient, error: error.message };
-      })
-  ));
+  // Sequential processing for connection stability
+  for (let index = 0; index < recipients.length; index++) {
+    if (activeSessions['global_stop']) {
+      results.push({ success: false, recipient: recipients[index], error: "Stopped by user" });
+      failed++;
+      continue;
+    }
 
-  for (const result of results) {
-      if (result.status === 'fulfilled' && result.value.success) sent++;
-      else failed++;
+    const recipient = recipients[index] ? recipients[index].trim() : "";
+    if (!recipient) continue;
+
+    const mailOptions = {
+      from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
+      to: recipient,
+      replyTo: senderEmail,
+      subject: subject || "No Subject",
+      text: messageBody || "",
+      html: messageBody ? `<p>${messageBody.replace(/\n/g, '<br>')}</p>` : "",
+      headers: {
+        'Date': new Date().toUTCString(),
+        'X-Mailer': 'NodeMailConsole'
+      }
+    };
+
+    try {
+      await transporter.sendMail(mailOptions);
+      results.push({ success: true, recipient });
+      sent++;
+    } catch (error) {
+      console.error(`Email failed for ${recipient}:`, error.message);
+      results.push({ success: false, recipient, error: error.message });
+      failed++;
+    }
+
+    // Small delay between sends to prevent connection throttling
+    if (index < recipients.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+    }
   }
 
-  res.json({
-      success: true,
-      results: { sent, failed }
+  return res.json({
+    success: true,
+    results: { sent, failed, details: results }
   });
 });
 
 /* ---------------- STOP PROCESS ---------------- */
-
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stopping future batches." });
 
-  // reset after a few seconds so next send works
   setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
 });
 
-// Legacy send function removed (now fully managed by REST batching)
-// Socket connection removed
-
 /* ---------------- START SERVER ---------------- */
-
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+export default app;
