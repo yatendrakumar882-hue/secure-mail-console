@@ -1,15 +1,8 @@
-# Main entry execution rule
-entrypoint = "worker.js"
+entrypoint = "server.js"
 modules = ["nodejs-20"]
 
 [nix]
 channel = "stable-24.05"
 
 [processes]
-# Local testing using wrangler dev
-dev = "npx wrangler dev worker.js --port 8787"
-
-# Deployment config
-[deployment]
-run = ["npx", "wrangler", "deploy"]
-deploymentTarget = "cloudrun"
+run = "npm start"
