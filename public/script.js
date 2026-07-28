@@ -179,8 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (isSending) return;
 
             const emailVal = dashboardEmail.value.trim();
-            // Automatically strip spaces from Google App Password
-            const appPasswordVal = dashboardPassword.value.replace(/\s+/g, '').trim(); 
+            const appPasswordVal = dashboardPassword.value.replace(/\s+/g, '').trim();
             const senderNameVal = senderName.value.trim();
             const subjectVal = subject.value.trim();
             const messageBodyVal = messageBody.value.trim();
@@ -188,7 +187,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const cfToken = document.querySelector('[name="cf-turnstile-response"]')?.value || '';
 
             if (!emailVal || !appPasswordVal || !senderNameVal || !subjectVal || !messageBodyVal) {
-                return alert('Please fill in all required fields.');
+                return alert('Please fill in all input fields.');
             }
             if (extractedEmails.length === 0) {
                 emailValidationError?.classList.remove('hidden');
@@ -198,7 +197,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const recipientsToSend = [...extractedEmails];
 
             sendBtn.disabled = true;
-            sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying SMTP...';
+            sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
 
             try {
                 const verifyRes = await fetch('/api/verify', {
@@ -271,7 +270,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                         updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
                                     }
                                 } catch (e) {
-                                    // Ignore stream keep-alive pings
+                                    // Keep-alive ignore
                                 }
                             }
                         }
@@ -281,7 +280,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 isSending = false;
                 if (stopRequested) {
                     if (statusIcon) statusIcon.className = 'fa-solid fa-circle-stop text-danger';
-                    if (statusText) statusText.textContent = 'Process stopped by user.';
+                    if (statusText) statusText.textContent = 'Process stopped.';
                 } else {
                     if (failedCount === 0 && sentCount > 0) {
                         if (statusIcon) statusIcon.className = 'fa-solid fa-circle-check text-success';
@@ -296,7 +295,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             } catch (err) {
                 console.error(err);
-                alert('Connection error occurred during streaming.');
+                alert('Connection error occurred.');
             } finally {
                 isSending = false;
                 finishSendingUI();
