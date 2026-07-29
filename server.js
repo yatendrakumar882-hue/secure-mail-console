@@ -41,12 +41,12 @@ async function verifyTurnstile(token, ip) {
     const data = await response.json();
     return data.success;
   } catch (error) {
-    console.error('Turnstile Verification Error:', error);
+    console.error('Turnstile verification error:', error);
     return false;
   }
 }
 
-// SMTP Transporter Caching (Human-like Single Socket behavior)
+// SMTP Transporter Caching (Socket Pooling)
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -60,7 +60,7 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 1, // Single connection mimics a real user desktop client
+      maxConnections: 8, // 8 Parallel connections for high-speed delivery
       maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
@@ -84,7 +84,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-// HTML to Clean Plain-Text Converter (Dual MIME Standard)
+// Safe Plain-Text Generator for Dual-MIME Parsing
 function convertHtmlToCleanText(html) {
   if (!html) return "";
   return html
@@ -99,10 +99,19 @@ function convertHtmlToCleanText(html) {
     .trim();
 }
 
-// RFC 5322 Compliant Unique Message-ID Generator
+// Unique RFC Compliant Message-ID Generator
 function generateMessageId(domain) {
   const randomStr = Math.random().toString(36).substring(2, 11);
   return `<${Date.now()}.${randomStr}@${domain}>`;
+}
+
+// Safe Array Chunking Helper
+function chunkArray(array, chunkSize) {
+  const chunks = [];
+  for (let i = 0; i < array.length; i += chunkSize) {
+    chunks.push(array.slice(i, i + chunkSize));
+  }
+  return chunks;
 }
 
 /* ==========================================================================
@@ -152,7 +161,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-// Primary Inbox Organic Stream Route (Best for 20-30 Emails Campaign)
+// Real-Time SSE Email Stream Handler (Fast & Safe Batching)
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -186,62 +195,60 @@ app.post("/api/send-stream", async (req, res) => {
     .map(r => (r ? r.trim() : ''))
     .filter(r => r.length > 0);
 
+  const BATCH_SIZE = 8; // 8-Parallel Batch Size
+  const batches = chunkArray(validRecipients, BATCH_SIZE);
   const transporter = getTransporter(email, appPassword);
 
-  for (let index = 0; index < validRecipients.length; index++) {
+  for (let bIndex = 0; bIndex < batches.length; bIndex++) {
     if (activeSessions['global_stop']) {
       res.write(`data: ${JSON.stringify({ success: false, error: "Stopped by user" })}\n\n`);
       break;
     }
 
-    const recipient = validRecipients[index];
-
-    // Connection Ping
+    const currentBatch = batches[bIndex];
     res.write(': keep-alive\n\n');
 
-    try {
-      const spunSubject = parseSpintax(subject);
-      const spunBody = parseSpintax(messageBody);
-      const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
+    // Parallel dispatch for 8 emails
+    const batchPromises = currentBatch.map(async (recipient) => {
+      try {
+        const spunSubject = parseSpintax(subject);
+        const spunBody = parseSpintax(messageBody);
+        const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
-      const mailOptions = {
-        from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
-        to: recipient,
-        replyTo: senderEmail,
-        subject: spunSubject || "No Subject",
-        messageId: generateMessageId(domainPart),
-        headers: {
-          'Date': new Date().toUTCString(),
-          'X-Mailer': 'Gmail',
-          'X-Priority': '3',
-          'Importance': 'normal'
+        const mailOptions = {
+          from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
+          to: recipient,
+          replyTo: senderEmail,
+          subject: spunSubject || "No Subject",
+          messageId: generateMessageId(domainPart),
+          headers: {
+            'Date': new Date().toUTCString(),
+            'X-Mailer': 'Gmail',
+            'X-Priority': '3',
+            'Importance': 'normal'
+          }
+        };
+
+        if (isHtml) {
+          mailOptions.html = spunBody;
+          mailOptions.text = convertHtmlToCleanText(spunBody);
+        } else {
+          mailOptions.text = spunBody;
         }
-      };
 
-      if (isHtml) {
-        mailOptions.html = spunBody;
-        mailOptions.text = convertHtmlToCleanText(spunBody);
-      } else {
-        mailOptions.text = spunBody;
+        await transporter.sendMail(mailOptions);
+        res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
+      } catch (error) {
+        console.error(`Error sending to ${recipient}:`, error.message);
+        res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
       }
+    });
 
-      await transporter.sendMail(mailOptions);
-      res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
+    await Promise.all(batchPromises);
 
-    } catch (error) {
-      console.error(`Error sending to ${recipient}:`, error.message);
-      res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
-    }
-
-    // Human Organic Delay between each send (1.0s to 1.5s Random Delay)
-    if (index < validRecipients.length - 1) {
-      const randomDelay = Math.floor(600 + Math.random() * 600);
-      const pings = Math.floor(randomDelay / 600);
-
-      for (let p = 0; p < pings; p++) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        res.write(': keep-alive\n\n');
-      }
+    // Safe 1.5s delay between 8-email batches to prevent socket crash
+    if (bIndex < batches.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 600));
     }
   }
 
@@ -249,7 +256,7 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
-// Stop Execution Handler
+// Stop Handler
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stop process registered" });
