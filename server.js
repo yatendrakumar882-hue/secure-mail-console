@@ -6,14 +6,14 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// Directory Path Setup
+// Directory Path Resolution
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
 
-// Configuration Constants
+// Environment & Configuration Constants
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
@@ -26,10 +26,12 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 /* ==========================================================================
-   UTILITY & HELPER FUNCTIONS
+   HELPER & UTILITY FUNCTIONS
    ========================================================================== */
 
-// Cloudflare Turnstile Verification Helper
+/**
+ * Cloudflare Turnstile Verification
+ */
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY) return true;
   try {
@@ -41,12 +43,14 @@ async function verifyTurnstile(token, ip) {
     const data = await response.json();
     return data.success;
   } catch (error) {
-    console.error('Turnstile verification error:', error);
+    console.error('Turnstile Verification Error:', error);
     return false;
   }
 }
 
-// SMTP Transporter Caching (Socket Pooling)
+/**
+ * SMTP Transporter Pooling & Caching
+ */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -60,7 +64,7 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 8, // 8 Parallel connections for high-speed delivery
+      maxConnections: 8,
       maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
@@ -68,7 +72,9 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-// Spintax Text Parser ({Option 1|Option 2})
+/**
+ * Spintax Engine ({Hi|Hello|Hey})
+ */
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -84,7 +90,9 @@ function parseSpintax(text) {
   return spun;
 }
 
-// Safe Plain-Text Generator for Dual-MIME Parsing
+/**
+ * Plain-Text Converter for Dual MIME Compatibility
+ */
 function convertHtmlToCleanText(html) {
   if (!html) return "";
   return html
@@ -99,13 +107,17 @@ function convertHtmlToCleanText(html) {
     .trim();
 }
 
-// Unique RFC Compliant Message-ID Generator
+/**
+ * RFC Compliant Unique Message-ID Generator
+ */
 function generateMessageId(domain) {
   const randomStr = Math.random().toString(36).substring(2, 11);
   return `<${Date.now()}.${randomStr}@${domain}>`;
 }
 
-// Safe Array Chunking Helper
+/**
+ * Array Chunking Helper for Batching
+ */
 function chunkArray(array, chunkSize) {
   const chunks = [];
   for (let i = 0; i < array.length; i += chunkSize) {
@@ -118,12 +130,12 @@ function chunkArray(array, chunkSize) {
    API ENDPOINTS
    ========================================================================== */
 
-// Serve Static Frontend Index
+// Root Route
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Admin Password Auth
+// Admin Authentication
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (!password) {
@@ -161,7 +173,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-// Real-Time SSE Email Stream Handler (Fast & Safe Batching)
+// SSE Streaming Route
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -195,7 +207,7 @@ app.post("/api/send-stream", async (req, res) => {
     .map(r => (r ? r.trim() : ''))
     .filter(r => r.length > 0);
 
-  const BATCH_SIZE = 8; // 8-Parallel Batch Size
+  const BATCH_SIZE = 8;
   const batches = chunkArray(validRecipients, BATCH_SIZE);
   const transporter = getTransporter(email, appPassword);
 
@@ -208,7 +220,6 @@ app.post("/api/send-stream", async (req, res) => {
     const currentBatch = batches[bIndex];
     res.write(': keep-alive\n\n');
 
-    // Parallel dispatch for 8 emails
     const batchPromises = currentBatch.map(async (recipient) => {
       try {
         const spunSubject = parseSpintax(subject);
@@ -246,9 +257,8 @@ app.post("/api/send-stream", async (req, res) => {
 
     await Promise.all(batchPromises);
 
-    // Safe 1.5s delay between 8-email batches to prevent socket crash
     if (bIndex < batches.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      await new Promise((resolve) => setTimeout(resolve, 1500));
     }
   }
 
@@ -256,7 +266,7 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
-// Stop Handler
+// Stop Execution Endpoint
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stop process registered" });
