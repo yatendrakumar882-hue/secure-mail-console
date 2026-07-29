@@ -6,14 +6,14 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// Directory Path Resolution
+// Directory Path Setup
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
 
-// Environment & Configuration Constants
+// Configuration Constants
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
@@ -26,12 +26,10 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 /* ==========================================================================
-   HELPER & UTILITY FUNCTIONS
+   UTILITY & HELPER FUNCTIONS
    ========================================================================== */
 
-/**
- * Cloudflare Turnstile Verification
- */
+// Cloudflare Turnstile Verification Helper
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY) return true;
   try {
@@ -48,9 +46,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-/**
- * SMTP Transporter Pooling & Caching
- */
+// Transporter Pooling (Single socket connection mimics real human sending)
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -64,7 +60,7 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 8,
+      maxConnections: 1, // Single connection for organic behavior
       maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
@@ -72,9 +68,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-/**
- * Spintax Engine ({Hi|Hello|Hey})
- */
+// Spintax Text Engine ({Hi|Hello|Hey})
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -90,9 +84,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-/**
- * Plain-Text Converter for Dual MIME Compatibility
- */
+// HTML to Clean Plain-Text Converter (Dual MIME Standard)
 function convertHtmlToCleanText(html) {
   if (!html) return "";
   return html
@@ -107,23 +99,10 @@ function convertHtmlToCleanText(html) {
     .trim();
 }
 
-/**
- * RFC Compliant Unique Message-ID Generator
- */
+// Dynamic RFC 5322 Message-ID
 function generateMessageId(domain) {
   const randomStr = Math.random().toString(36).substring(2, 11);
   return `<${Date.now()}.${randomStr}@${domain}>`;
-}
-
-/**
- * Array Chunking Helper for Batching
- */
-function chunkArray(array, chunkSize) {
-  const chunks = [];
-  for (let i = 0; i < array.length; i += chunkSize) {
-    chunks.push(array.slice(i, i + chunkSize));
-  }
-  return chunks;
 }
 
 /* ==========================================================================
@@ -135,7 +114,7 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Admin Authentication
+// Admin Password Auth
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (!password) {
@@ -173,7 +152,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-// SSE Streaming Route
+// Real-time Organic Stream Route (Primary Inbox Landing Engine)
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -207,58 +186,62 @@ app.post("/api/send-stream", async (req, res) => {
     .map(r => (r ? r.trim() : ''))
     .filter(r => r.length > 0);
 
-  const BATCH_SIZE = 8;
-  const batches = chunkArray(validRecipients, BATCH_SIZE);
   const transporter = getTransporter(email, appPassword);
 
-  for (let bIndex = 0; bIndex < batches.length; bIndex++) {
+  for (let index = 0; index < validRecipients.length; index++) {
     if (activeSessions['global_stop']) {
       res.write(`data: ${JSON.stringify({ success: false, error: "Stopped by user" })}\n\n`);
       break;
     }
 
-    const currentBatch = batches[bIndex];
+    const recipient = validRecipients[index];
+
+    // Keep HTTP Connection Alive
     res.write(': keep-alive\n\n');
 
-    const batchPromises = currentBatch.map(async (recipient) => {
-      try {
-        const spunSubject = parseSpintax(subject);
-        const spunBody = parseSpintax(messageBody);
-        const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
+    try {
+      const spunSubject = parseSpintax(subject);
+      const spunBody = parseSpintax(messageBody);
+      const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
-        const mailOptions = {
-          from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
-          to: recipient,
-          replyTo: senderEmail,
-          subject: spunSubject || "No Subject",
-          messageId: generateMessageId(domainPart),
-          headers: {
-            'Date': new Date().toUTCString(),
-            'X-Mailer': 'Gmail',
-            'X-Priority': '3',
-            'Importance': 'normal'
-          }
-        };
-
-        if (isHtml) {
-          mailOptions.html = spunBody;
-          mailOptions.text = convertHtmlToCleanText(spunBody);
-        } else {
-          mailOptions.text = spunBody;
+      const mailOptions = {
+        from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
+        to: recipient,
+        replyTo: senderEmail,
+        subject: spunSubject || "No Subject",
+        messageId: generateMessageId(domainPart),
+        headers: {
+          'Date': new Date().toUTCString(),
+          'X-Mailer': 'Gmail',
+          'X-Priority': '3',
+          'Importance': 'normal'
         }
+      };
 
-        await transporter.sendMail(mailOptions);
-        res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
-      } catch (error) {
-        console.error(`Error sending to ${recipient}:`, error.message);
-        res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
+      if (isHtml) {
+        mailOptions.html = spunBody;
+        mailOptions.text = convertHtmlToCleanText(spunBody);
+      } else {
+        mailOptions.text = spunBody;
       }
-    });
 
-    await Promise.all(batchPromises);
+      await transporter.sendMail(mailOptions);
+      res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
 
-    if (bIndex < batches.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+    } catch (error) {
+      console.error(`Error sending to ${recipient}:`, error.message);
+      res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
+    }
+
+    // Human-like Delay between sends (2.0s to 3.5s) to bypass AI bot filters
+    if (index < validRecipients.length - 1) {
+      const randomDelay = Math.floor(2000 + Math.random() * 1500);
+      const pings = Math.floor(randomDelay / 1000);
+
+      for (let p = 0; p < pings; p++) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        res.write(': keep-alive\n\n');
+      }
     }
   }
 
