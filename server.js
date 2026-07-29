@@ -46,7 +46,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// SMTP Transporter Pooling (Optimized Socket Pool)
+// SMTP Transporter Pooling (Safe Human Socket Connection)
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -60,8 +60,8 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 8,
-      maxMessages: 100
+      maxConnections: 2, // Natural human-like connection pool
+      maxMessages: 50
     });
     transporters.set(cacheKey, transporter);
   }
@@ -84,6 +84,27 @@ function parseSpintax(text) {
   return spun;
 }
 
+// Safe Plain-Text Generator for Dual-MIME Formatting
+function convertHtmlToCleanText(html) {
+  if (!html) return "";
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Unique RFC Compliant Message-ID
+function generateMessageId(domain) {
+  const randomStr = Math.random().toString(36).substring(2, 11);
+  return `<${Date.now()}.${randomStr}@${domain}>`;
+}
+
 // Safe Array Chunking Helper
 function chunkArray(array, chunkSize) {
   const chunks = [];
@@ -97,12 +118,12 @@ function chunkArray(array, chunkSize) {
    API ENDPOINTS
    ========================================================================== */
 
-// Serve Frontend Home
+// Serve Frontend Home Page
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Admin Password Verification
+// Admin Password Auth
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (!password) {
@@ -115,7 +136,7 @@ app.post("/api/auth", (req, res) => {
   }
 });
 
-// Verify SMTP Connection
+// Verify SMTP Credentials
 app.post("/api/verify", async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
 
@@ -140,7 +161,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-// SSE Email Batch Stream Route (Safe 8 Parallel Batch Execution)
+// Real-Time SSE Email Stream Handler (Inbox Optimized)
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -165,6 +186,7 @@ app.post("/api/send-stream", async (req, res) => {
   }
 
   const senderEmail = email.toLowerCase().trim();
+  const domainPart = senderEmail.split('@')[1] || 'gmail.com';
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
 
   activeSessions['global_stop'] = false;
@@ -173,7 +195,7 @@ app.post("/api/send-stream", async (req, res) => {
     .map(r => (r ? r.trim() : ''))
     .filter(r => r.length > 0);
 
-  const BATCH_SIZE = 8;
+  const BATCH_SIZE = 5; // Safe Batching Size for Primary Inbox Delivery
   const batches = chunkArray(validRecipients, BATCH_SIZE);
   const transporter = getTransporter(email, appPassword);
 
@@ -186,7 +208,11 @@ app.post("/api/send-stream", async (req, res) => {
     const currentBatch = batches[bIndex];
     res.write(': keep-alive\n\n');
 
-    const batchPromises = currentBatch.map(async (recipient) => {
+    for (let rIndex = 0; rIndex < currentBatch.length; rIndex++) {
+      if (activeSessions['global_stop']) break;
+
+      const recipient = currentBatch[rIndex];
+
       try {
         const spunSubject = parseSpintax(subject);
         const spunBody = parseSpintax(messageBody);
@@ -197,15 +223,18 @@ app.post("/api/send-stream", async (req, res) => {
           to: recipient,
           replyTo: senderEmail,
           subject: spunSubject || "No Subject",
+          messageId: generateMessageId(domainPart),
           headers: {
             'Date': new Date().toUTCString(),
-            'X-Mailer': 'Gmail'
+            'X-Mailer': 'Gmail',
+            'X-Priority': '3',
+            'Importance': 'normal'
           }
         };
 
         if (isHtml) {
           mailOptions.html = spunBody;
-          mailOptions.text = spunBody.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+          mailOptions.text = convertHtmlToCleanText(spunBody);
         } else {
           mailOptions.text = spunBody;
         }
@@ -216,12 +245,22 @@ app.post("/api/send-stream", async (req, res) => {
         console.error(`Error sending to ${recipient}:`, error.message);
         res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
       }
-    });
 
-    await Promise.all(batchPromises);
+      // Small delay between emails
+      if (rIndex < currentBatch.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      }
+    }
 
+    // Safe Organic Pause (4 to 6 Seconds Delay) between batches
     if (bIndex < batches.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, 3500));
+      const batchPause = Math.floor(4000 + Math.random() * 2000);
+      const pingIntervals = Math.floor(batchPause / 1000);
+
+      for (let p = 0; p < pingIntervals; p++) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        res.write(': keep-alive\n\n');
+      }
     }
   }
 
@@ -229,7 +268,7 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
-// Stop Execution Handler
+// Stop Handler
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stop process registered" });
