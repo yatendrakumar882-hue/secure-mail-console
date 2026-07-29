@@ -248,14 +248,14 @@ app.post("/api/send-stream", async (req, res) => {
 
       // Organic Delay between emails (1s - 2s)
       if (rIndex < currentBatch.length - 1) {
-        const delay = Math.floor(1200 + Math.random() * 1300);
+        const delay = Math.floor(500 + Math.random() * 600);
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
 
     // Safe Human-like Batch Pause (3s to 5s)
     if (bIndex < batches.length - 1) {
-      const batchPause = Math.floor(3000 + Math.random() * 2000);
+      const batchPause = Math.floor(2000 + Math.random() * 1000);
       const pingIntervals = Math.floor(batchPause / 1000);
 
       for (let p = 0; p < pingIntervals; p++) {
