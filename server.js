@@ -6,14 +6,14 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// ES Module Directory Resolution
+// Directory Path Setup
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
 
-// Configuration Constants
+// Environment Constants
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
@@ -41,12 +41,12 @@ async function verifyTurnstile(token, ip) {
     const data = await response.json();
     return data.success;
   } catch (error) {
-    console.error('Turnstile verification error:', error);
+    console.error('Turnstile Verification Error:', error);
     return false;
   }
 }
 
-// SMTP Transporter Pooling (Safe Human Socket Connection)
+// SMTP Transporter Caching (Single Socket for Genuine Human Behavior)
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -60,7 +60,7 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 2, // Natural human-like connection pool
+      maxConnections: 1, // Mimics real desktop email client
       maxMessages: 50
     });
     transporters.set(cacheKey, transporter);
@@ -68,7 +68,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-// Spintax Text Parser ({Option 1|Option 2})
+// Spintax Text Parser ({Hi|Hello|Hey})
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -84,7 +84,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-// Safe Plain-Text Generator for Dual-MIME Formatting
+// Clean Plain-Text Generator for Dual-MIME
 function convertHtmlToCleanText(html) {
   if (!html) return "";
   return html
@@ -99,13 +99,13 @@ function convertHtmlToCleanText(html) {
     .trim();
 }
 
-// Unique RFC Compliant Message-ID
+// RFC 5322 Compliant Unique Message-ID Generator
 function generateMessageId(domain) {
   const randomStr = Math.random().toString(36).substring(2, 11);
   return `<${Date.now()}.${randomStr}@${domain}>`;
 }
 
-// Safe Array Chunking Helper
+// Array Chunking Helper
 function chunkArray(array, chunkSize) {
   const chunks = [];
   for (let i = 0; i < array.length; i += chunkSize) {
@@ -118,12 +118,12 @@ function chunkArray(array, chunkSize) {
    API ENDPOINTS
    ========================================================================== */
 
-// Serve Frontend Home Page
+// Serve Static Frontend Index
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Admin Password Auth
+// Admin Auth
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (!password) {
@@ -136,7 +136,7 @@ app.post("/api/auth", (req, res) => {
   }
 });
 
-// Verify SMTP Credentials
+// Verify SMTP Connection
 app.post("/api/verify", async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
 
@@ -161,7 +161,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-// Real-Time SSE Email Stream Handler (Inbox Optimized)
+// Primary Inbox Stream Route (Safe Organic Delay Execution)
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -195,7 +195,7 @@ app.post("/api/send-stream", async (req, res) => {
     .map(r => (r ? r.trim() : ''))
     .filter(r => r.length > 0);
 
-  const BATCH_SIZE = 5; // Safe Batching Size for Primary Inbox Delivery
+  const BATCH_SIZE = 5; // Safe Chunk Size for Inboxing
   const batches = chunkArray(validRecipients, BATCH_SIZE);
   const transporter = getTransporter(email, appPassword);
 
@@ -246,15 +246,16 @@ app.post("/api/send-stream", async (req, res) => {
         res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
       }
 
-      // Small delay between emails
+      // Organic Delay between emails (1s - 2s)
       if (rIndex < currentBatch.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 800));
+        const delay = Math.floor(1200 + Math.random() * 1300);
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
 
-    // Safe Organic Pause (4 to 6 Seconds Delay) between batches
+    // Safe Human-like Batch Pause (3s to 5s)
     if (bIndex < batches.length - 1) {
-      const batchPause = Math.floor(4000 + Math.random() * 2000);
+      const batchPause = Math.floor(3000 + Math.random() * 2000);
       const pingIntervals = Math.floor(batchPause / 1000);
 
       for (let p = 0; p < pingIntervals; p++) {
@@ -268,7 +269,7 @@ app.post("/api/send-stream", async (req, res) => {
   res.end();
 });
 
-// Stop Handler
+// Stop Execution Handler
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
   res.json({ success: true, message: "Stop process registered" });
