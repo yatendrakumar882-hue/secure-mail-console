@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 
-// Environment Constants
+// Configuration Constants
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
@@ -46,7 +46,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// SMTP Transporter Caching (Single Socket for Genuine Human Behavior)
+// SMTP Transporter Caching (Human-like Single Socket behavior)
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -60,15 +60,15 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 1, // Mimics real desktop email client
-      maxMessages: 50
+      maxConnections: 1, // Single connection mimics a real user desktop client
+      maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
   }
   return transporters.get(cacheKey);
 }
 
-// Spintax Text Parser ({Hi|Hello|Hey})
+// Spintax Text Parser ({Option 1|Option 2})
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -84,7 +84,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-// Clean Plain-Text Generator for Dual-MIME
+// HTML to Clean Plain-Text Converter (Dual MIME Standard)
 function convertHtmlToCleanText(html) {
   if (!html) return "";
   return html
@@ -105,15 +105,6 @@ function generateMessageId(domain) {
   return `<${Date.now()}.${randomStr}@${domain}>`;
 }
 
-// Array Chunking Helper
-function chunkArray(array, chunkSize) {
-  const chunks = [];
-  for (let i = 0; i < array.length; i += chunkSize) {
-    chunks.push(array.slice(i, i + chunkSize));
-  }
-  return chunks;
-}
-
 /* ==========================================================================
    API ENDPOINTS
    ========================================================================== */
@@ -123,7 +114,7 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Admin Auth
+// Admin Password Auth
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (!password) {
@@ -161,7 +152,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-// Primary Inbox Stream Route (Safe Organic Delay Execution)
+// Primary Inbox Organic Stream Route (Best for 20-30 Emails Campaign)
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -195,70 +186,59 @@ app.post("/api/send-stream", async (req, res) => {
     .map(r => (r ? r.trim() : ''))
     .filter(r => r.length > 0);
 
-  const BATCH_SIZE = 5; // Safe Chunk Size for Inboxing
-  const batches = chunkArray(validRecipients, BATCH_SIZE);
   const transporter = getTransporter(email, appPassword);
 
-  for (let bIndex = 0; bIndex < batches.length; bIndex++) {
+  for (let index = 0; index < validRecipients.length; index++) {
     if (activeSessions['global_stop']) {
       res.write(`data: ${JSON.stringify({ success: false, error: "Stopped by user" })}\n\n`);
       break;
     }
 
-    const currentBatch = batches[bIndex];
+    const recipient = validRecipients[index];
+
+    // Connection Ping
     res.write(': keep-alive\n\n');
 
-    for (let rIndex = 0; rIndex < currentBatch.length; rIndex++) {
-      if (activeSessions['global_stop']) break;
+    try {
+      const spunSubject = parseSpintax(subject);
+      const spunBody = parseSpintax(messageBody);
+      const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
-      const recipient = currentBatch[rIndex];
-
-      try {
-        const spunSubject = parseSpintax(subject);
-        const spunBody = parseSpintax(messageBody);
-        const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
-
-        const mailOptions = {
-          from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
-          to: recipient,
-          replyTo: senderEmail,
-          subject: spunSubject || "No Subject",
-          messageId: generateMessageId(domainPart),
-          headers: {
-            'Date': new Date().toUTCString(),
-            'X-Mailer': 'Gmail',
-            'X-Priority': '3',
-            'Importance': 'normal'
-          }
-        };
-
-        if (isHtml) {
-          mailOptions.html = spunBody;
-          mailOptions.text = convertHtmlToCleanText(spunBody);
-        } else {
-          mailOptions.text = spunBody;
+      const mailOptions = {
+        from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
+        to: recipient,
+        replyTo: senderEmail,
+        subject: spunSubject || "No Subject",
+        messageId: generateMessageId(domainPart),
+        headers: {
+          'Date': new Date().toUTCString(),
+          'X-Mailer': 'Gmail',
+          'X-Priority': '3',
+          'Importance': 'normal'
         }
+      };
 
-        await transporter.sendMail(mailOptions);
-        res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
-      } catch (error) {
-        console.error(`Error sending to ${recipient}:`, error.message);
-        res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
+      if (isHtml) {
+        mailOptions.html = spunBody;
+        mailOptions.text = convertHtmlToCleanText(spunBody);
+      } else {
+        mailOptions.text = spunBody;
       }
 
-      // Organic Delay between emails (1s - 2s)
-      if (rIndex < currentBatch.length - 1) {
-        const delay = Math.floor(500 + Math.random() * 600);
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
+      await transporter.sendMail(mailOptions);
+      res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
+
+    } catch (error) {
+      console.error(`Error sending to ${recipient}:`, error.message);
+      res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Safe Human-like Batch Pause (3s to 5s)
-    if (bIndex < batches.length - 1) {
-      const batchPause = Math.floor(2000 + Math.random() * 1000);
-      const pingIntervals = Math.floor(batchPause / 1000);
+    // Human Organic Delay between each send (1.0s to 1.5s Random Delay)
+    if (index < validRecipients.length - 1) {
+      const randomDelay = Math.floor(600 + Math.random() * 600);
+      const pings = Math.floor(randomDelay / 600);
 
-      for (let p = 0; p < pingIntervals; p++) {
+      for (let p = 0; p < pings; p++) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
         res.write(': keep-alive\n\n');
       }
