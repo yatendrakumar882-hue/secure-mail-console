@@ -1,6 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
 
-    // Auth Gate Elements
     const passwordGate = document.getElementById('password-gate');
     const mainApp = document.getElementById('main-app');
     const gateForm = document.getElementById('gate-form');
@@ -10,7 +9,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const toggleGatePassword = document.getElementById('toggle-gate-password');
     const logoutBtn = document.getElementById('logout-btn');
 
-    // Check Session Auth
     if (sessionStorage.getItem('authenticated') === 'true') {
         passwordGate?.classList.add('hidden');
         mainApp?.classList.remove('hidden');
@@ -19,7 +17,6 @@ document.addEventListener('DOMContentLoaded', () => {
         mainApp?.classList.add('hidden');
     }
 
-    // Toggle Gate Password
     if (toggleGatePassword && gatePassword) {
         toggleGatePassword.addEventListener('click', () => {
             const type = gatePassword.getAttribute('type') === 'password' ? 'text' : 'password';
@@ -30,7 +27,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Login Form Submit
     if (gateForm) {
         gateForm.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -68,7 +64,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Logout Handler
     if (logoutBtn) {
         logoutBtn.addEventListener('dblclick', () => {
             sessionStorage.removeItem('authenticated');
@@ -76,7 +71,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Dashboard Inputs & Stats
     const dashboardEmail = document.getElementById('dashboard-email');
     const dashboardPassword = document.getElementById('dashboard-password');
     const togglePasswordBtn = document.getElementById('toggle-password');
@@ -104,7 +98,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let isSending = false;
     let stopRequested = false;
 
-    // Toggle App Password
     if (togglePasswordBtn && dashboardPassword) {
         togglePasswordBtn.addEventListener('click', () => {
             const type = dashboardPassword.getAttribute('type') === 'password' ? 'text' : 'password';
@@ -115,7 +108,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Extract Emails
     if (recipientsInput) {
         recipientsInput.addEventListener('input', () => {
             const text = recipientsInput.value;
@@ -137,7 +129,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // UI Progress Helpers
     function startSendingUI(total) {
         isSending = true;
         stopRequested = false;
@@ -148,7 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (progressBar) progressBar.style.width = '0%';
 
         if (statusIcon) statusIcon.className = 'fa-solid fa-circle-notch fa-spin text-primary';
-        if (statusText) statusText.textContent = 'Sending emails in batches...';
+        if (statusText) statusText.textContent = 'Sending emails 1-by-1 organically...';
 
         sendBtn?.classList.add('hidden');
         stopBtn?.classList.remove('hidden');
@@ -179,7 +170,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Main Send Execution Handler
     if (sendBtn) {
         sendBtn.addEventListener('click', async () => {
             if (isSending) return;
@@ -205,7 +195,6 @@ document.addEventListener('DOMContentLoaded', () => {
             sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
 
             try {
-                // Verify SMTP Credentials
                 const verifyRes = await fetch('/api/verify', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -219,13 +208,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
 
-                // Initialize UI Monitor
                 startSendingUI(recipientsToSend.length);
 
                 let sentCount = 0;
                 let failedCount = 0;
 
-                // Stream SSE Connection
                 const response = await fetch('/api/send-stream', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -240,7 +227,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     })
                 });
 
-                if (!response.ok) throw new Error('Streaming failed.');
+                if (!response.ok) throw new Error('Streaming connection failed.');
 
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
@@ -272,7 +259,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
                                 }
                             } catch (e) {
-                                // Ignore keep-alive or ping parsing
+                                // Ignore keep-alive or ping parse errors
                             }
                         }
                     }
@@ -281,7 +268,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 isSending = false;
                 if (stopRequested) {
                     if (statusIcon) statusIcon.className = 'fa-solid fa-circle-stop text-danger';
-                    if (statusText) statusText.textContent = 'Process stopped.';
+                    if (statusText) statusText.textContent = 'Process stopped by user.';
                 } else {
                     if (statusIcon) statusIcon.className = 'fa-solid fa-circle-check text-success';
                     if (statusText) statusText.textContent = 'Completed!';
@@ -298,7 +285,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Stop Handler
     if (stopBtn) {
         stopBtn.addEventListener('click', async () => {
             stopRequested = true;
