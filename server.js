@@ -16,8 +16,8 @@ const server = http.createServer(app);
 /* ==========================================================================
    CONFIGURABLE SPEED CONTROL (SINGLE LINE)
    ========================================================================== */
-// Fast Delay per email (150ms = 0.15 Seconds)
-const SENDING_DELAY_MS = 150;
+// Human-Safe Speed (1.2 Seconds per email for max inbox landing)
+const SENDING_DELAY_MS = 1200;
 
 // Environment Constants
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
@@ -58,7 +58,7 @@ function isValidEmail(email) {
   return emailRegex.test(email);
 }
 
-// Transporter Socket Pooling
+// Single Connection Transporter (Mimics Real Desktop Client)
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -72,7 +72,7 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 1, // Single connection mimics genuine human client
+      maxConnections: 1, // 1 Connection mimics normal desktop user
       maxMessages: 100,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -82,7 +82,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-// Advanced Spintax Engine ({Hi|Hello|Greetings})
+// Spintax Text Engine ({Option 1|Option 2})
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -106,7 +106,7 @@ function replacePersonalization(text, recipientEmail) {
   return text.replace(/{name}/gi, capitalizedName);
 }
 
-// Unique RFC 5322 Compliant Message-ID
+// Dynamic RFC 5322 Message-ID
 function generateMessageId(domain) {
   const randomStr = Math.random().toString(36).substring(2, 11);
   return `<${Date.now()}.${randomStr}@${domain}>`;
@@ -121,7 +121,7 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Admin Password Verification
+// Admin Auth Endpoint
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (!password) {
@@ -134,7 +134,7 @@ app.post("/api/auth", (req, res) => {
   }
 });
 
-// Verify SMTP Credentials
+// Verify SMTP Connection
 app.post("/api/verify", async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
 
@@ -159,7 +159,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-// Real-Time Primary Inbox Stream Route (No Footer, Pure Personal Text)
+// Primary Inbox Stream Endpoint
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -209,7 +209,7 @@ app.post("/api/send-stream", async (req, res) => {
 
     const recipient = validRecipients[index];
 
-    // Connection Ping
+    // Connection ping
     res.write(': keep-alive\n\n');
 
     try {
@@ -219,7 +219,6 @@ app.post("/api/send-stream", async (req, res) => {
       spunSubject = replacePersonalization(spunSubject, recipient);
       spunBody = replacePersonalization(spunBody, recipient);
 
-      // Clean HTML conversion without any extra footer
       const isHtmlText = /<[a-z][\s\S]*>/i.test(spunBody);
       const cleanTextContent = spunBody.replace(/<[^>]*>/g, '').trim();
 
@@ -229,7 +228,7 @@ app.post("/api/send-stream", async (req, res) => {
         replyTo: senderEmail,
         subject: spunSubject || "No Subject",
         messageId: generateMessageId(domainPart),
-        text: cleanTextContent, // Pure Plain-Text version (Primary Inbox trigger)
+        text: cleanTextContent,
         headers: {
           'Date': new Date().toUTCString(),
           'X-Mailer': 'Gmail',
@@ -238,7 +237,6 @@ app.post("/api/send-stream", async (req, res) => {
         }
       };
 
-      // If user inputs custom HTML, attach HTML cleanly without adding any footer
       if (isHtmlText) {
         mailOptions.html = spunBody;
       }
@@ -251,9 +249,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Fast Organic Delay (150ms + 50ms random jitter)
+    // Dynamic Organic Jitter (SENDING_DELAY_MS + 200ms-600ms random delay)
     if (index < validRecipients.length - 1) {
-      const dynamicJitter = Math.floor(SENDING_DELAY_MS + (Math.random() * 50));
+      const dynamicJitter = Math.floor(SENDING_DELAY_MS + (Math.random() * 400 + 200));
       await new Promise((resolve) => setTimeout(resolve, dynamicJitter));
     }
   }
