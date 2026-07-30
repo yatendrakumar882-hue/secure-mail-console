@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const toggleGatePassword = document.getElementById('toggle-gate-password');
     const logoutBtn = document.getElementById('logout-btn');
 
+    // Check auth state
     if (sessionStorage.getItem('authenticated') === 'true') {
         passwordGate?.classList.add('hidden');
         mainApp?.classList.remove('hidden');
@@ -17,6 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
         mainApp?.classList.add('hidden');
     }
 
+    // Toggle gate password visibility
     if (toggleGatePassword && gatePassword) {
         toggleGatePassword.addEventListener('click', () => {
             const type = gatePassword.getAttribute('type') === 'password' ? 'text' : 'password';
@@ -27,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Authentication form handler
     if (gateForm) {
         gateForm.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -64,6 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Logout action
     if (logoutBtn) {
         logoutBtn.addEventListener('dblclick', () => {
             sessionStorage.removeItem('authenticated');
@@ -71,6 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Dashboard Inputs & Controls
     const dashboardEmail = document.getElementById('dashboard-email');
     const dashboardPassword = document.getElementById('dashboard-password');
     const togglePasswordBtn = document.getElementById('toggle-password');
@@ -98,6 +103,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let isSending = false;
     let stopRequested = false;
 
+    // Dashboard password visibility toggle
     if (togglePasswordBtn && dashboardPassword) {
         togglePasswordBtn.addEventListener('click', () => {
             const type = dashboardPassword.getAttribute('type') === 'password' ? 'text' : 'password';
@@ -108,6 +114,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Real-time recipient extraction and duplicate cleaning
     if (recipientsInput) {
         recipientsInput.addEventListener('input', () => {
             const text = recipientsInput.value;
@@ -129,6 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // UI State Helpers
     function startSendingUI(total) {
         isSending = true;
         stopRequested = false;
@@ -139,7 +147,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (progressBar) progressBar.style.width = '0%';
 
         if (statusIcon) statusIcon.className = 'fa-solid fa-circle-notch fa-spin text-primary';
-        if (statusText) statusText.textContent = 'Sending emails 1-by-1 organically...';
+        if (statusText) statusText.textContent = 'Sending in 8-email parallel batches...';
 
         sendBtn?.classList.add('hidden');
         stopBtn?.classList.remove('hidden');
@@ -170,6 +178,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Main Stream Execution Handler
     if (sendBtn) {
         sendBtn.addEventListener('click', async () => {
             if (isSending) return;
@@ -195,6 +204,7 @@ document.addEventListener('DOMContentLoaded', () => {
             sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
 
             try {
+                // Verify SMTP Authentication
                 const verifyRes = await fetch('/api/verify', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -213,6 +223,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 let sentCount = 0;
                 let failedCount = 0;
 
+                // Stream SSE Response
                 const response = await fetch('/api/send-stream', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -259,7 +270,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
                                 }
                             } catch (e) {
-                                // Ignore keep-alive or ping parse errors
+                                // Ignore keep-alive or ping parse events
                             }
                         }
                     }
@@ -285,6 +296,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Stop process handler
     if (stopBtn) {
         stopBtn.addEventListener('click', async () => {
             stopRequested = true;
