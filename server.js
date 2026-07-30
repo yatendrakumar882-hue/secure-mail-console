@@ -46,7 +46,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// SMTP Transporter Pooling (Optimized Human-like Connection Pool)
+// SMTP Transporter Pooling
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -60,7 +60,7 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 5, // Balanced connections for speed & inbox safety
+      maxConnections: 3, // Natural connection limits
       maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
@@ -68,7 +68,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-// Spintax Text Engine ({Hi|Hello|Hey})
+// Spintax Text Engine ({Option 1|Option 2})
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -84,7 +84,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-// Clean Plain-Text Converter for Dual MIME (Prevents Spam Filter Trigger)
+// HTML to Clean Plain-Text Converter (Dual MIME Standard)
 function convertHtmlToCleanText(html) {
   if (!html) return "";
   return html
@@ -99,21 +99,17 @@ function convertHtmlToCleanText(html) {
     .trim();
 }
 
-// Dynamic RFC 5322 Compliant Unique Message-ID Generator
+// Dynamic RFC 5322 Message-ID
 function generateMessageId(domain) {
   const randomStr = Math.random().toString(36).substring(2, 11);
   return `<${Date.now()}.${randomStr}@${domain}>`;
 }
 
-// Universal Responsive HTML Template Wrapper (Accepts any size or format)
-function formatInboxTemplate(bodyText) {
+// Responsive Clean Template Wrapper
+function formatTemplate(bodyText) {
   const isCustomHtml = /<[a-z][\s\S]*>/i.test(bodyText);
+  if (isCustomHtml) return bodyText;
 
-  if (isCustomHtml) {
-    return bodyText; // Keeps user's full custom HTML as-is
-  }
-
-  // Normal text formatting with clean styling
   const formattedContent = bodyText.replace(/\n/g, '<br>');
 
   return `
@@ -193,7 +189,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-// Real-time SSE Stream Route (High Primary Inbox Delivery)
+// Real-time Stream Route
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -236,15 +232,13 @@ app.post("/api/send-stream", async (req, res) => {
     }
 
     const recipient = validRecipients[index];
-
-    // Keep Connection Alive
     res.write(': keep-alive\n\n');
 
     try {
       const spunSubject = parseSpintax(subject);
       const spunBody = parseSpintax(messageBody);
 
-      const htmlContent = formatInboxTemplate(spunBody);
+      const htmlContent = formatTemplate(spunBody);
       const plainTextContent = convertHtmlToCleanText(spunBody);
 
       const mailOptions = {
@@ -271,10 +265,10 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Safe Fast Delay (0.4s to 0.8s) for maximum delivery rate
+    // Controlled pacing delay (1.5s to 3s)
     if (index < validRecipients.length - 1) {
-      const fastDelay = Math.floor(400 + Math.random() * 400);
-      await new Promise((resolve) => setTimeout(resolve, fastDelay));
+      const safeDelay = Math.floor(1500 + Math.random() * 1500);
+      await new Promise((resolve) => setTimeout(resolve, safeDelay));
     }
   }
 
