@@ -46,7 +46,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Transporter Pooling (Single socket connection for human-like behavior)
+// Transporter Pooling (Fast Parallel Socket Connections)
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -60,7 +60,7 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 8,
+      maxConnections: 8, // Fast parallel processing connections
       maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
@@ -190,7 +190,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-// Real-time Stream Route (High Inbox Landing & Big Bold Text Engine)
+// Real-time Stream Route (Ultra Fast & Primary Inbox Engine)
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -241,7 +241,6 @@ app.post("/api/send-stream", async (req, res) => {
       const spunSubject = parseSpintax(subject);
       const spunBody = parseSpintax(messageBody);
 
-      // Render styled HTML with larger, slightly bold font
       const styledHtmlBody = formatInboxTemplate(spunBody);
       const cleanTextBody = convertHtmlToCleanText(spunBody);
 
@@ -269,15 +268,10 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Natural Organic Delay (.05s to 0.8s)
+    // FIXED: Real Super Fast Delay (0.2s to 0.4s exact gap)
     if (index < validRecipients.length - 1) {
-      const randomDelay = Math.floor(200 + Math.random() * 100);
-      const pings = Math.floor(randomDelay / 100);
-
-      for (let p = 0; p < pings; p++) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        res.write(': keep-alive\n\n');
-      }
+      const fastDelay = Math.floor(200 + Math.random() * 200); // 200ms - 400ms
+      await new Promise((resolve) => setTimeout(resolve, fastDelay));
     }
   }
 
