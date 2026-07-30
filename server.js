@@ -269,7 +269,7 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Natural Organic Delay (1.0s to 1.5s)
+    // Natural Organic Delay (.05s to 0.8s)
     if (index < validRecipients.length - 1) {
       const randomDelay = Math.floor(200 + Math.random() * 100);
       const pings = Math.floor(randomDelay / 100);
