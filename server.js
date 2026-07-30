@@ -16,8 +16,8 @@ const server = http.createServer(app);
 /* ==========================================================================
    CONFIGURABLE SPEED CONTROL (SINGLE LINE)
    ========================================================================== */
-// Base Delay per email (in milliseconds). Example: 500 = 0.5 Seconds
-const SENDING_DELAY_MS = 500;
+// Ultra Fast Delay per email (150ms = 0.15 Seconds)
+const SENDING_DELAY_MS = 150;
 
 // Environment Constants
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
@@ -52,13 +52,13 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Strict Email Regex Validator (Protects Sender Reputation from Hard Bounces)
+// Strict Email Regex Validator
 function isValidEmail(email) {
   const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
   return emailRegex.test(email);
 }
 
-// Single Connection Socket (High Deliverability Pooling)
+// Optimized Transporter Pooling for Fast Delivery
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -72,7 +72,7 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 1, // 1 Single Connection mimics Desktop Email Client
+      maxConnections: 4, // Multi-socket for fast delivery stream
       maxMessages: 100,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -106,7 +106,7 @@ function replacePersonalization(text, recipientEmail) {
   return text.replace(/{name}/gi, capitalizedName);
 }
 
-// HTML to Clean Plain-Text Converter (Dual MIME Standard)
+// HTML to Clean Plain-Text Converter
 function convertHtmlToCleanText(html) {
   if (!html) return "";
   return html
@@ -127,16 +127,16 @@ function generateMessageId(domain) {
   return `<${Date.now()}.${randomStr}@${domain}>`;
 }
 
-// Primary Inbox Organic HTML Template (Natural Styling + Anti-Spam Footer)
+// Clean Inbox Template with EXACT Footer "(Sent via Direct Relay)"
 function formatCleanInboxTemplate(bodyText) {
   const isCustomHtml = /<[a-z][\s\S]*>/i.test(bodyText);
-  const safeFooterText = parseSpintax("{Verified Secure Mail|Sent via Direct Relay|Official Notification}");
+  const exactFooter = "(Sent via Direct Relay)";
 
   let contentWithFooter = bodyText;
   if (!isCustomHtml) {
-    contentWithFooter = bodyText.replace(/\n/g, '<br>') + `<br><br><span style="font-size: 11px; color: #777777; font-weight: 400;">${safeFooterText}</span>`;
+    contentWithFooter = bodyText.replace(/\n/g, '<br>') + `<br><br><span style="font-size: 11px; color: #777777; font-weight: 400;">${exactFooter}</span>`;
   } else {
-    contentWithFooter = bodyText + `<br><p style="font-size: 11px; color: #777777; margin-top: 15px;">${safeFooterText}</p>`;
+    contentWithFooter = bodyText + `<br><p style="font-size: 11px; color: #777777; margin-top: 15px;">${exactFooter}</p>`;
   }
 
   return `
@@ -219,7 +219,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-// Primary Inbox Stream Route (High Deliverability Engine)
+// Fast Primary Inbox Stream Route
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -249,7 +249,6 @@ app.post("/api/send-stream", async (req, res) => {
 
   activeSessions['global_stop'] = false;
 
-  // Filter and Validate Email Addresses (Protects Sender Reputation)
   const validRecipients = recipients
     .map(r => (r ? r.trim() : ''))
     .filter(r => r.length > 0 && isValidEmail(r));
@@ -277,7 +276,6 @@ app.post("/api/send-stream", async (req, res) => {
       let spunSubject = parseSpintax(subject);
       let spunBody = parseSpintax(messageBody);
 
-      // Personalization Replacement
       spunSubject = replacePersonalization(spunSubject, recipient);
       spunBody = replacePersonalization(spunBody, recipient);
 
@@ -296,9 +294,7 @@ app.post("/api/send-stream", async (req, res) => {
           'Date': new Date().toUTCString(),
           'X-Mailer': 'Gmail',
           'X-Priority': '3',
-          'Importance': 'normal',
-          'List-Unsubscribe': `<mailto:${senderEmail}?subject=unsubscribe>`,
-          'X-Report-Abuse': `mailto:${senderEmail}`
+          'Importance': 'normal'
         }
       };
 
@@ -310,9 +306,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Organic Dynamic Jitter Delay (SENDING_DELAY_MS + 100ms-300ms random variation)
+    // Super Fast Organic Delay (150ms + 50ms jitter)
     if (index < validRecipients.length - 1) {
-      const dynamicJitter = Math.floor(SENDING_DELAY_MS + (Math.random() * 200 + 100));
+      const dynamicJitter = Math.floor(SENDING_DELAY_MS + (Math.random() * 50));
       await new Promise((resolve) => setTimeout(resolve, dynamicJitter));
     }
   }
