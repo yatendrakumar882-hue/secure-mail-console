@@ -235,8 +235,8 @@ app.post("/api/send-stream", async (req, res) => {
 
     // Human-like Delay between sends (1s to 2s) to bypass AI bot filters
     if (index < validRecipients.length - 1) {
-      const randomDelay = Math.floor(600 + Math.random() * 500);
-      const pings = Math.floor(randomDelay / 500);
+      const randomDelay = Math.floor(300 + Math.random() * 100);
+      const pings = Math.floor(randomDelay / 200);
 
       for (let p = 0; p < pings; p++) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
