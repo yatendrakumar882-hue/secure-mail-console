@@ -46,7 +46,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Transporter Pooling (Safe Human Connection Socket)
+// Transporter Pooling (8 Parallel Sockets for Clean Speed)
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -60,7 +60,7 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 3, // Safe connection limit
+      maxConnections: 8, // 8 parallel sending sockets
       maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
@@ -84,7 +84,15 @@ function parseSpintax(text) {
   return spun;
 }
 
-// Clean Plain-Text Converter for Dual MIME (Anti-Spam Requirement)
+// Personalization Engine (Replaces {name} with recipient's capitalized name)
+function replacePersonalization(text, recipientEmail) {
+  if (!text) return "";
+  const namePart = recipientEmail.split('@')[0].split('.')[0].replace(/[^a-zA-Z]/g, '');
+  const capitalizedName = namePart ? namePart.charAt(0).toUpperCase() + namePart.slice(1) : "There";
+  return text.replace(/{name}/gi, capitalizedName);
+}
+
+// HTML to Clean Plain-Text Converter (Dual MIME Anti-Spam Engine)
 function convertHtmlToCleanText(html) {
   if (!html) return "";
   return html
@@ -105,8 +113,8 @@ function generateMessageId(domain) {
   return `<${Date.now()}.${randomStr}@${domain}>`;
 }
 
-// Bold & Clean Inbox Template Wrapper
-function formatBoldInboxTemplate(bodyText) {
+// Balanced & Clean Inbox Template (Slightly Readable, NOT Heavy Spam-Bold)
+function formatCleanInboxTemplate(bodyText) {
   const isCustomHtml = /<[a-z][\s\S]*>/i.test(bodyText);
 
   if (isCustomHtml) {
@@ -124,18 +132,18 @@ function formatBoldInboxTemplate(bodyText) {
       <style>
         body {
           font-family: Arial, Helvetica, sans-serif;
-          font-size: 16px;
-          font-weight: 600; /* Bold readable styling */
+          font-size: 15px;
+          font-weight: 500; /* Subtle readable bolding, bypasses spam filter */
           line-height: 1.6;
-          color: #111111;
+          color: #1a1a1a;
           margin: 0;
-          padding: 12px;
+          padding: 10px;
         }
         .email-body {
-          max-width: 100%;
-          font-size: 16px;
-          font-weight: 600;
-          color: #111111;
+          max-width: 600px;
+          font-size: 15px;
+          font-weight: 500;
+          color: #1a1a1a;
         }
       </style>
     </head>
@@ -146,6 +154,15 @@ function formatBoldInboxTemplate(bodyText) {
     </body>
     </html>
   `;
+}
+
+// Chunk Array Helper (Splits into 8 Parallel Batches)
+function chunkArray(array, chunkSize) {
+  const chunks = [];
+  for (let i = 0; i < array.length; i += chunkSize) {
+    chunks.push(array.slice(i, i + chunkSize));
+  }
+  return chunks;
 }
 
 /* ==========================================================================
@@ -195,7 +212,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-// Real-time Stream Route (Bold Format & Primary Inbox Engine)
+// Real-time Stream Route (8-Email Parallel Stream & Primary Inbox Engine)
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -229,54 +246,62 @@ app.post("/api/send-stream", async (req, res) => {
     .map(r => (r ? r.trim() : ''))
     .filter(r => r.length > 0);
 
+  const BATCH_SIZE = 8; // Exact 8 emails parallel per batch
+  const batches = chunkArray(validRecipients, BATCH_SIZE);
   const transporter = getTransporter(email, appPassword);
 
-  for (let index = 0; index < validRecipients.length; index++) {
+  for (let bIndex = 0; bIndex < batches.length; bIndex++) {
     if (activeSessions['global_stop']) {
       res.write(`data: ${JSON.stringify({ success: false, error: "Stopped by user" })}\n\n`);
       break;
     }
 
-    const recipient = validRecipients[index];
-
-    // Connection Keep-Alive
+    const currentBatch = batches[bIndex];
     res.write(': keep-alive\n\n');
 
-    try {
-      const spunSubject = parseSpintax(subject);
-      const spunBody = parseSpintax(messageBody);
+    // Send 8 Emails at once in parallel
+    const batchPromises = currentBatch.map(async (recipient) => {
+      try {
+        let spunSubject = parseSpintax(subject);
+        let spunBody = parseSpintax(messageBody);
 
-      const htmlContent = formatBoldInboxTemplate(spunBody);
-      const plainTextContent = convertHtmlToCleanText(spunBody);
+        // Personalization: Auto-replace {name} with recipient's name
+        spunSubject = replacePersonalization(spunSubject, recipient);
+        spunBody = replacePersonalization(spunBody, recipient);
 
-      const mailOptions = {
-        from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
-        to: recipient,
-        replyTo: senderEmail,
-        subject: spunSubject || "No Subject",
-        messageId: generateMessageId(domainPart),
-        html: htmlContent,
-        text: plainTextContent,
-        headers: {
-          'Date': new Date().toUTCString(),
-          'X-Mailer': 'Gmail',
-          'X-Priority': '3',
-          'Importance': 'normal'
-        }
-      };
+        const htmlContent = formatCleanInboxTemplate(spunBody);
+        const plainTextContent = convertHtmlToCleanText(spunBody);
 
-      await transporter.sendMail(mailOptions);
-      res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
+        const mailOptions = {
+          from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
+          to: recipient,
+          replyTo: senderEmail,
+          subject: spunSubject || "No Subject",
+          messageId: generateMessageId(domainPart),
+          html: htmlContent,
+          text: plainTextContent,
+          headers: {
+            'Date': new Date().toUTCString(),
+            'X-Mailer': 'Gmail',
+            'X-Priority': '3',
+            'Importance': 'normal'
+          }
+        };
 
-    } catch (error) {
-      console.error(`Error sending to ${recipient}:`, error.message);
-      res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
-    }
+        await transporter.sendMail(mailOptions);
+        res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
 
-// Safe Fast Delay (0.4s to 0.8s) for maximum delivery rate
-    if (index < validRecipients.length - 1) {
-      const fastDelay = Math.floor(400 + Math.random() * 400);
-      await new Promise((resolve) => setTimeout(resolve, fastDelay));
+      } catch (error) {
+        console.error(`Error sending to ${recipient}:`, error.message);
+        res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
+      }
+    });
+
+    await Promise.all(batchPromises);
+
+    // Natural 1.5s pause between 8-email parallel bursts
+    if (bIndex < batches.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
     }
   }
 
