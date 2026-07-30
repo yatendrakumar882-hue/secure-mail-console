@@ -233,9 +233,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Human-like Delay between sends (2.0s to 3.5s) to bypass AI bot filters
+    // Human-like Delay between sends (1s to 2s) to bypass AI bot filters
     if (index < validRecipients.length - 1) {
-      const randomDelay = Math.floor(2000 + Math.random() * 1500);
+      const randomDelay = Math.floor(1000 + Math.random() * 500);
       const pings = Math.floor(randomDelay / 1000);
 
       for (let p = 0; p < pings; p++) {
