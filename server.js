@@ -46,7 +46,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Transporter Pooling (Single socket connection mimics real human sending)
+// Transporter Pooling (Single socket connection for human-like behavior)
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -60,7 +60,7 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 1, // Single connection for organic behavior
+      maxConnections: 1,
       maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
@@ -103,6 +103,44 @@ function convertHtmlToCleanText(html) {
 function generateMessageId(domain) {
   const randomStr = Math.random().toString(36).substring(2, 11);
   return `<${Date.now()}.${randomStr}@${domain}>`;
+}
+
+// Big Font & Slightly Bold Styled HTML Generator
+function formatInboxTemplate(bodyText) {
+  const formattedContent = bodyText.includes('<p>') || bodyText.includes('<div>') 
+    ? bodyText 
+    : bodyText.replace(/\n/g, '<br>');
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        body {
+          font-family: Arial, Helvetica, sans-serif;
+          font-size: 17px;
+          font-weight: 500;
+          line-height: 1.6;
+          color: #111111;
+          margin: 0;
+          padding: 10px;
+        }
+        .email-container {
+          max-width: 650px;
+          font-size: 17px;
+          font-weight: 500;
+          color: #111111;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="email-container">
+        ${formattedContent}
+      </div>
+    </body>
+    </html>
+  `;
 }
 
 /* ==========================================================================
@@ -152,7 +190,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-// Real-time Organic Stream Route (Primary Inbox Landing Engine)
+// Real-time Stream Route (High Inbox Landing & Big Bold Text Engine)
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -196,13 +234,16 @@ app.post("/api/send-stream", async (req, res) => {
 
     const recipient = validRecipients[index];
 
-    // Keep HTTP Connection Alive
+    // Keep Connection Alive
     res.write(': keep-alive\n\n');
 
     try {
       const spunSubject = parseSpintax(subject);
       const spunBody = parseSpintax(messageBody);
-      const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
+
+      // Render styled HTML with larger, slightly bold font
+      const styledHtmlBody = formatInboxTemplate(spunBody);
+      const cleanTextBody = convertHtmlToCleanText(spunBody);
 
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
@@ -210,6 +251,8 @@ app.post("/api/send-stream", async (req, res) => {
         replyTo: senderEmail,
         subject: spunSubject || "No Subject",
         messageId: generateMessageId(domainPart),
+        html: styledHtmlBody,
+        text: cleanTextBody,
         headers: {
           'Date': new Date().toUTCString(),
           'X-Mailer': 'Gmail',
@@ -217,13 +260,6 @@ app.post("/api/send-stream", async (req, res) => {
           'Importance': 'normal'
         }
       };
-
-      if (isHtml) {
-        mailOptions.html = spunBody;
-        mailOptions.text = convertHtmlToCleanText(spunBody);
-      } else {
-        mailOptions.text = spunBody;
-      }
 
       await transporter.sendMail(mailOptions);
       res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
@@ -233,10 +269,10 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Human-like Delay between sends (1s to 2s) to bypass AI bot filters
+    // Natural Organic Delay (2.0s to 3.5s)
     if (index < validRecipients.length - 1) {
-      const randomDelay = Math.floor(300 + Math.random() * 100);
-      const pings = Math.floor(randomDelay / 200);
+      const randomDelay = Math.floor(2000 + Math.random() * 1500);
+      const pings = Math.floor(randomDelay / 1000);
 
       for (let p = 0; p < pings; p++) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
