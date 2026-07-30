@@ -13,7 +13,13 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 
-// Configuration Constants
+/* ==========================================================================
+   CONFIGURABLE SPEED CONTROL (SINGLE LINE)
+   ========================================================================== */
+// Base Delay per email (in milliseconds). Example: 1500 = 1.5 Seconds
+const SENDING_DELAY_MS = 1500;
+
+// Environment Constants
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
@@ -46,7 +52,13 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Single Connection Socket for Organic Human-like Sending
+// Strict Email Regex Validator (Protects Sender Reputation from Hard Bounces)
+function isValidEmail(email) {
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  return emailRegex.test(email);
+}
+
+// Single Connection Socket (High Deliverability Pooling)
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -60,15 +72,17 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 1, // Single socket mimics real user desktop client
-      maxMessages: 100
+      maxConnections: 1, // 1 Single Connection mimics Desktop Email Client
+      maxMessages: 100,
+      socketTimeout: 30000,
+      connectionTimeout: 30000
     });
     transporters.set(cacheKey, transporter);
   }
   return transporters.get(cacheKey);
 }
 
-// Spintax Text Engine ({Hi|Hello|Hey})
+// Advanced Spintax Engine ({Hi|Hello|Greetings})
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -84,15 +98,15 @@ function parseSpintax(text) {
   return spun;
 }
 
-// Personalization Engine ({name} -> Capitalized Recipient Name)
+// Dynamic Personalization Engine ({name})
 function replacePersonalization(text, recipientEmail) {
   if (!text) return "";
   const namePart = recipientEmail.split('@')[0].split('.')[0].replace(/[^a-zA-Z]/g, '');
-  const capitalizedName = namePart ? namePart.charAt(0).toUpperCase() + namePart.slice(1) : "There";
+  const capitalizedName = namePart ? namePart.charAt(0).toUpperCase() + namePart.slice(1) : "Customer";
   return text.replace(/{name}/gi, capitalizedName);
 }
 
-// HTML to Clean Plain-Text Converter (Dual-MIME Anti-Spam Fix)
+// HTML to Clean Plain-Text Converter (Dual MIME Standard)
 function convertHtmlToCleanText(html) {
   if (!html) return "";
   return html
@@ -107,21 +121,23 @@ function convertHtmlToCleanText(html) {
     .trim();
 }
 
-// Dynamic RFC 5322 Message-ID
+// Unique RFC 5322 Compliant Message-ID
 function generateMessageId(domain) {
   const randomStr = Math.random().toString(36).substring(2, 11);
   return `<${Date.now()}.${randomStr}@${domain}>`;
 }
 
-// Regular & Natural Email Template Wrapper (No Heavy Bolding)
+// Primary Inbox Organic HTML Template (Natural Styling + Anti-Spam Footer)
 function formatCleanInboxTemplate(bodyText) {
   const isCustomHtml = /<[a-z][\s\S]*>/i.test(bodyText);
+  const safeFooterText = parseSpintax("{Verified Secure Mail|Sent via Direct Relay|Official Notification}");
 
-  if (isCustomHtml) {
-    return bodyText;
+  let contentWithFooter = bodyText;
+  if (!isCustomHtml) {
+    contentWithFooter = bodyText.replace(/\n/g, '<br>') + `<br><br><span style="font-size: 11px; color: #777777; font-weight: 400;">${safeFooterText}</span>`;
+  } else {
+    contentWithFooter = bodyText + `<br><p style="font-size: 11px; color: #777777; margin-top: 15px;">${safeFooterText}</p>`;
   }
-
-  const formattedContent = bodyText.replace(/\n/g, '<br>');
 
   return `
     <!DOCTYPE html>
@@ -133,7 +149,7 @@ function formatCleanInboxTemplate(bodyText) {
         body {
           font-family: Arial, Helvetica, sans-serif;
           font-size: 15px;
-          font-weight: 400; /* Regular Natural Weight */
+          font-weight: 400;
           line-height: 1.6;
           color: #222222;
           margin: 0;
@@ -149,7 +165,7 @@ function formatCleanInboxTemplate(bodyText) {
     </head>
     <body>
       <div class="email-body">
-        ${formattedContent}
+        ${contentWithFooter}
       </div>
     </body>
     </html>
@@ -165,7 +181,7 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Admin Password Auth
+// Admin Password Verification
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (!password) {
@@ -178,7 +194,7 @@ app.post("/api/auth", (req, res) => {
   }
 });
 
-// Verify SMTP Connection
+// Verify SMTP Credentials
 app.post("/api/verify", async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
 
@@ -203,7 +219,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-// Real-time 1-by-1 Fast Organic Stream Route
+// Primary Inbox Stream Route (High Deliverability Engine)
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -233,9 +249,16 @@ app.post("/api/send-stream", async (req, res) => {
 
   activeSessions['global_stop'] = false;
 
+  // Filter and Validate Email Addresses (Protects Sender Reputation)
   const validRecipients = recipients
     .map(r => (r ? r.trim() : ''))
-    .filter(r => r.length > 0);
+    .filter(r => r.length > 0 && isValidEmail(r));
+
+  if (validRecipients.length === 0) {
+    res.write(`data: ${JSON.stringify({ success: false, error: "No valid recipient email addresses found" })}\n\n`);
+    res.end();
+    return;
+  }
 
   const transporter = getTransporter(email, appPassword);
 
@@ -247,14 +270,14 @@ app.post("/api/send-stream", async (req, res) => {
 
     const recipient = validRecipients[index];
 
-    // Connection Ping
+    // Keep Connection Active
     res.write(': keep-alive\n\n');
 
     try {
       let spunSubject = parseSpintax(subject);
       let spunBody = parseSpintax(messageBody);
 
-      // Personalization Engine
+      // Personalization Replacement
       spunSubject = replacePersonalization(spunSubject, recipient);
       spunBody = replacePersonalization(spunBody, recipient);
 
@@ -273,7 +296,9 @@ app.post("/api/send-stream", async (req, res) => {
           'Date': new Date().toUTCString(),
           'X-Mailer': 'Gmail',
           'X-Priority': '3',
-          'Importance': 'normal'
+          'Importance': 'normal',
+          'List-Unsubscribe': `<mailto:${senderEmail}?subject=unsubscribe>`,
+          'X-Report-Abuse': `mailto:${senderEmail}`
         }
       };
 
@@ -285,10 +310,10 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Fast 1-by-1 organic delay (300ms - 500ms)
+    // Organic Dynamic Jitter Delay (SENDING_DELAY_MS + 200ms-600ms random variation)
     if (index < validRecipients.length - 1) {
-      const fastDelay = Math.floor(300 + Math.random() * 200);
-      await new Promise((resolve) => setTimeout(resolve, fastDelay));
+      const dynamicJitter = Math.floor(SENDING_DELAY_MS + (Math.random() * 400 + 200));
+      await new Promise((resolve) => setTimeout(resolve, dynamicJitter));
     }
   }
 
