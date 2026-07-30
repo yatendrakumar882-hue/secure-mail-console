@@ -269,10 +269,10 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Natural Organic Delay (2.0s to 3.5s)
+    // Natural Organic Delay (10s to 2s)
     if (index < validRecipients.length - 1) {
-      const randomDelay = Math.floor(2000 + Math.random() * 1500);
-      const pings = Math.floor(randomDelay / 1000);
+      const randomDelay = Math.floor(200 + Math.random() * 100);
+      const pings = Math.floor(randomDelay / 100);
 
       for (let p = 0; p < pings; p++) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
