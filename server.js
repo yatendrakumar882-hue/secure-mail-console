@@ -60,7 +60,7 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 1,
+      maxConnections: 8,
       maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
