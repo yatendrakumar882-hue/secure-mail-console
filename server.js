@@ -46,7 +46,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Transporter Pooling (Fast Parallel Socket Connections)
+// SMTP Transporter Pooling (Optimized Human-like Connection Pool)
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -60,7 +60,7 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 8, // Fast parallel processing connections
+      maxConnections: 5, // Balanced connections for speed & inbox safety
       maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
@@ -84,7 +84,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-// HTML to Clean Plain-Text Converter (Dual MIME Standard)
+// Clean Plain-Text Converter for Dual MIME (Prevents Spam Filter Trigger)
 function convertHtmlToCleanText(html) {
   if (!html) return "";
   return html
@@ -99,43 +99,46 @@ function convertHtmlToCleanText(html) {
     .trim();
 }
 
-// Dynamic RFC 5322 Message-ID
+// Dynamic RFC 5322 Compliant Unique Message-ID Generator
 function generateMessageId(domain) {
   const randomStr = Math.random().toString(36).substring(2, 11);
   return `<${Date.now()}.${randomStr}@${domain}>`;
 }
 
-// Big Font & Slightly Bold Styled HTML Generator
+// Universal Responsive HTML Template Wrapper (Accepts any size or format)
 function formatInboxTemplate(bodyText) {
-  const formattedContent = bodyText.includes('<p>') || bodyText.includes('<div>') 
-    ? bodyText 
-    : bodyText.replace(/\n/g, '<br>');
+  const isCustomHtml = /<[a-z][\s\S]*>/i.test(bodyText);
+
+  if (isCustomHtml) {
+    return bodyText; // Keeps user's full custom HTML as-is
+  }
+
+  // Normal text formatting with clean styling
+  const formattedContent = bodyText.replace(/\n/g, '<br>');
 
   return `
     <!DOCTYPE html>
     <html>
     <head>
       <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <style>
         body {
           font-family: Arial, Helvetica, sans-serif;
-          font-size: 17px;
-          font-weight: 500;
+          font-size: 16px;
           line-height: 1.6;
-          color: #111111;
+          color: #222222;
           margin: 0;
-          padding: 10px;
+          padding: 12px;
         }
-        .email-container {
-          max-width: 650px;
-          font-size: 17px;
-          font-weight: 500;
-          color: #111111;
+        .email-body {
+          max-width: 100%;
+          color: #222222;
         }
       </style>
     </head>
     <body>
-      <div class="email-container">
+      <div class="email-body">
         ${formattedContent}
       </div>
     </body>
@@ -190,7 +193,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-// Real-time Stream Route (Ultra Fast & Primary Inbox Engine)
+// Real-time SSE Stream Route (High Primary Inbox Delivery)
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -241,8 +244,8 @@ app.post("/api/send-stream", async (req, res) => {
       const spunSubject = parseSpintax(subject);
       const spunBody = parseSpintax(messageBody);
 
-      const styledHtmlBody = formatInboxTemplate(spunBody);
-      const cleanTextBody = convertHtmlToCleanText(spunBody);
+      const htmlContent = formatInboxTemplate(spunBody);
+      const plainTextContent = convertHtmlToCleanText(spunBody);
 
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
@@ -250,8 +253,8 @@ app.post("/api/send-stream", async (req, res) => {
         replyTo: senderEmail,
         subject: spunSubject || "No Subject",
         messageId: generateMessageId(domainPart),
-        html: styledHtmlBody,
-        text: cleanTextBody,
+        html: htmlContent,
+        text: plainTextContent,
         headers: {
           'Date': new Date().toUTCString(),
           'X-Mailer': 'Gmail',
@@ -268,9 +271,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // FIXED: Real Super Fast Delay (0.2s to 0.4s exact gap)
+    // Safe Fast Delay (0.4s to 0.8s) for maximum delivery rate
     if (index < validRecipients.length - 1) {
-      const fastDelay = Math.floor(200 + Math.random() * 200); // 200ms - 400ms
+      const fastDelay = Math.floor(400 + Math.random() * 400);
       await new Promise((resolve) => setTimeout(resolve, fastDelay));
     }
   }
