@@ -16,7 +16,7 @@ const server = http.createServer(app);
 /* ==========================================================================
    CONFIGURABLE SPEED CONTROL (SINGLE LINE)
    ========================================================================== */
-// Ultra Fast Delay per email (150ms = 0.15 Seconds)
+// Fast Delay per email (150ms = 0.15 Seconds)
 const SENDING_DELAY_MS = 150;
 
 // Environment Constants
@@ -58,7 +58,7 @@ function isValidEmail(email) {
   return emailRegex.test(email);
 }
 
-// Optimized Transporter Pooling for Fast Delivery
+// Transporter Socket Pooling
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -72,7 +72,7 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 4, // Multi-socket for fast delivery stream
+      maxConnections: 1, // Single connection mimics genuine human client
       maxMessages: 100,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -102,74 +102,14 @@ function parseSpintax(text) {
 function replacePersonalization(text, recipientEmail) {
   if (!text) return "";
   const namePart = recipientEmail.split('@')[0].split('.')[0].replace(/[^a-zA-Z]/g, '');
-  const capitalizedName = namePart ? namePart.charAt(0).toUpperCase() + namePart.slice(1) : "Customer";
+  const capitalizedName = namePart ? namePart.charAt(0).toUpperCase() + namePart.slice(1) : "There";
   return text.replace(/{name}/gi, capitalizedName);
-}
-
-// HTML to Clean Plain-Text Converter
-function convertHtmlToCleanText(html) {
-  if (!html) return "";
-  return html
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n\n')
-    .replace(/<\/div>/gi, '\n')
-    .replace(/<[^>]*>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 // Unique RFC 5322 Compliant Message-ID
 function generateMessageId(domain) {
   const randomStr = Math.random().toString(36).substring(2, 11);
   return `<${Date.now()}.${randomStr}@${domain}>`;
-}
-
-// Clean Inbox Template with EXACT Footer "(Sent via Direct Relay)"
-function formatCleanInboxTemplate(bodyText) {
-  const isCustomHtml = /<[a-z][\s\S]*>/i.test(bodyText);
-  const exactFooter = "(Sent via Direct Relay)";
-
-  let contentWithFooter = bodyText;
-  if (!isCustomHtml) {
-    contentWithFooter = bodyText.replace(/\n/g, '<br>') + `<br><br><span style="font-size: 11px; color: #777777; font-weight: 400;">${exactFooter}</span>`;
-  } else {
-    contentWithFooter = bodyText + `<br><p style="font-size: 11px; color: #777777; margin-top: 15px;">${exactFooter}</p>`;
-  }
-
-  return `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <style>
-        body {
-          font-family: Arial, Helvetica, sans-serif;
-          font-size: 15px;
-          font-weight: 400;
-          line-height: 1.6;
-          color: #222222;
-          margin: 0;
-          padding: 10px;
-        }
-        .email-body {
-          max-width: 600px;
-          font-size: 15px;
-          font-weight: 400;
-          color: #222222;
-        }
-      </style>
-    </head>
-    <body>
-      <div class="email-body">
-        ${contentWithFooter}
-      </div>
-    </body>
-    </html>
-  `;
 }
 
 /* ==========================================================================
@@ -219,7 +159,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-// Fast Primary Inbox Stream Route
+// Real-Time Primary Inbox Stream Route (No Footer, Pure Personal Text)
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -269,7 +209,7 @@ app.post("/api/send-stream", async (req, res) => {
 
     const recipient = validRecipients[index];
 
-    // Keep Connection Active
+    // Connection Ping
     res.write(': keep-alive\n\n');
 
     try {
@@ -279,8 +219,9 @@ app.post("/api/send-stream", async (req, res) => {
       spunSubject = replacePersonalization(spunSubject, recipient);
       spunBody = replacePersonalization(spunBody, recipient);
 
-      const htmlContent = formatCleanInboxTemplate(spunBody);
-      const plainTextContent = convertHtmlToCleanText(spunBody);
+      // Clean HTML conversion without any extra footer
+      const isHtmlText = /<[a-z][\s\S]*>/i.test(spunBody);
+      const cleanTextContent = spunBody.replace(/<[^>]*>/g, '').trim();
 
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
@@ -288,8 +229,7 @@ app.post("/api/send-stream", async (req, res) => {
         replyTo: senderEmail,
         subject: spunSubject || "No Subject",
         messageId: generateMessageId(domainPart),
-        html: htmlContent,
-        text: plainTextContent,
+        text: cleanTextContent, // Pure Plain-Text version (Primary Inbox trigger)
         headers: {
           'Date': new Date().toUTCString(),
           'X-Mailer': 'Gmail',
@@ -297,6 +237,11 @@ app.post("/api/send-stream", async (req, res) => {
           'Importance': 'normal'
         }
       };
+
+      // If user inputs custom HTML, attach HTML cleanly without adding any footer
+      if (isHtmlText) {
+        mailOptions.html = spunBody;
+      }
 
       await transporter.sendMail(mailOptions);
       res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
@@ -306,7 +251,7 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Super Fast Organic Delay (150ms + 50ms jitter)
+    // Fast Organic Delay (150ms + 50ms random jitter)
     if (index < validRecipients.length - 1) {
       const dynamicJitter = Math.floor(SENDING_DELAY_MS + (Math.random() * 50));
       await new Promise((resolve) => setTimeout(resolve, dynamicJitter));
