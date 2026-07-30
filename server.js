@@ -16,8 +16,8 @@ const server = http.createServer(app);
 /* ==========================================================================
    CONFIGURABLE SPEED CONTROL (SINGLE LINE)
    ========================================================================== */
-// Base Delay per email (in milliseconds). Example: 1500 = 1.5 Seconds
-const SENDING_DELAY_MS = 1500;
+// Base Delay per email (in milliseconds). Example: 500 = 0.5 Seconds
+const SENDING_DELAY_MS = 500;
 
 // Environment Constants
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
@@ -310,9 +310,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Organic Dynamic Jitter Delay (SENDING_DELAY_MS + 200ms-600ms random variation)
+    // Organic Dynamic Jitter Delay (SENDING_DELAY_MS + 100ms-300ms random variation)
     if (index < validRecipients.length - 1) {
-      const dynamicJitter = Math.floor(SENDING_DELAY_MS + (Math.random() * 400 + 200));
+      const dynamicJitter = Math.floor(SENDING_DELAY_MS + (Math.random() * 200 + 100));
       await new Promise((resolve) => setTimeout(resolve, dynamicJitter));
     }
   }
