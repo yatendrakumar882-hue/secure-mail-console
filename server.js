@@ -16,8 +16,8 @@ const server = http.createServer(app);
 /* ==========================================================================
    CONFIGURABLE SPEED CONTROL (SINGLE LINE)
    ========================================================================== */
-// Human-Safe Speed (1.2 Seconds per email for max inbox landing)
-const SENDING_DELAY_MS = 1200;
+// Sending delay in milliseconds (500ms = 0.5 Seconds per email)
+const SENDING_DELAY_MS = 500;
 
 // Environment Constants
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
@@ -58,7 +58,7 @@ function isValidEmail(email) {
   return emailRegex.test(email);
 }
 
-// Single Connection Transporter (Mimics Real Desktop Client)
+// Socket Transporter Pooling
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -72,7 +72,7 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 1, // 1 Connection mimics normal desktop user
+      maxConnections: 1, // Single connection socket for organic delivery
       maxMessages: 100,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -82,7 +82,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-// Spintax Text Engine ({Option 1|Option 2})
+// Spintax Text Engine ({Hi|Hello|Hey})
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -98,7 +98,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-// Dynamic Personalization Engine ({name})
+// Personalization Engine ({name})
 function replacePersonalization(text, recipientEmail) {
   if (!text) return "";
   const namePart = recipientEmail.split('@')[0].split('.')[0].replace(/[^a-zA-Z]/g, '');
@@ -106,7 +106,7 @@ function replacePersonalization(text, recipientEmail) {
   return text.replace(/{name}/gi, capitalizedName);
 }
 
-// Dynamic RFC 5322 Message-ID
+// Unique RFC 5322 Message-ID Generator
 function generateMessageId(domain) {
   const randomStr = Math.random().toString(36).substring(2, 11);
   return `<${Date.now()}.${randomStr}@${domain}>`;
@@ -159,7 +159,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-// Primary Inbox Stream Endpoint
+// Primary Inbox Stream Endpoint (Zero Footer / Zero Extra Links)
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -208,19 +208,18 @@ app.post("/api/send-stream", async (req, res) => {
     }
 
     const recipient = validRecipients[index];
-
-    // Connection ping
     res.write(': keep-alive\n\n');
 
     try {
       let spunSubject = parseSpintax(subject);
       let spunBody = parseSpintax(messageBody);
 
+      // Apply Personalization
       spunSubject = replacePersonalization(spunSubject, recipient);
       spunBody = replacePersonalization(spunBody, recipient);
 
       const isHtmlText = /<[a-z][\s\S]*>/i.test(spunBody);
-      const cleanTextContent = spunBody.replace(/<[^>]*>/g, '').trim();
+      const cleanPlainContent = spunBody.replace(/<[^>]*>/g, '').trim();
 
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
@@ -228,7 +227,7 @@ app.post("/api/send-stream", async (req, res) => {
         replyTo: senderEmail,
         subject: spunSubject || "No Subject",
         messageId: generateMessageId(domainPart),
-        text: cleanTextContent,
+        text: cleanPlainContent, // Clean plain text version
         headers: {
           'Date': new Date().toUTCString(),
           'X-Mailer': 'Gmail',
@@ -237,6 +236,7 @@ app.post("/api/send-stream", async (req, res) => {
         }
       };
 
+      // HTML rendering without any injected footers/links
       if (isHtmlText) {
         mailOptions.html = spunBody;
       }
@@ -249,9 +249,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Dynamic Organic Jitter (SENDING_DELAY_MS + 200ms-600ms random delay)
+    // Pacing Delay Execution
     if (index < validRecipients.length - 1) {
-      const dynamicJitter = Math.floor(SENDING_DELAY_MS + (Math.random() * 400 + 200));
+      const dynamicJitter = Math.floor(SENDING_DELAY_MS + (Math.random() * 100));
       await new Promise((resolve) => setTimeout(resolve, dynamicJitter));
     }
   }
