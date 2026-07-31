@@ -1,5 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
 
+    // ==================== AUTHENTICATION & UI ====================
     const passwordGate = document.getElementById('password-gate');
     const mainApp = document.getElementById('main-app');
     const gateForm = document.getElementById('gate-form');
@@ -21,9 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
         toggleGatePassword.addEventListener('click', () => {
             const type = gatePassword.getAttribute('type') === 'password' ? 'text' : 'password';
             gatePassword.setAttribute('type', type);
-            toggleGatePassword.innerHTML = type === 'password' 
-                ? '<i class="fa-regular fa-eye"></i>' 
-                : '<i class="fa-regular fa-eye-slash"></i>';
+            toggleGatePassword.innerHTML = type === 'password' ? '<i class="fa-regular fa-eye"></i>' : '<i class="fa-regular fa-eye-slash"></i>';
         });
     }
 
@@ -71,6 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ==================== MAIN CONSOLE & LIVE MONITOR ====================
     const dashboardEmail = document.getElementById('dashboard-email');
     const dashboardPassword = document.getElementById('dashboard-password');
     const togglePasswordBtn = document.getElementById('toggle-password');
@@ -102,9 +102,7 @@ document.addEventListener('DOMContentLoaded', () => {
         togglePasswordBtn.addEventListener('click', () => {
             const type = dashboardPassword.getAttribute('type') === 'password' ? 'text' : 'password';
             dashboardPassword.setAttribute('type', type);
-            togglePasswordBtn.innerHTML = type === 'password' 
-                ? '<i class="fa-regular fa-eye"></i>' 
-                : '<i class="fa-regular fa-eye-slash"></i>';
+            togglePasswordBtn.innerHTML = type === 'password' ? '<i class="fa-regular fa-eye"></i>' : '<i class="fa-regular fa-eye-slash"></i>';
         });
     }
 
@@ -139,7 +137,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (progressBar) progressBar.style.width = '0%';
 
         if (statusIcon) statusIcon.className = 'fa-solid fa-circle-notch fa-spin text-primary';
-        if (statusText) statusText.textContent = 'Sending in parallel batches of 10...';
+        if (statusText) statusText.textContent = 'Sending emails 1-by-1...';
 
         sendBtn?.classList.add('hidden');
         stopBtn?.classList.remove('hidden');
@@ -175,7 +173,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (isSending) return;
 
             const emailVal = dashboardEmail.value.trim();
-            const appPasswordVal = dashboardPassword.value.replace(/\s+/g, '').trim();
+            const appPasswordVal = dashboardPassword.value.trim();
             const senderNameVal = senderName.value.trim();
             const subjectVal = subject.value.trim();
             const messageBodyVal = messageBody.value.trim();
@@ -185,7 +183,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (extractedEmails.length === 0) {
                 emailValidationError?.classList.remove('hidden');
-                return alert('Please enter valid recipient emails.');
+                return alert('Please enter recipient emails.');
             }
 
             const recipientsToSend = [...extractedEmails];
@@ -222,12 +220,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         senderName: senderNameVal,
                         subject: subjectVal,
                         messageBody: messageBodyVal,
-                        recipients: recipientsToSend,
-                        cfToken: turnstileResponse
+                        recipients: recipientsToSend
                     })
                 });
 
-                if (!response.ok) throw new Error('Streaming connection failed.');
+                if (!response.ok) throw new Error('Streaming failed.');
 
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
@@ -244,9 +241,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     buffer = lines.pop();
 
                     for (const line of lines) {
-                        const trimmedLine = line.trim();
-                        if (trimmedLine.startsWith('data: ')) {
-                            const dataStr = trimmedLine.replace('data: ', '').trim();
+                        if (line.startsWith('data: ')) {
+                            const dataStr = line.replace('data: ', '').trim();
                             if (dataStr === '[DONE]') break;
 
                             try {
@@ -254,12 +250,12 @@ document.addEventListener('DOMContentLoaded', () => {
                                 if (event.success) {
                                     sentCount++;
                                     updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sent: ${event.recipient}`);
-                                } else if (event.recipient) {
+                                } else {
                                     failedCount++;
                                     updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
                                 }
                             } catch (e) {
-                                // Ignore ping events
+                                console.error('Parse error:', e);
                             }
                         }
                     }
@@ -268,16 +264,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 isSending = false;
                 if (stopRequested) {
                     if (statusIcon) statusIcon.className = 'fa-solid fa-circle-stop text-danger';
-                    if (statusText) statusText.textContent = 'Process stopped by user.';
+                    if (statusText) statusText.textContent = 'Process stopped.';
                 } else {
                     if (statusIcon) statusIcon.className = 'fa-solid fa-circle-check text-success';
                     if (statusText) statusText.textContent = 'Completed!';
-                    alert(`Finished!\nSent: ${sentCount}\nFailed: ${failedCount}`);
+                    alert(`Completed! Sent: ${sentCount}, Failed: ${failedCount}`);
                 }
 
             } catch (err) {
                 console.error(err);
-                alert('Connection error occurred during transmission.');
+                alert('Connection error occurred.');
             } finally {
                 isSending = false;
                 finishSendingUI();
