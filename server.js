@@ -11,10 +11,10 @@ const __dirname = path.dirname(__filename);
 const app = express();
 
 /* ==========================================================================
-   CONFIGURABLE SPEED CONTROL (TOP CONSTANT)
+   CONFIGURABLE SPEED CONTROL (SINGLE LINE)
    ========================================================================== */
-// Har email ke beech ka delay (milliseconds mein). Example: 300 = 0.3 Seconds
-const SENDING_DELAY_MS = 300;
+// Micro delay per email in milliseconds (200ms = 0.2 seconds)
+const SENDING_DELAY_MS = 200;
 
 const SITE_PASSWORD = process.env.SITE_PASSWORD || '##';
 
@@ -38,8 +38,10 @@ function getTransporter(email, appPassword) {
       service: "gmail",
       auth: { user: cleanEmail, pass: appPassword },
       pool: true,
-      maxConnections: 8, // High speed parallel sockets
-      maxMessages: 100
+      maxConnections: 5, // Increased connections for fast delivery
+      maxMessages: 100,
+      socketTimeout: 30000,
+      connectionTimeout: 30000
     });
     transporters.set(cacheKey, transporter);
   }
@@ -62,6 +64,14 @@ function parseSpintax(text) {
     iterations++;
   }
   return spun;
+}
+
+/* ==========================================================================
+   DYNAMIC RFC MESSAGE-ID GENERATOR (ANTI-SPAM)
+   ========================================================================== */
+function generateMessageId(domain) {
+  const randomStr = Math.random().toString(36).substring(2, 11);
+  return `<${Date.now()}.${randomStr}@${domain}>`;
 }
 
 /* ==========================================================================
@@ -107,7 +117,7 @@ app.post("/api/verify", async (req, res) => {
 });
 
 /* ==========================================================================
-   SSE STREAM ROUTE (STABLE & SECURE LOOP)
+   SSE STREAM ROUTE (HIGH INBOX & FAST SPEED)
    ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -124,6 +134,7 @@ app.post("/api/send-stream", async (req, res) => {
   }
 
   const senderEmail = email.toLowerCase().trim();
+  const domainPart = senderEmail.split('@')[1] || 'gmail.com';
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
 
   activeSessions['global_stop'] = false;
@@ -149,7 +160,14 @@ app.post("/api/send-stream", async (req, res) => {
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
         to: recipient,
-        subject: spunSubject
+        subject: spunSubject,
+        messageId: generateMessageId(domainPart),
+        headers: {
+          'Date': new Date().toUTCString(),
+          'X-Mailer': 'Gmail',
+          'X-Priority': '3',
+          'Importance': 'normal'
+        }
       };
 
       if (isHtml) {
@@ -167,7 +185,7 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Dynamic Sending Delay
+    // Fast Micro Delay (200ms)
     if (index < recipients.length - 1) {
       await new Promise(resolve => setTimeout(resolve, SENDING_DELAY_MS));
     }
