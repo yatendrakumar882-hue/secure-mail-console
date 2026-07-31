@@ -13,8 +13,8 @@ const app = express();
 /* ==========================================================================
    CONFIGURABLE SPEED CONTROL (TOP CONSTANT)
    ========================================================================== */
-// Har email ke beech ka delay (milliseconds mein). Example: 400 = 0.4 Seconds
-const SENDING_DELAY_MS = 400;
+// Har email ke beech ka delay (milliseconds mein). Example: 300 = 0.3 Seconds
+const SENDING_DELAY_MS = 300;
 
 const SITE_PASSWORD = process.env.SITE_PASSWORD || '##';
 
@@ -38,7 +38,7 @@ function getTransporter(email, appPassword) {
       service: "gmail",
       auth: { user: cleanEmail, pass: appPassword },
       pool: true,
-      maxConnections: 5, // High speed parallel sockets
+      maxConnections: 8, // High speed parallel sockets
       maxMessages: 100
     });
     transporters.set(cacheKey, transporter);
