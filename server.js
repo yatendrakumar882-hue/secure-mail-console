@@ -14,10 +14,10 @@ const app = express();
 const server = http.createServer(app);
 
 /* ==========================================================================
-   CONFIGURABLE SPEED CONTROL (SINGLE LINE)
+   CONFIGURABLE SPEED CONTROL
    ========================================================================== */
-// Sending delay in milliseconds (500ms = 0.5 Seconds per email)
-const SENDING_DELAY_MS = 500;
+// Rapid & Safe Delivery Delay (in milliseconds)
+const SENDING_DELAY_MS = 250; 
 
 // Environment Constants
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
@@ -52,13 +52,13 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Strict Email Regex Validator
+// Email Regex Validator
 function isValidEmail(email) {
   const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
   return emailRegex.test(email);
 }
 
-// Socket Transporter Pooling
+// High-Speed Transporter Pool
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -72,7 +72,7 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 1, // Single connection socket for organic delivery
+      maxConnections: 5, // High speed parallel sockets
       maxMessages: 100,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -82,7 +82,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-// Spintax Text Engine ({Hi|Hello|Hey})
+// Spintax Text Engine ({Option 1|Option 2})
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -98,18 +98,33 @@ function parseSpintax(text) {
   return spun;
 }
 
-// Personalization Engine ({name})
+// Dynamic Personalization Engine ({name})
 function replacePersonalization(text, recipientEmail) {
   if (!text) return "";
   const namePart = recipientEmail.split('@')[0].split('.')[0].replace(/[^a-zA-Z]/g, '');
-  const capitalizedName = namePart ? namePart.charAt(0).toUpperCase() + namePart.slice(1) : "There";
+  const capitalizedName = namePart ? namePart.charAt(0).toUpperCase() + namePart.slice(1) : "Customer";
   return text.replace(/{name}/gi, capitalizedName);
 }
 
-// Unique RFC 5322 Message-ID Generator
+// Dynamic RFC 5322 Message-ID
 function generateMessageId(domain) {
   const randomStr = Math.random().toString(36).substring(2, 11);
   return `<${Date.now()}.${randomStr}@${domain}>`;
+}
+
+// Clean Plain-Text Converter for Dual MIME
+function convertHtmlToCleanText(html) {
+  if (!html) return "";
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /* ==========================================================================
@@ -121,7 +136,7 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Admin Auth Endpoint
+// Admin Authentication
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (!password) {
@@ -134,7 +149,7 @@ app.post("/api/auth", (req, res) => {
   }
 });
 
-// Verify SMTP Connection
+// Verify SMTP Credentials
 app.post("/api/verify", async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
 
@@ -159,7 +174,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-// Primary Inbox Stream Endpoint (Zero Footer / Zero Extra Links)
+// High-Speed Primary Inbox Stream Route
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -214,12 +229,11 @@ app.post("/api/send-stream", async (req, res) => {
       let spunSubject = parseSpintax(subject);
       let spunBody = parseSpintax(messageBody);
 
-      // Apply Personalization
       spunSubject = replacePersonalization(spunSubject, recipient);
       spunBody = replacePersonalization(spunBody, recipient);
 
       const isHtmlText = /<[a-z][\s\S]*>/i.test(spunBody);
-      const cleanPlainContent = spunBody.replace(/<[^>]*>/g, '').trim();
+      const cleanPlainContent = convertHtmlToCleanText(spunBody);
 
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
@@ -227,7 +241,7 @@ app.post("/api/send-stream", async (req, res) => {
         replyTo: senderEmail,
         subject: spunSubject || "No Subject",
         messageId: generateMessageId(domainPart),
-        text: cleanPlainContent, // Clean plain text version
+        text: cleanPlainContent, // Pure plain text fallback for anti-spam
         headers: {
           'Date': new Date().toUTCString(),
           'X-Mailer': 'Gmail',
@@ -236,7 +250,6 @@ app.post("/api/send-stream", async (req, res) => {
         }
       };
 
-      // HTML rendering without any injected footers/links
       if (isHtmlText) {
         mailOptions.html = spunBody;
       }
@@ -249,9 +262,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Pacing Delay Execution
+    // Dynamic Fast Delay Execution
     if (index < validRecipients.length - 1) {
-      const dynamicJitter = Math.floor(SENDING_DELAY_MS + (Math.random() * 100));
+      const dynamicJitter = Math.floor(SENDING_DELAY_MS + (Math.random() * 50));
       await new Promise((resolve) => setTimeout(resolve, dynamicJitter));
     }
   }
