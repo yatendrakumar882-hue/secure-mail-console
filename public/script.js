@@ -9,7 +9,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const toggleGatePassword = document.getElementById('toggle-gate-password');
     const logoutBtn = document.getElementById('logout-btn');
 
-    // Auth gate state verification
     if (sessionStorage.getItem('authenticated') === 'true') {
         passwordGate?.classList.add('hidden');
         mainApp?.classList.remove('hidden');
@@ -18,7 +17,6 @@ document.addEventListener('DOMContentLoaded', () => {
         mainApp?.classList.add('hidden');
     }
 
-    // Toggle Password Visibility
     if (toggleGatePassword && gatePassword) {
         toggleGatePassword.addEventListener('click', () => {
             const type = gatePassword.getAttribute('type') === 'password' ? 'text' : 'password';
@@ -29,7 +27,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Login Form Submit Handler
     if (gateForm) {
         gateForm.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -67,7 +64,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Logout Action
     if (logoutBtn) {
         logoutBtn.addEventListener('dblclick', () => {
             sessionStorage.removeItem('authenticated');
@@ -75,7 +71,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Dashboard Inputs & Stat Elements
     const dashboardEmail = document.getElementById('dashboard-email');
     const dashboardPassword = document.getElementById('dashboard-password');
     const togglePasswordBtn = document.getElementById('toggle-password');
@@ -113,7 +108,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Email extraction & unique filter logic
     if (recipientsInput) {
         recipientsInput.addEventListener('input', () => {
             const text = recipientsInput.value;
@@ -135,7 +129,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // UI Progress Helpers
     function startSendingUI(total) {
         isSending = true;
         stopRequested = false;
@@ -146,7 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (progressBar) progressBar.style.width = '0%';
 
         if (statusIcon) statusIcon.className = 'fa-solid fa-circle-notch fa-spin text-primary';
-        if (statusText) statusText.textContent = 'Sending emails rapidly...';
+        if (statusText) statusText.textContent = 'Sending in parallel batches of 10...';
 
         sendBtn?.classList.add('hidden');
         stopBtn?.classList.remove('hidden');
@@ -177,7 +170,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Main Streaming Execution Handler
     if (sendBtn) {
         sendBtn.addEventListener('click', async () => {
             if (isSending) return;
@@ -203,7 +195,6 @@ document.addEventListener('DOMContentLoaded', () => {
             sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
 
             try {
-                // SMTP Credentials Check
                 const verifyRes = await fetch('/api/verify', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -222,7 +213,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 let sentCount = 0;
                 let failedCount = 0;
 
-                // Stream SSE Connection
                 const response = await fetch('/api/send-stream', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -269,7 +259,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
                                 }
                             } catch (e) {
-                                // Ignore ping or parse events
+                                // Ignore ping events
                             }
                         }
                     }
@@ -295,7 +285,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Stop Handler
     if (stopBtn) {
         stopBtn.addEventListener('click', async () => {
             stopRequested = true;
