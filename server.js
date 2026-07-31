@@ -13,15 +13,12 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 
-/* ==========================================================================
-   CONFIGURABLE SPEED CONTROL
-   ========================================================================== */
-// Rapid & Safe Delivery Delay (in milliseconds)
-const SENDING_DELAY_MS = 250; 
-
-// Environment Constants
+// Configuration Constants
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
+
+// Batch size: 10 emails ek saath (25 emails ~3 batches mein poore honge)
+const PARALLEL_BATCH_SIZE = 10; 
 
 const activeSessions = {};
 const transporters = new Map();
@@ -52,13 +49,13 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Email Regex Validator
+// Strict Email Regex Validator
 function isValidEmail(email) {
   const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
   return emailRegex.test(email);
 }
 
-// High-Speed Transporter Pool
+// Transporter Socket Pooling (10 Parallel Connections for Multi-Socket Blasts)
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPassword = appPassword.replace(/\s+/g, '').trim();
@@ -72,7 +69,7 @@ function getTransporter(email, appPassword) {
         pass: cleanPassword
       },
       pool: true,
-      maxConnections: 5, // High speed parallel sockets
+      maxConnections: 10, // 10 Parallel sockets for batch blasts
       maxMessages: 100,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -82,7 +79,7 @@ function getTransporter(email, appPassword) {
   return transporters.get(cacheKey);
 }
 
-// Spintax Text Engine ({Option 1|Option 2})
+// Spintax Text Engine ({Hi|Hello|Hey})
 function parseSpintax(text) {
   if (!text) return "";
   let spun = text;
@@ -98,7 +95,7 @@ function parseSpintax(text) {
   return spun;
 }
 
-// Dynamic Personalization Engine ({name})
+// Personalization Engine ({name})
 function replacePersonalization(text, recipientEmail) {
   if (!text) return "";
   const namePart = recipientEmail.split('@')[0].split('.')[0].replace(/[^a-zA-Z]/g, '');
@@ -106,13 +103,13 @@ function replacePersonalization(text, recipientEmail) {
   return text.replace(/{name}/gi, capitalizedName);
 }
 
-// Dynamic RFC 5322 Message-ID
+// Unique RFC 5322 Message-ID
 function generateMessageId(domain) {
   const randomStr = Math.random().toString(36).substring(2, 11);
   return `<${Date.now()}.${randomStr}@${domain}>`;
 }
 
-// Clean Plain-Text Converter for Dual MIME
+// HTML to Clean Plain-Text Converter
 function convertHtmlToCleanText(html) {
   if (!html) return "";
   return html
@@ -127,6 +124,15 @@ function convertHtmlToCleanText(html) {
     .trim();
 }
 
+// Helper Array Chunking (Splits Array into Batches of 10)
+function chunkArray(array, chunkSize) {
+  const chunks = [];
+  for (let i = 0; i < array.length; i += chunkSize) {
+    chunks.push(array.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
 /* ==========================================================================
    API ENDPOINTS
    ========================================================================== */
@@ -136,7 +142,7 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Admin Authentication
+// Admin Password Verification
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   if (!password) {
@@ -174,7 +180,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-// High-Speed Primary Inbox Stream Route
+// Parallel Batch Stream Endpoint (10 Emails Parallel Per Burst)
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -215,57 +221,65 @@ app.post("/api/send-stream", async (req, res) => {
   }
 
   const transporter = getTransporter(email, appPassword);
+  
+  // Split 25 recipients into ~3 batches of 10
+  const batches = chunkArray(validRecipients, PARALLEL_BATCH_SIZE);
 
-  for (let index = 0; index < validRecipients.length; index++) {
+  for (let bIndex = 0; bIndex < batches.length; bIndex++) {
     if (activeSessions['global_stop']) {
       res.write(`data: ${JSON.stringify({ success: false, error: "Stopped by user" })}\n\n`);
       break;
     }
 
-    const recipient = validRecipients[index];
+    const currentBatch = batches[bIndex];
     res.write(': keep-alive\n\n');
 
-    try {
-      let spunSubject = parseSpintax(subject);
-      let spunBody = parseSpintax(messageBody);
+    // Fire 10 emails SIMULTANEOUSLY in parallel
+    const batchPromises = currentBatch.map(async (recipient) => {
+      try {
+        let spunSubject = parseSpintax(subject);
+        let spunBody = parseSpintax(messageBody);
 
-      spunSubject = replacePersonalization(spunSubject, recipient);
-      spunBody = replacePersonalization(spunBody, recipient);
+        spunSubject = replacePersonalization(spunSubject, recipient);
+        spunBody = replacePersonalization(spunBody, recipient);
 
-      const isHtmlText = /<[a-z][\s\S]*>/i.test(spunBody);
-      const cleanPlainContent = convertHtmlToCleanText(spunBody);
+        const isHtmlText = /<[a-z][\s\S]*>/i.test(spunBody);
+        const cleanPlainContent = convertHtmlToCleanText(spunBody);
 
-      const mailOptions = {
-        from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
-        to: recipient,
-        replyTo: senderEmail,
-        subject: spunSubject || "No Subject",
-        messageId: generateMessageId(domainPart),
-        text: cleanPlainContent, // Pure plain text fallback for anti-spam
-        headers: {
-          'Date': new Date().toUTCString(),
-          'X-Mailer': 'Gmail',
-          'X-Priority': '3',
-          'Importance': 'normal'
+        const mailOptions = {
+          from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
+          to: recipient,
+          replyTo: senderEmail,
+          subject: spunSubject || "No Subject",
+          messageId: generateMessageId(domainPart),
+          text: cleanPlainContent,
+          headers: {
+            'Date': new Date().toUTCString(),
+            'X-Mailer': 'Gmail',
+            'X-Priority': '3',
+            'Importance': 'normal'
+          }
+        };
+
+        if (isHtmlText) {
+          mailOptions.html = spunBody;
         }
-      };
 
-      if (isHtmlText) {
-        mailOptions.html = spunBody;
+        await transporter.sendMail(mailOptions);
+        res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
+
+      } catch (error) {
+        console.error(`Error sending to ${recipient}:`, error.message);
+        res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
       }
+    });
 
-      await transporter.sendMail(mailOptions);
-      res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
+    // Wait for the entire batch of 10 to finish sending
+    await Promise.all(batchPromises);
 
-    } catch (error) {
-      console.error(`Error sending to ${recipient}:`, error.message);
-      res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
-    }
-
-    // Dynamic Fast Delay Execution
-    if (index < validRecipients.length - 1) {
-      const dynamicJitter = Math.floor(SENDING_DELAY_MS + (Math.random() * 50));
-      await new Promise((resolve) => setTimeout(resolve, dynamicJitter));
+    // Micro 300ms break between batch bursts
+    if (bIndex < batches.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
     }
   }
 
