@@ -59,6 +59,14 @@ function parseSpintax(text) {
 }
 
 /* ==========================================================================
+   RFC 5322 UNIQUE MESSAGE-ID GENERATOR
+   ========================================================================== */
+function generateMessageId(domain) {
+  const randomStr = Math.random().toString(36).substring(2, 11);
+  return `<${Date.now()}.${randomStr}@${domain}>`;
+}
+
+/* ==========================================================================
    HTML TO PLAIN-TEXT FALLBACK (Dual Multipart MIME)
    ========================================================================== */
 function convertHtmlToText(html) {
@@ -118,6 +126,7 @@ app.post("/api/send-stream", async (req, res) => {
   }
 
   const senderEmail = email.toLowerCase().trim();
+  const domainPart = senderEmail.split('@')[1] || 'gmail.com';
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
 
   activeSessions['global_stop'] = false;
@@ -143,7 +152,14 @@ app.post("/api/send-stream", async (req, res) => {
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
         to: recipient,
-        subject: spunSubject
+        subject: spunSubject,
+        messageId: generateMessageId(domainPart),
+        headers: {
+          'Date': new Date().toUTCString(),
+          'X-Mailer': 'Gmail',
+          'X-Priority': '3',
+          'Importance': 'normal'
+        }
       };
 
       if (isHtml) {
@@ -161,7 +177,7 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Delay: 80ms (0.1 Second) per email
+    // Exact Delay: 80ms (0.08 Seconds)
     if (index < recipients.length - 1) {
       await new Promise(resolve => setTimeout(resolve, 80));
     }
