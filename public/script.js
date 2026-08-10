@@ -151,7 +151,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const remaining = Math.max(0, total - (sentCount + failedCount));
         if (statRemaining) statRemaining.textContent = remaining;
 
-        const percentage = Math.min(100, Math.round(((sentCount + failedCount) / total) * 100));
+        const percentage = Math.min(80, Math.round(((sentCount + failedCount) / total) * 80));
         if (progressBar) progressBar.style.width = `${percentage}%`;
 
         if (customText && statusText && isSending && !stopRequested) {
