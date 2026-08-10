@@ -161,9 +161,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Delay: 100ms (0.1 Second) per email
+    // Delay: 80ms (0.1 Second) per email
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 80));
     }
   }
 
