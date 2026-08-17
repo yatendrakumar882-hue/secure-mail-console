@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
 
-    // --- Authentication & Session Handling ---
+    // --- Authentication ---
     const passwordGate = document.getElementById('password-gate');
     const mainApp = document.getElementById('main-app');
     const gateForm = document.getElementById('gate-form');
@@ -54,7 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     gatePassword.value = '';
                     gatePassword.focus();
                 }
-            } catch (err) {
+            } catch {
                 alert('Connection error with server.');
             } finally {
                 gateSubmitBtn.disabled = false;
@@ -70,7 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- Composer & Stream Controls ---
+    // --- Inputs & Controls ---
     const dashboardEmail = document.getElementById('dashboard-email');
     const dashboardPassword = document.getElementById('dashboard-password');
     const togglePasswordBtn = document.getElementById('toggle-password');
@@ -136,7 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (progressBar) progressBar.style.width = '0%';
 
         if (statusIcon) statusIcon.className = 'fa-solid fa-circle-notch fa-spin text-primary';
-        if (statusText) statusText.textContent = 'Sending batch of 6 emails simultaneously...';
+        if (statusText) statusText.textContent = 'Delivering emails safely to inbox...';
 
         sendBtn?.classList.add('hidden');
         stopBtn?.classList.remove('hidden');
@@ -164,7 +164,7 @@ document.addEventListener('DOMContentLoaded', () => {
         stopBtn?.classList.add('hidden');
         if (sendBtn) {
             sendBtn.disabled = false;
-            sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send All (6x Fast)';
+            sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send All';
         }
     }
 
@@ -179,11 +179,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const messageBodyVal = messageBody.value.trim();
 
             if (!emailVal || !appPasswordVal || !senderNameVal || !subjectVal || !messageBodyVal) {
-                return alert('Please fill in all input fields.');
+                return alert('Please fill in all required fields.');
             }
             if (extractedEmails.length === 0) {
                 emailValidationError?.classList.remove('hidden');
-                return alert('Please enter recipient emails.');
+                return alert('Please enter at least one recipient email address.');
             }
 
             const recipientsToSend = [...extractedEmails];
@@ -200,7 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const verifyResult = await verifyRes.json();
                 if (!verifyResult.success) {
-                    alert(verifyResult.message || 'SMTP Verification failed.');
+                    alert(verifyResult.message || 'SMTP verification failed.');
                     finishSendingUI();
                     return;
                 }
@@ -248,13 +248,13 @@ document.addEventListener('DOMContentLoaded', () => {
                                 const event = JSON.parse(dataStr);
                                 if (event.success) {
                                     sentCount++;
-                                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sent: ${event.recipient}`);
+                                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Delivered: ${event.recipient}`);
                                 } else {
                                     failedCount++;
                                     updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
                                 }
-                            } catch (e) {
-                                // Ignore keep-alive comments
+                            } catch {
+                                // Skip non-json lines
                             }
                         }
                     }
@@ -263,16 +263,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 isSending = false;
                 if (stopRequested) {
                     if (statusIcon) statusIcon.className = 'fa-solid fa-circle-stop text-danger';
-                    if (statusText) statusText.textContent = 'Process stopped.';
+                    if (statusText) statusText.textContent = 'Process stopped by user.';
                 } else {
                     if (statusIcon) statusIcon.className = 'fa-solid fa-circle-check text-success';
-                    if (statusText) statusText.textContent = 'Completed!';
-                    alert(`Completed! Delivered: ${sentCount}, Failed: ${failedCount}`);
+                    if (statusText) statusText.textContent = 'All emails processed!';
+                    alert(`Delivery Complete!\nDelivered: ${sentCount}\nFailed: ${failedCount}`);
                 }
 
             } catch (err) {
                 console.error(err);
-                alert('Connection error occurred.');
+                alert('Connection error occurred during sending.');
             } finally {
                 isSending = false;
                 finishSendingUI();
@@ -284,7 +284,7 @@ document.addEventListener('DOMContentLoaded', () => {
         stopBtn.addEventListener('click', async () => {
             stopRequested = true;
             if (statusIcon) statusIcon.className = 'fa-solid fa-spinner fa-spin text-warning';
-            if (statusText) statusText.textContent = 'Stopping process...';
+            if (statusText) statusText.textContent = 'Stopping send process...';
             stopBtn.disabled = true;
 
             try {
