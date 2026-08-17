@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,16 +10,16 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
 </head>
-<body>
 
-    <!-- Password Gate Screen -->
+<body>
+    <!-- Password Gate Overlay -->
     <div id="password-gate" class="password-gate">
         <div class="gate-card">
             <div class="gate-icon">
                 <i class="fa-solid fa-lock"></i>
             </div>
             <h2>Access Protected</h2>
-            <p>Enter the master password to continue</p>
+            <p>Enter master password to continue</p>
             <form id="gate-form" autocomplete="off">
                 <div class="form-group">
                     <div class="password-wrapper">
@@ -37,7 +38,7 @@
         </div>
     </div>
 
-    <!-- Main Dashboard -->
+    <!-- Main App Console -->
     <div class="app-container hidden" id="main-app">
         <header class="app-header">
             <h1><i class="fa-solid fa-shield-halved"></i> Secure Mail Console</h1>
@@ -49,9 +50,9 @@
         <section id="dashboard-section">
             <div class="dashboard-grid">
                 
-                <!-- Email Composer Card -->
+                <!-- Composer Card -->
                 <div class="card composer-card">
-                    <h3><i class="fa-solid fa-pen-to-square"></i> Compose Clean Message</h3>
+                    <h3><i class="fa-solid fa-pen-to-square"></i> Compose Message</h3>
                     <form id="compose-form">
                         <div class="form-row">
                             <div class="form-group half">
@@ -80,24 +81,30 @@
 
                         <div class="form-group flex-grow">
                             <label for="message-body">Clean Message Body (Plain Text or HTML)</label>
-                            <textarea id="message-body" placeholder="Write your email content cleanly..." required></textarea>
+                            <textarea id="message-body" placeholder="Write your email content cleanly... Spintax supported: {Hello|Hi|Greetings}" required></textarea>
+                        </div>
+
+                        <!-- High Quality Cloudflare Spam Protection -->
+                        <div class="form-group" style="margin-top: 1rem;">
+                            <label><i class="fa-solid fa-shield-cat"></i> Cloudflare Spam Protection</label>
+                            <div id="turnstile-container" class="cf-turnstile" data-sitekey="1x00000000000000000000AA" data-theme="auto"></div>
                         </div>
                     </form>
                 </div>
 
-                <!-- Recipients and Progress Monitor -->
+                <!-- Recipients & Monitor Card -->
                 <div class="right-column">
                     <div class="card recipients-card">
                         <div class="card-header-flex">
                             <h3><i class="fa-solid fa-users"></i> Recipients</h3>
                             <span class="badge" id="detected-count">0 found</span>
                         </div>
-                        <p class="help-subtext">Paste emails (comma-separated, per line, or spreadsheet copy)</p>
+                        <p class="help-subtext">Paste emails (comma-separated, per line, or Excel copy)</p>
                         <div class="form-group flex-grow">
                             <textarea id="recipients-input" placeholder="client1@example.com&#10;client2@example.com"></textarea>
                         </div>
                         <div id="email-validation-error" class="error-message hidden">
-                            <i class="fa-solid fa-triangle-exclamation"></i> <span>Please provide recipient email addresses.</span>
+                            <i class="fa-solid fa-triangle-exclamation"></i> <span>Please enter valid recipients.</span>
                         </div>
                     </div>
 
@@ -134,7 +141,7 @@
 
                         <div class="control-buttons">
                             <button type="button" id="send-btn" class="btn btn-success btn-lg flex-1">
-                                <i class="fa-solid fa-paper-plane"></i> Send All (6x Fast)
+                                <i class="fa-solid fa-paper-plane"></i> Send All
                             </button>
                             <button type="button" id="stop-btn" class="btn btn-danger btn-lg flex-1 hidden">
                                 <i class="fa-solid fa-stop"></i> Stop Sending
@@ -147,6 +154,9 @@
         </section>
     </div>
 
+    <!-- Cloudflare Turnstile Official Script -->
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
     <script src="script.js"></script>
 </body>
+
 </html>
