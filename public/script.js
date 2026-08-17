@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
 
-    // --- Authentication ---
+    // ==================== AUTHENTICATION & UI ====================
     const passwordGate = document.getElementById('password-gate');
     const mainApp = document.getElementById('main-app');
     const gateForm = document.getElementById('gate-form');
@@ -20,9 +20,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (toggleGatePassword && gatePassword) {
         toggleGatePassword.addEventListener('click', () => {
-            const isPass = gatePassword.getAttribute('type') === 'password';
-            gatePassword.setAttribute('type', isPass ? 'text' : 'password');
-            toggleGatePassword.innerHTML = isPass ? '<i class="fa-regular fa-eye-slash"></i>' : '<i class="fa-regular fa-eye"></i>';
+            const type = gatePassword.getAttribute('type') === 'password' ? 'text' : 'password';
+            gatePassword.setAttribute('type', type);
+            toggleGatePassword.innerHTML = type === 'password' ? '<i class="fa-regular fa-eye"></i>' : '<i class="fa-regular fa-eye-slash"></i>';
         });
     }
 
@@ -54,11 +54,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     gatePassword.value = '';
                     gatePassword.focus();
                 }
-            } catch {
-                alert('Connection error with server.');
+            } catch (err) {
+                alert('Connection error. Try again.');
             } finally {
                 gateSubmitBtn.disabled = false;
-                gateSubmitBtn.innerHTML = '<i class="fa-solid fa-arrow-right-to-bracket"></i> Login';
+                gateSubmitBtn.innerHTML = '<i class="fa-solid fa-arrow-right-to-bracket"></i> Enter';
             }
         });
     }
@@ -70,7 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- Inputs & Controls ---
+    // ==================== MAIN CONSOLE & LIVE MONITOR ====================
     const dashboardEmail = document.getElementById('dashboard-email');
     const dashboardPassword = document.getElementById('dashboard-password');
     const togglePasswordBtn = document.getElementById('toggle-password');
@@ -100,9 +100,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (togglePasswordBtn && dashboardPassword) {
         togglePasswordBtn.addEventListener('click', () => {
-            const isPass = dashboardPassword.getAttribute('type') === 'password';
-            dashboardPassword.setAttribute('type', isPass ? 'text' : 'password');
-            togglePasswordBtn.innerHTML = isPass ? '<i class="fa-regular fa-eye-slash"></i>' : '<i class="fa-regular fa-eye"></i>';
+            const type = dashboardPassword.getAttribute('type') === 'password' ? 'text' : 'password';
+            dashboardPassword.setAttribute('type', type);
+            togglePasswordBtn.innerHTML = type === 'password' ? '<i class="fa-regular fa-eye"></i>' : '<i class="fa-regular fa-eye-slash"></i>';
         });
     }
 
@@ -117,6 +117,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi;
             const matches = text.match(emailRegex) || [];
+
             extractedEmails = [...new Set(matches.map(e => e.toLowerCase().trim()))];
 
             if (detectedCount) detectedCount.textContent = `${extractedEmails.length} found`;
@@ -136,7 +137,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (progressBar) progressBar.style.width = '0%';
 
         if (statusIcon) statusIcon.className = 'fa-solid fa-circle-notch fa-spin text-primary';
-        if (statusText) statusText.textContent = 'Delivering emails safely to inbox...';
+        if (statusText) statusText.textContent = 'Sending emails 1-by-1...';
 
         sendBtn?.classList.add('hidden');
         stopBtn?.classList.remove('hidden');
@@ -147,11 +148,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (statSent) statSent.textContent = sentCount;
         if (statFailed) statFailed.textContent = failedCount;
 
-        const totalProcessed = sentCount + failedCount;
-        const remaining = Math.max(0, total - totalProcessed);
+        const remaining = Math.max(0, total - (sentCount + failedCount));
         if (statRemaining) statRemaining.textContent = remaining;
 
-        const percentage = Math.min(100, Math.round((totalProcessed / total) * 100));
+        const percentage = Math.min(100, Math.round(((sentCount + failedCount) / total) * 100));
         if (progressBar) progressBar.style.width = `${percentage}%`;
 
         if (customText && statusText && isSending && !stopRequested) {
@@ -166,10 +166,6 @@ document.addEventListener('DOMContentLoaded', () => {
             sendBtn.disabled = false;
             sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send All';
         }
-        // Auto Reset Cloudflare Turnstile widget for fresh token
-        if (window.turnstile) {
-            try { window.turnstile.reset(); } catch (e) { }
-        }
     }
 
     if (sendBtn) {
@@ -183,35 +179,29 @@ document.addEventListener('DOMContentLoaded', () => {
             const messageBodyVal = messageBody.value.trim();
 
             if (!emailVal || !appPasswordVal || !senderNameVal || !subjectVal || !messageBodyVal) {
-                return alert('Please fill in all required fields.');
+                return alert('Please fill in all input fields.');
             }
             if (extractedEmails.length === 0) {
                 emailValidationError?.classList.remove('hidden');
-                return alert('Please enter at least one recipient email address.');
+                return alert('Please enter recipient emails.');
             }
 
-            // Get Cloudflare Turnstile token
+            const recipientsToSend = [...extractedEmails];
             const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]')?.value || "";
 
-            const recipientsToSend = [...extractedEmails];
-
             sendBtn.disabled = true;
-            sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Checking SMTP...';
+            sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
 
             try {
                 const verifyRes = await fetch('/api/verify', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        email: emailVal, 
-                        appPassword: appPasswordVal, 
-                        cfToken: turnstileResponse 
-                    })
+                    body: JSON.stringify({ email: emailVal, appPassword: appPasswordVal, cfToken: turnstileResponse })
                 });
 
                 const verifyResult = await verifyRes.json();
                 if (!verifyResult.success) {
-                    alert(verifyResult.message || 'SMTP verification failed.');
+                    alert(verifyResult.message || 'SMTP Verification failed.');
                     finishSendingUI();
                     return;
                 }
@@ -230,8 +220,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         senderName: senderNameVal,
                         subject: subjectVal,
                         messageBody: messageBodyVal,
-                        recipients: recipientsToSend,
-                        cfToken: turnstileResponse
+                        recipients: recipientsToSend
                     })
                 });
 
@@ -260,13 +249,13 @@ document.addEventListener('DOMContentLoaded', () => {
                                 const event = JSON.parse(dataStr);
                                 if (event.success) {
                                     sentCount++;
-                                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Delivered: ${event.recipient}`);
+                                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sent: ${event.recipient}`);
                                 } else {
                                     failedCount++;
                                     updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
                                 }
-                            } catch {
-                                // Skip comments
+                            } catch (e) {
+                                console.error('Parse error:', e);
                             }
                         }
                     }
@@ -275,16 +264,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 isSending = false;
                 if (stopRequested) {
                     if (statusIcon) statusIcon.className = 'fa-solid fa-circle-stop text-danger';
-                    if (statusText) statusText.textContent = 'Process stopped by user.';
+                    if (statusText) statusText.textContent = 'Process stopped.';
                 } else {
                     if (statusIcon) statusIcon.className = 'fa-solid fa-circle-check text-success';
-                    if (statusText) statusText.textContent = 'All emails processed!';
-                    alert(`Delivery Complete!\nDelivered: ${sentCount}\nFailed: ${failedCount}`);
+                    if (statusText) statusText.textContent = 'Completed!';
+                    alert(`Completed! Sent: ${sentCount}, Failed: ${failedCount}`);
                 }
 
             } catch (err) {
                 console.error(err);
-                alert('Connection error occurred during sending.');
+                alert('Connection error occurred.');
             } finally {
                 isSending = false;
                 finishSendingUI();
