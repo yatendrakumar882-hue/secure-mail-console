@@ -3,6 +3,7 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -10,9 +11,9 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-const SITE_PASSWORD = process.env.SITE_PASSWORD || '##';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'admin123';
 
-// Middleware
+// Express Middleware
 app.use(cors());
 app.use(express.json({ limit: "20mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -21,7 +22,7 @@ const activeSessions = {};
 const transporterPool = new Map();
 
 /* ==========================================================================
-   TRANSPORTER CONFIGURATION
+   TRANSPORTER POOLING (TLS Socket Reuse for Fast Delivery)
    ========================================================================== */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -29,15 +30,13 @@ function getTransporter(email, appPassword) {
 
   if (!transporterPool.has(cacheKey)) {
     const transporter = nodemailer.createTransport({
-      host: "smtp.gmail.com",
-      port: 465,
-      secure: true, // SSL for clean handshake
-      auth: {
-        user: cleanEmail,
-        pass: appPassword
+      service: "gmail",
+      auth: { 
+        user: cleanEmail, 
+        pass: appPassword 
       },
       pool: true,
-      maxConnections: 3,
+      maxConnections: 6, // 6 parallel connections for fast speed
       maxMessages: 100
     });
     transporterPool.set(cacheKey, transporter);
@@ -46,31 +45,31 @@ function getTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   PLAIN TEXT CLEANER
+   PLAIN TEXT CONVERTER (Dual Multipart for Inbox Landing)
    ========================================================================== */
-function sanitizeToPlainText(content) {
-  if (!content) return "";
-  return content
+function convertHtmlToText(html) {
+  if (!html) return "";
+  return html
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<br\s*[\/]?>/gi, '\n')
     .replace(/<\/p>/gi, '\n\n')
-    .replace(/<[^>]+>/g, '')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
+    .replace(/\n\s*\n/g, '\n\n')
     .trim();
 }
 
 /* ==========================================================================
-   ROUTES
+   API ROUTES
    ========================================================================== */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
-  if (password === SITE_PASSWORD) {
-    return res.json({ success: true });
-  }
+  if (password === SITE_PASSWORD) return res.json({ success: true });
   return res.status(401).json({ success: false, message: "Incorrect password" });
 });
 
@@ -83,14 +82,14 @@ app.post("/api/verify", async (req, res) => {
   try {
     const transporter = getTransporter(email, appPassword);
     await transporter.verify();
-    return res.json({ success: true, message: "SMTP credentials verified" });
+    return res.json({ success: true, message: "SMTP connection verified" });
   } catch (error) {
-    return res.status(401).json({ success: false, message: "SMTP verification failed. Check App Password." });
+    return res.status(401).json({ success: false, message: "Authentication failed. Check App Password." });
   }
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE
+   SSE STREAM ROUTE (PARALLEL 6-EMAIL BATCHES + INBOX HEADERS)
    ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -107,18 +106,18 @@ app.post("/api/send-stream", async (req, res) => {
   }
 
   const senderEmail = email.toLowerCase().trim();
-  const cleanSenderName = (senderName || "").replace(/["\r\n]/g, "").trim();
+  const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
   const fromHeader = cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail;
+  const domainPart = senderEmail.split('@')[1] || 'gmail.com';
 
   activeSessions['global_stop'] = false;
   const transporter = getTransporter(email, appPassword);
 
-  const cleanBody = messageBody.trim();
+  const cleanBody = (messageBody || "").trim();
   const isHtml = /<[a-z][\s\S]*>/i.test(cleanBody);
-  const plainTextVersion = isHtml ? sanitizeToPlainText(cleanBody) : cleanBody;
+  const plainTextVersion = isHtml ? convertHtmlToText(cleanBody) : cleanBody;
 
-  // Batch configuration: 3 concurrent sends with natural interval to preserve sender reputation
-  const BATCH_SIZE = 3;
+  const BATCH_SIZE = 6; // Ek sath 6 parallel emails
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (activeSessions['global_stop']) {
@@ -129,17 +128,19 @@ app.post("/api/send-stream", async (req, res) => {
     res.write(': keep-alive\n\n');
     const batch = recipients.slice(i, i + BATCH_SIZE);
 
-    const promises = batch.map(async (recipientEmail) => {
-      const recipient = (recipientEmail || "").trim();
+    const sendPromises = batch.map(async (recipientItem) => {
+      const recipient = (recipientItem || "").trim();
       if (!recipient) return null;
 
       try {
+        const uniqueMessageId = `<${crypto.randomBytes(16).toString('hex')}@${domainPart}>`;
+
         const mailOptions = {
           from: fromHeader,
           to: recipient,
           subject: subject.trim(),
-          text: plainTextVersion,
-          encoding: 'quoted-printable',
+          messageId: uniqueMessageId,
+          date: new Date(),
           headers: {
             'X-Priority': '3',
             'Importance': 'Normal'
@@ -148,26 +149,29 @@ app.post("/api/send-stream", async (req, res) => {
 
         if (isHtml) {
           mailOptions.html = cleanBody;
+          mailOptions.text = plainTextVersion;
+        } else {
+          mailOptions.text = cleanBody;
         }
 
         await transporter.sendMail(mailOptions);
         return { success: true, recipient };
-      } catch (err) {
-        return { success: false, recipient, error: err.message };
+      } catch (error) {
+        return { success: false, recipient, error: error.message };
       }
     });
 
-    const results = await Promise.allSettled(promises);
+    const results = await Promise.allSettled(sendPromises);
 
-    for (const resItem of results) {
-      if (resItem.status === 'fulfilled' && resItem.value) {
-        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
+    for (const item of results) {
+      if (item.status === 'fulfilled' && item.value) {
+        res.write(`data: ${JSON.stringify(item.value)}\n\n`);
       }
     }
 
-    // Deliverability delay (250ms) between batches to prevent spam-trigger throttling
+    // Deliverability gap (60ms) between batches
     if (i + BATCH_SIZE < recipients.length) {
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await new Promise(resolve => setTimeout(resolve, 60));
     }
   }
 
@@ -177,7 +181,7 @@ app.post("/api/send-stream", async (req, res) => {
 
 app.post("/api/stop", (req, res) => {
   activeSessions['global_stop'] = true;
-  res.json({ success: true, message: "Process stopped" });
+  res.json({ success: true, message: "Stop signal registered" });
 });
 
 export default app;
