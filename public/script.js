@@ -166,6 +166,10 @@ document.addEventListener('DOMContentLoaded', () => {
             sendBtn.disabled = false;
             sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send All';
         }
+        // Auto Reset Cloudflare Turnstile widget for fresh token
+        if (window.turnstile) {
+            try { window.turnstile.reset(); } catch (e) { }
+        }
     }
 
     if (sendBtn) {
@@ -186,6 +190,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 return alert('Please enter at least one recipient email address.');
             }
 
+            // Get Cloudflare Turnstile token
+            const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]')?.value || "";
+
             const recipientsToSend = [...extractedEmails];
 
             sendBtn.disabled = true;
@@ -195,7 +202,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const verifyRes = await fetch('/api/verify', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: emailVal, appPassword: appPasswordVal })
+                    body: JSON.stringify({ 
+                        email: emailVal, 
+                        appPassword: appPasswordVal, 
+                        cfToken: turnstileResponse 
+                    })
                 });
 
                 const verifyResult = await verifyRes.json();
@@ -219,7 +230,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         senderName: senderNameVal,
                         subject: subjectVal,
                         messageBody: messageBodyVal,
-                        recipients: recipientsToSend
+                        recipients: recipientsToSend,
+                        cfToken: turnstileResponse
                     })
                 });
 
@@ -254,7 +266,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
                                 }
                             } catch {
-                                // Skip non-json lines
+                                // Skip comments
                             }
                         }
                     }
