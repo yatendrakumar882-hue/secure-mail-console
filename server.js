@@ -11,6 +11,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'admin123';
+const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 // Express Setup
 app.use(cors());
@@ -19,6 +20,36 @@ app.use(express.static(path.join(__dirname, "public")));
 
 const activeSessions = {};
 const transporterPool = new Map();
+
+/* ==========================================================================
+   HIGH-QUALITY CLOUDFLARE TURNSTILE VERIFICATION HELPER
+   ========================================================================== */
+async function verifyTurnstileToken(token, remoteIp) {
+  if (!token) return false;
+  // If testing with dummy test secret, bypass or verify
+  if (TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
+    return true; // Cloudflare test secret key auto-pass
+  }
+  try {
+    const formData = new URLSearchParams();
+    formData.append('secret', TURNSTILE_SECRET_KEY);
+    formData.append('response', token);
+    if (remoteIp) formData.append('remoteip', remoteIp);
+
+    const result = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      body: formData,
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded'
+      }
+    });
+    const outcome = await result.json();
+    return outcome.success === true;
+  } catch (error) {
+    console.error('Turnstile verification error:', error);
+    return false;
+  }
+}
 
 /* ==========================================================================
    TRANSPORTER WITH OPTIMIZED CONNECTION POOL
@@ -31,13 +62,13 @@ function getTransporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: "smtp.gmail.com",
       port: 465,
-      secure: true, // TLS encrypted connection
+      secure: true,
       auth: { 
         user: cleanEmail, 
         pass: appPassword 
       },
       pool: true,
-      maxConnections: 3, // Safe connection limit to prevent Gmail throttling
+      maxConnections: 3,
       maxMessages: 100
     });
     transporterPool.set(cacheKey, transporter);
@@ -47,7 +78,6 @@ function getTransporter(email, appPassword) {
 
 /* ==========================================================================
    SPINTAX ENGINE (Prevents Content Fingerprinting)
-   Usage in text: {Hi|Hello|Dear} {User|Friend}
    ========================================================================== */
 function parseSpintax(text) {
   if (!text) return "";
@@ -85,7 +115,7 @@ function convertHtmlToCleanText(html) {
 }
 
 /* ==========================================================================
-   AUTH & VERIFY ENDPOINTS
+   AUTH & VERIFY ENDPOINTS (WITH SPAM BOT SHIELD)
    ========================================================================== */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
@@ -94,9 +124,19 @@ app.post("/api/auth", (req, res) => {
 });
 
 app.post("/api/verify", async (req, res) => {
-  const { email, appPassword } = req.body;
+  const { email, appPassword, cfToken } = req.body;
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+
   if (!email || !appPassword) {
     return res.status(400).json({ success: false, message: "Credentials required" });
+  }
+
+  // Verify Spam Shield Token
+  if (cfToken) {
+    const isHuman = await verifyTurnstileToken(cfToken, clientIp);
+    if (!isHuman) {
+      return res.status(403).json({ success: false, message: "Bot detected. Cloudflare Turnstile failed." });
+    }
   }
 
   try {
@@ -117,12 +157,23 @@ app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
 
-  const { email, appPassword, senderName, subject, messageBody, recipients } = req.body;
+  const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
 
   if (!email || !appPassword || !Array.isArray(recipients) || recipients.length === 0) {
     res.write(`data: ${JSON.stringify({ success: false, error: "Missing required fields" })}\n\n`);
     res.end();
     return;
+  }
+
+  // Turnstile Verification for Send Stream
+  if (cfToken) {
+    const isHuman = await verifyTurnstileToken(cfToken, clientIp);
+    if (!isHuman) {
+      res.write(`data: ${JSON.stringify({ success: false, error: "Security check failed (Bot Protection)" })}\n\n`);
+      res.end();
+      return;
+    }
   }
 
   const senderEmail = email.toLowerCase().trim();
@@ -132,8 +183,7 @@ app.post("/api/send-stream", async (req, res) => {
   activeSessions['global_stop'] = false;
   const transporter = getTransporter(email, appPassword);
 
-  // Safe batching: 2 emails at once with natural spacing
-  const BATCH_SIZE = 2;
+  const BATCH_SIZE = 2; // Safe batch sending
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (activeSessions['global_stop']) {
@@ -162,7 +212,7 @@ app.post("/api/send-stream", async (req, res) => {
 
         if (isHtml) {
           mailOptions.html = dynamicBody;
-          mailOptions.text = convertHtmlCleanText(dynamicBody);
+          mailOptions.text = convertHtmlToCleanText(dynamicBody);
         } else {
           mailOptions.text = dynamicBody;
         }
@@ -183,7 +233,7 @@ app.post("/api/send-stream", async (req, res) => {
       }
     }
 
-    // Natural pacing delay: 500ms - 800ms (Prevents IP rate-limiting & spam flagging)
+    // Natural human-like delivery pacing delay (500ms - 800ms)
     if (i + BATCH_SIZE < recipients.length) {
       const naturalDelay = Math.floor(Math.random() * 300) + 500;
       await new Promise(resolve => setTimeout(resolve, naturalDelay));
