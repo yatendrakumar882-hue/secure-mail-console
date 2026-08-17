@@ -137,7 +137,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (progressBar) progressBar.style.width = '0%';
 
         if (statusIcon) statusIcon.className = 'fa-solid fa-circle-notch fa-spin text-primary';
-        if (statusText) statusText.textContent = 'Sending emails 1-by-1...';
+        if (statusText) statusText.textContent = 'Sending batch of 6 emails simultaneously...';
 
         sendBtn?.classList.add('hidden');
         stopBtn?.classList.remove('hidden');
@@ -148,10 +148,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (statSent) statSent.textContent = sentCount;
         if (statFailed) statFailed.textContent = failedCount;
 
-        const remaining = Math.max(0, total - (sentCount + failedCount));
+        const totalProcessed = sentCount + failedCount;
+        const remaining = Math.max(0, total - totalProcessed);
         if (statRemaining) statRemaining.textContent = remaining;
 
-        const percentage = Math.min(80, Math.round(((sentCount + failedCount) / total) * 80));
+        const percentage = Math.min(100, Math.round((totalProcessed / total) * 100));
         if (progressBar) progressBar.style.width = `${percentage}%`;
 
         if (customText && statusText && isSending && !stopRequested) {
@@ -187,7 +188,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const recipientsToSend = [...extractedEmails];
-            const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]')?.value || "";
 
             sendBtn.disabled = true;
             sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
@@ -196,7 +196,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const verifyRes = await fetch('/api/verify', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: emailVal, appPassword: appPasswordVal, cfToken: turnstileResponse })
+                    body: JSON.stringify({ email: emailVal, appPassword: appPasswordVal })
                 });
 
                 const verifyResult = await verifyRes.json();
