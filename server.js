@@ -3,6 +3,7 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -21,7 +22,7 @@ const activeSessions = {};
 const transporters = new Map();
 
 /* ==========================================================================
-   TRANSPORTER POOLING (TLS Socket Reuse)
+   TRANSPORTER POOLING (TLS Socket Reuse & Concurrency Optimized)
    ========================================================================== */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -32,8 +33,9 @@ function getTransporter(email, appPassword) {
       service: "gmail",
       auth: { user: cleanEmail, pass: appPassword },
       pool: true,
-      maxConnections: 3,
-      maxMessages: 100
+      maxConnections: 6, // 6 parallel connections for fast concurrent delivery
+      maxMessages: 200,
+      rateLimit: 10 // Safe rate per second
     });
     transporters.set(cacheKey, transporter);
   }
@@ -59,7 +61,7 @@ function parseSpintax(text) {
 }
 
 /* ==========================================================================
-   HTML TO PLAIN-TEXT FALLBACK (Dual Multipart MIME)
+   HTML TO PLAIN-TEXT FALLBACK (Dual Multipart MIME for Deliverability)
    ========================================================================== */
 function convertHtmlToText(html) {
   if (!html) return "";
@@ -79,7 +81,7 @@ function convertHtmlToText(html) {
 }
 
 /* ==========================================================================
-   AUTHENTICATION ROUTES
+   AUTHENTICATION & VERIFY ROUTES
    ========================================================================== */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
@@ -101,13 +103,13 @@ app.post("/api/verify", async (req, res) => {
 });
 
 /* ==========================================================================
-   SSE STREAM ROUTE (STABLE & SECURE LOOP)
+   SSE STREAM ROUTE (BATCH OF 6 PARALLEL EMAILS + INBOX HEADERS)
    ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no'); // Prevents proxy buffering on Vercel/Nginx
+  res.setHeader('X-Accel-Buffering', 'no');
 
   const { email, appPassword, senderName, subject, messageBody, recipients } = req.body;
 
@@ -119,51 +121,76 @@ app.post("/api/send-stream", async (req, res) => {
 
   const senderEmail = email.toLowerCase().trim();
   const cleanSenderName = (senderName || "").replace(/"/g, "").trim();
+  const domainPart = senderEmail.split('@')[1] || 'gmail.com';
 
   activeSessions['global_stop'] = false;
+  const transporter = getTransporter(email, appPassword);
 
-  for (let index = 0; index < recipients.length; index++) {
+  const BATCH_SIZE = 6; // Ek saath 6 emails process honge
+
+  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (activeSessions['global_stop']) {
       res.write(`data: ${JSON.stringify({ success: false, error: "Stopped by user" })}\n\n`);
       break;
     }
 
-    const recipient = recipients[index] ? recipients[index].trim() : "";
-    if (!recipient) continue;
-
-    // Connection keep-alive ping
+    // Keep-alive ping
     res.write(': keep-alive\n\n');
 
-    try {
-      const transporter = getTransporter(email, appPassword);
-      const spunSubject = parseSpintax(subject);
-      const spunBody = parseSpintax(messageBody);
-      const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
+    const batch = recipients.slice(i, i + BATCH_SIZE);
 
-      const mailOptions = {
-        from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
-        to: recipient,
-        subject: spunSubject
-      };
+    // 6 emails parallel send honge
+    const sendPromises = batch.map(async (recipientItem) => {
+      const recipient = recipientItem ? recipientItem.trim() : "";
+      if (!recipient) return null;
 
-      if (isHtml) {
-        mailOptions.html = spunBody;
-        mailOptions.text = convertHtmlToText(spunBody);
-      } else {
-        mailOptions.text = spunBody;
+      try {
+        const spunSubject = parseSpintax(subject);
+        const spunBody = parseSpintax(messageBody);
+        const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
+
+        // Deliverability Headers (Inbox landing ke liye)
+        const uniqueMessageId = `<${crypto.randomBytes(16).toString('hex')}@${domainPart}>`;
+
+        const mailOptions = {
+          from: cleanSenderName ? `"${cleanSenderName}" <${senderEmail}>` : senderEmail,
+          to: recipient,
+          subject: spunSubject,
+          messageId: uniqueMessageId,
+          date: new Date(),
+          headers: {
+            'X-Mailer': 'SecureMail Client v1.0',
+            'X-Priority': '3',
+            'Importance': 'Normal'
+          }
+        };
+
+        if (isHtml) {
+          mailOptions.html = spunBody;
+          mailOptions.text = convertHtmlToText(spunBody);
+        } else {
+          mailOptions.text = spunBody;
+        }
+
+        await transporter.sendMail(mailOptions);
+        return { success: true, recipient };
+      } catch (error) {
+        console.error(`Error sending to ${recipient}:`, error.message);
+        return { success: false, recipient, error: error.message };
       }
+    });
 
-      await transporter.sendMail(mailOptions);
-      res.write(`data: ${JSON.stringify({ success: true, recipient })}\n\n`);
+    const results = await Promise.allSettled(sendPromises);
 
-    } catch (error) {
-      console.error(`Error sending to ${recipient}:`, error.message);
-      res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
+    for (const resItem of results) {
+      if (resItem.status === 'fulfilled' && resItem.value) {
+        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
+      }
     }
 
-    // Delay: 50ms (0.05 Second) per email
-    if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 50));
+    // Chhota gap batches ke beech taaki Gmail connection drop na kare
+    if (i + BATCH_SIZE < recipients.length) {
+      await new Promise(resolve => setTimeout(resolve, 80));
     }
   }
 
@@ -179,7 +206,4 @@ app.post("/api/stop", (req, res) => {
   res.json({ success: true, message: "Stop process registered" });
 });
 
-/* ==========================================================================
-   VERCEL / SERVERLESS HANDLER EXPORT
-   ========================================================================== */
 export default app;
