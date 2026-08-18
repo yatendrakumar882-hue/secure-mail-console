@@ -22,7 +22,7 @@ const activeSessions = {};
 const transporterPool = new Map();
 
 /* ==========================================================================
-   TRANSPORTER POOL (Pure Gmail Native SSL Connection)
+   TRANSPORTER POOL (Fast Native SSL Connection)
    ========================================================================== */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -32,7 +32,7 @@ function getTransporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: "smtp.gmail.com",
       port: 465,
-      secure: true, // SSL port 465 for clean Gmail handshake
+      secure: true,
       auth: {
         user: cleanEmail,
         pass: appPassword
@@ -47,7 +47,7 @@ function getTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   MULTILINE SPINTAX PARSER (Removes all brackets & pipes cleanly)
+   MULTILINE SPINTAX PARSER
    ========================================================================== */
 function parseSpintax(text) {
   if (!text) return "";
@@ -64,12 +64,11 @@ function parseSpintax(text) {
     iterations++;
   }
 
-  // Bracket safety cleanup
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
 /* ==========================================================================
-   HTML TO CLEAN TEXT CONVERTER
+   HTML TO PLAIN-TEXT FALLBACK CONVERTER
    ========================================================================== */
 function convertHtmlToCleanText(html) {
   if (!html) return "";
@@ -108,12 +107,12 @@ app.post("/api/verify", async (req, res) => {
     await transporter.verify();
     return res.json({ success: true, message: "SMTP connection verified" });
   } catch (error) {
-    return res.status(401).json({ success: false, message: "SMTP Authentication failed. Check 16-char App Password." });
+    return res.status(401).json({ success: false, message: "SMTP Authentication failed." });
   }
 });
 
 /* ==========================================================================
-   SSE STREAM ROUTE (FAST SPEED & INBOX OPTIMIZED)
+   SSE STREAM ROUTE (FAST SPEED + CLEAN FOOTER)
    ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -136,6 +135,10 @@ app.post("/api/send-stream", async (req, res) => {
   activeSessions['global_stop'] = false;
   const transporter = getTransporter(email, appPassword);
 
+  // Clean Professional Footer (Compliant with Email Standards)
+  const textFooter = `\n\n---\nBest regards,\n${cleanSenderName || 'Support Team'}\nReply to this email if you do not wish to receive further updates.`;
+  const htmlFooter = `<br><br><div style="font-size:12px;color:#777;border-top:1px solid #e0e0e0;padding-top:8px;margin-top:16px;">Best regards,<br><strong>${cleanSenderName || 'Support Team'}</strong><br><em>Reply to this email if you do not wish to receive further updates.</em></div>`;
+
   for (let index = 0; index < recipients.length; index++) {
     if (activeSessions['global_stop']) {
       res.write(`data: ${JSON.stringify({ success: false, error: "Stopped by user" })}\n\n`);
@@ -148,12 +151,10 @@ app.post("/api/send-stream", async (req, res) => {
     res.write(': keep-alive\n\n');
 
     try {
-      // Dynamic clean spintax parsing per recipient
       const spunSubject = parseSpintax(subject);
       const spunBody = parseSpintax(messageBody);
       const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
 
-      // Clean RFC-compliant mail options (Leaves DKIM/SPF to Gmail natively)
       const mailOptions = {
         from: fromAddress,
         to: recipient,
@@ -162,10 +163,10 @@ app.post("/api/send-stream", async (req, res) => {
       };
 
       if (isHtml) {
-        mailOptions.html = spunBody;
-        mailOptions.text = convertHtmlToCleanText(spunBody);
+        mailOptions.html = spunBody + htmlFooter;
+        mailOptions.text = convertHtmlToCleanText(spunBody) + textFooter;
       } else {
-        mailOptions.text = spunBody;
+        mailOptions.text = spunBody + textFooter;
       }
 
       await transporter.sendMail(mailOptions);
@@ -175,7 +176,7 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Maintained Fast sending speed (80ms spacing to maintain TLS socket integrity)
+    // Fast sending interval
     if (index < recipients.length - 1) {
       await new Promise(resolve => setTimeout(resolve, 80));
     }
