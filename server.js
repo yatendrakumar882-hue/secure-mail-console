@@ -20,7 +20,7 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 /* ==========================================================================
-   1. SECURE GMAIL SMTP TRANSPORTER (TLS 587 Pool Connection)
+   1. GMAIL SMTP TRANSPORTER POOL
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -30,14 +30,14 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false,         // Uses STARTTLS
+      secure: false, // STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: appPassword
       },
       pool: true,
-      maxConnections: 6,     // 6 parallel concurrent connections
+      maxConnections: 3,
       maxMessages: 100
     });
 
@@ -84,9 +84,9 @@ function parseRecipientData(input) {
 
   const formattedName = rawName
     ? rawName.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
-    : "Valued Client";
+    : "";
 
-  const firstName = formattedName.split(' ')[0] || "Client";
+  const firstName = formattedName ? formattedName.split(' ')[0] : "there";
   const domain = email.includes('@') ? email.split('@')[1] : "";
 
   return {
@@ -97,7 +97,7 @@ function parseRecipientData(input) {
   };
 }
 
-// Multiline Spintax Parser
+// Deep Multiline Spintax Parser
 function parseSpintax(text) {
   if (!text) return "";
   let spun = String(text);
@@ -120,16 +120,16 @@ function personalizeContent(template, recipient) {
   if (!template) return "";
   let content = parseSpintax(template);
 
-  content = content.replace(/{Name}/gi, recipient.name);
-  content = content.replace(/{FirstName}/gi, recipient.firstName);
-  content = content.replace(/{First_Name}/gi, recipient.firstName);
+  content = content.replace(/{Name}/gi, recipient.name || "there");
+  content = content.replace(/{FirstName}/gi, recipient.firstName || "there");
+  content = content.replace(/{First_Name}/gi, recipient.firstName || "there");
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
   return content;
 }
 
-// Clean HTML-to-Plain-Text Converter
+// Plain Text Sanitizer
 function createPlainTextFromHtml(html) {
   if (!html) return "";
   return html
@@ -138,7 +138,7 @@ function createPlainTextFromHtml(html) {
     .replace(/<br\s*[\/]?>/gi, '\n')
     .replace(/<\/p>/gi, '\n\n')
     .replace(/<\/div>/gi, '\n')
-    .replace(/<[^>]*>/g, '')
+    .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
@@ -171,14 +171,14 @@ app.post("/api/verify", async (req, res) => {
   try {
     const transporter = getPort587Transporter(email, appPassword);
     await transporter.verify();
-    return res.json({ success: true, message: "SMTP verified successfully" });
+    return res.json({ success: true, message: "SMTP connection verified" });
   } catch (error) {
-    return res.status(401).json({ success: false, message: "SMTP Auth Failed. Verify App Password." });
+    return res.status(401).json({ success: false, message: "SMTP Auth Failed. Check App Password." });
   }
 });
 
 /* ==========================================================================
-   4. BATCH STREAMING ENGINE (6 Emails per Batch / Burst)
+   4. STREAMING ROUTE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -203,11 +203,10 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 6;
+  const BATCH_SIZE = 3;
 
-  // Clean Avast Virus-Free Signature (2-3 lines below template)
   const plainAvastFooter = "\n\n\nVirus-free.www.avast.com";
-  const htmlAvastFooter = `<br><br><br><p style="margin: 0; padding-top: 10px; font-size: 12px; color: #7f8c8d; font-family: Arial, sans-serif;">Virus-free.www.avast.com</p>`;
+  const htmlAvastFooter = `<br><br><br><p style="margin:0;padding-top:10px;font-size:12px;color:#7f8c8d;font-family:Arial,sans-serif;">Virus-free.www.avast.com</p>`;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -230,8 +229,7 @@ app.post('/api/send-stream', async (req, res) => {
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
-          to: recipient.name !== "Valued Client" ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-          replyTo: cleanEmail,
+          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           subject: personalizedSubject,
           date: new Date()
         };
@@ -261,8 +259,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      const batchDelay = Math.floor(250 + Math.random() * 300); // Fast batch pacing
-      await new Promise(resolve => setTimeout(resolve, batchDelay));
+      await new Promise(resolve => setTimeout(resolve, 400));
     }
   }
 
@@ -277,7 +274,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on Port ${PORT} [6-Email Batch Engine Active]`);
+  console.log(`Server running on Port ${PORT}`);
 });
 
 export default app;
