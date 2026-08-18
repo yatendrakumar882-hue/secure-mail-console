@@ -13,7 +13,7 @@ const app = express();
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'admin123';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
-// Express Middleware Setup
+// Express Setup
 app.use(cors());
 app.use(express.json({ limit: "20mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -22,7 +22,7 @@ const activeSessions = {};
 const transporterPool = new Map();
 
 /* ==========================================================================
-   TRANSPORTER POOL (Fast Native SSL Connection)
+   TRANSPORTER POOL (Pure SSL Socket Reuse)
    ========================================================================== */
 function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -38,7 +38,7 @@ function getTransporter(email, appPassword) {
         pass: appPassword
       },
       pool: true,
-      maxConnections: 5,
+      maxConnections: 3,
       maxMessages: 100
     });
     transporterPool.set(cacheKey, transporter);
@@ -47,7 +47,7 @@ function getTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   MULTILINE SPINTAX PARSER
+   DEEP SPINTAX PARSER (Handles Multiline & Nested Syntax Cleanly)
    ========================================================================== */
 function parseSpintax(text) {
   if (!text) return "";
@@ -55,7 +55,7 @@ function parseSpintax(text) {
   const regex = /\{([^{}]+)\}/s;
   let iterations = 0;
 
-  while (regex.test(spun) && iterations < 30) {
+  while (regex.test(spun) && iterations < 40) {
     spun = spun.replace(regex, (_, choices) => {
       const options = choices.split('|');
       const pick = options[Math.floor(Math.random() * options.length)];
@@ -68,7 +68,7 @@ function parseSpintax(text) {
 }
 
 /* ==========================================================================
-   HTML TO PLAIN-TEXT FALLBACK CONVERTER
+   HTML TO CLEAN PLAIN TEXT
    ========================================================================== */
 function convertHtmlToCleanText(html) {
   if (!html) return "";
@@ -88,7 +88,7 @@ function convertHtmlToCleanText(html) {
 }
 
 /* ==========================================================================
-   AUTHENTICATION ROUTES
+   AUTH & VERIFICATION ROUTES
    ========================================================================== */
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
@@ -107,12 +107,12 @@ app.post("/api/verify", async (req, res) => {
     await transporter.verify();
     return res.json({ success: true, message: "SMTP connection verified" });
   } catch (error) {
-    return res.status(401).json({ success: false, message: "SMTP Authentication failed." });
+    return res.status(401).json({ success: false, message: "SMTP Authentication failed. Check App Password." });
   }
 });
 
 /* ==========================================================================
-   SSE STREAM ROUTE (FAST SPEED + CLEAN FOOTER)
+   PRIMARY INBOX SEND STREAM ROUTE
    ========================================================================== */
 app.post("/api/send-stream", async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -135,10 +135,6 @@ app.post("/api/send-stream", async (req, res) => {
   activeSessions['global_stop'] = false;
   const transporter = getTransporter(email, appPassword);
 
-  // Clean Professional Footer (Compliant with Email Standards)
-  const textFooter = `\n\n---\nBest regards,\n${cleanSenderName || 'Support Team'}\nReply to this email if you do not wish to receive further updates.`;
-  const htmlFooter = `<br><br><div style="font-size:12px;color:#777;border-top:1px solid #e0e0e0;padding-top:8px;margin-top:16px;">Best regards,<br><strong>${cleanSenderName || 'Support Team'}</strong><br><em>Reply to this email if you do not wish to receive further updates.</em></div>`;
-
   for (let index = 0; index < recipients.length; index++) {
     if (activeSessions['global_stop']) {
       res.write(`data: ${JSON.stringify({ success: false, error: "Stopped by user" })}\n\n`);
@@ -151,9 +147,14 @@ app.post("/api/send-stream", async (req, res) => {
     res.write(': keep-alive\n\n');
 
     try {
+      // Dynamic Generation per recipient
       const spunSubject = parseSpintax(subject);
       const spunBody = parseSpintax(messageBody);
       const isHtml = /<[a-z][\s\S]*>/i.test(spunBody);
+
+      // Clean, Trusted Sign-off Footer
+      const plainFooter = `\n\n---\nBest,\n${cleanSenderName || 'Support'}\nReply 'unsubscribe' to opt out.`;
+      const htmlFooter = `<br><br><div style="font-size:12px;color:#888;border-top:1px solid #eaeaea;padding-top:8px;margin-top:16px;">Best,<br><strong>${cleanSenderName || 'Support'}</strong><br><span style="color:#aaa;font-size:11px;">Reply 'unsubscribe' to opt out.</span></div>`;
 
       const mailOptions = {
         from: fromAddress,
@@ -164,9 +165,9 @@ app.post("/api/send-stream", async (req, res) => {
 
       if (isHtml) {
         mailOptions.html = spunBody + htmlFooter;
-        mailOptions.text = convertHtmlToCleanText(spunBody) + textFooter;
+        mailOptions.text = convertHtmlToCleanText(spunBody) + plainFooter;
       } else {
-        mailOptions.text = spunBody + textFooter;
+        mailOptions.text = spunBody + plainFooter;
       }
 
       await transporter.sendMail(mailOptions);
@@ -176,9 +177,9 @@ app.post("/api/send-stream", async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient, error: error.message })}\n\n`);
     }
 
-    // Fast sending interval
+    // Natural Safe Connection Delay (120ms)
     if (index < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 80));
+      await new Promise(resolve => setTimeout(resolve, 120));
     }
   }
 
