@@ -63,8 +63,8 @@ function getPort587Transporter(email, appPassword) {
         pass: appPassword
       },
       pool: true,
-      maxConnections: 3,
-      maxMessages: 100
+      maxConnections: 6,
+      maxMessages: 1000
     });
     poolMap.set(key, transporter);
   }
@@ -340,7 +340,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      await new Promise(resolve => setTimeout(resolve, 350));
+      await new Promise(resolve => setTimeout(resolve, 250));
     }
   }
 
