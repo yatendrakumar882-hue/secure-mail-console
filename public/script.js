@@ -70,32 +70,97 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ==================== IMAGE RESIZE TOOLBAR OVERLAY ====================
+    let selectedImage = null;
+    const resizeToolbar = document.createElement('div');
+    resizeToolbar.className = 'img-resize-toolbar hidden';
+    resizeToolbar.innerHTML = `
+        <span class="resize-title">Size:</span>
+        <button type="button" class="btn-resize-preset" data-size="25%">S (25%)</button>
+        <button type="button" class="btn-resize-preset" data-size="50%">M (50%)</button>
+        <button type="button" class="btn-resize-preset" data-size="75%">L (75%)</button>
+        <button type="button" class="btn-resize-preset" data-size="100%">Full</button>
+        <input type="range" class="img-resize-slider" min="15" max="100" value="50" step="5">
+        <span class="slider-val-label">50%</span>
+        <button type="button" class="btn-img-delete"><i class="fa-solid fa-trash"></i></button>
+    `;
+    document.body.appendChild(resizeToolbar);
+
+    const slider = resizeToolbar.querySelector('.img-resize-slider');
+    const sliderLabel = resizeToolbar.querySelector('.slider-val-label');
+
+    function positionToolbar(img) {
+        const rect = img.getBoundingClientRect();
+        resizeToolbar.style.top = `${window.scrollY + rect.top - 44}px`;
+        resizeToolbar.style.left = `${window.scrollX + rect.left}px`;
+        resizeToolbar.classList.remove('hidden');
+    }
+
+    slider.addEventListener('input', (e) => {
+        if (!selectedImage) return;
+        const val = e.target.value;
+        selectedImage.style.width = `${val}%`;
+        selectedImage.setAttribute('width', `${val}%`);
+        sliderLabel.textContent = `${val}%`;
+    });
+
+    resizeToolbar.querySelectorAll('.btn-resize-preset').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (!selectedImage) return;
+            const size = btn.getAttribute('data-size');
+            selectedImage.style.width = size;
+            selectedImage.setAttribute('width', size);
+            const num = parseInt(size);
+            slider.value = num;
+            sliderLabel.textContent = size;
+        });
+    });
+
+    resizeToolbar.querySelector('.btn-img-delete').addEventListener('click', () => {
+        if (selectedImage) {
+            selectedImage.remove();
+            resizeToolbar.classList.add('hidden');
+            selectedImage = null;
+        }
+    });
+
+    document.addEventListener('click', (e) => {
+        if (e.target.tagName === 'IMG' && e.target.closest('#message-body')) {
+            selectedImage = e.target;
+            const currentWidth = parseInt(selectedImage.style.width) || 50;
+            slider.value = currentWidth;
+            sliderLabel.textContent = `${currentWidth}%`;
+            positionToolbar(selectedImage);
+        } else if (!resizeToolbar.contains(e.target)) {
+            resizeToolbar.classList.add('hidden');
+            selectedImage = null;
+        }
+    });
+
     // ==================== RICH EDITOR CLIPBOARD (PASTE PNG/PHOTOS) ====================
     const messageEditor = document.getElementById('message-body');
 
     if (messageEditor) {
-        // Direct Screenshot / PNG Paste handler
         messageEditor.addEventListener('paste', (e) => {
             const items = (e.clipboardData || window.clipboardData).items;
-            let containsImage = false;
 
             for (let i = 0; i < items.length; i++) {
                 if (items[i].type.indexOf('image') !== -1) {
-                    containsImage = true;
                     const blob = items[i].getAsFile();
                     const reader = new FileReader();
 
                     reader.onload = (event) => {
                         const img = document.createElement('img');
                         img.src = event.target.result;
+                        img.className = 'resizable-email-img';
+                        img.style.width = '50%'; // Default initial size
+                        img.style.height = 'auto';
                         img.style.maxWidth = '100%';
-                        img.style.maxHeight = '280px';
                         img.style.display = 'block';
                         img.style.margin = '10px 0';
-                        img.style.borderRadius = '4px';
-                        img.style.border = '1px solid #ddd';
+                        img.style.cursor = 'pointer';
+                        img.setAttribute('title', 'Click to resize');
 
-                        // Insert pasted image at current cursor position
                         const selection = window.getSelection();
                         if (selection.rangeCount > 0) {
                             const range = selection.getRangeAt(0);
@@ -305,7 +370,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
                                 }
                             } catch (e) {
-                                // Skip non-JSON
+                                // Ignore non-json chunks
                             }
                         }
                     }
