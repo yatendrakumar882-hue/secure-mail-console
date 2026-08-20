@@ -40,8 +40,8 @@
         </div>
     </div>
 
+    <!-- Main Console Application -->
     <div class="app-container hidden" id="main-app">
-        <!-- Header -->
         <header class="app-header">
             <h1><i class="fa-solid fa-shield-halved"></i> Secure Mail Console</h1>
             <button type="button" id="logout-btn" class="btn btn-outline btn-sm logout-header-btn">
@@ -49,12 +49,7 @@
             </button>
         </header>
 
-        <!-- Dashboard Section -->
         <section id="dashboard-section">
-            <div class="dashboard-header fade-in">
-                <h2><i class="fa-solid fa-paper-plane"></i> Bulk Email Sender</h2>
-            </div>
-
             <div class="dashboard-grid">
                 <!-- Composer Card -->
                 <div class="card composer-card fade-in delay-1">
@@ -70,51 +65,52 @@
                                 <input type="email" id="dashboard-email" placeholder="you@gmail.com" required>
                             </div>
                         </div>
+
                         <div class="form-row">
                             <div class="form-group half">
                                 <label for="dashboard-password">App Password</label>
                                 <div class="password-wrapper">
-                                    <input type="password" id="dashboard-password" placeholder="16-char app password" required>
+                                    <input type="password" id="dashboard-password" placeholder="16-character App Password" required>
                                     <button type="button" id="toggle-password" class="icon-button"><i class="fa-regular fa-eye"></i></button>
                                 </div>
                             </div>
                             <div class="form-group half">
                                 <label for="subject">Email Subject</label>
-                                <input type="text" id="subject" placeholder="Enter subject line..." required>
+                                <input type="text" id="subject" placeholder="Enter clear subject line..." required>
                             </div>
                         </div>
+
                         <div class="form-group flex-grow">
-                            <label for="message-body">Message Body (Plain Text or HTML)</label>
-                            <textarea id="message-body" placeholder="Write your email here... Spintax supported: {Hi|Hello|Hey}" required></textarea>
+                            <label for="message-body">Message Body (Plain Text or HTML with PNG/Image tag)</label>
+                            <textarea id="message-body" placeholder="Write email here... Spintax supported: {Hi|Hello}&#10;You can include <img> tags or HTML directly." required></textarea>
                         </div>
                         
                         <!-- Anti Spam Turnstile -->
-                        <div class="form-group" style="margin-top: 1rem;">
+                        <div class="form-group" style="margin-top: 0.5rem;">
                             <label><i class="fa-solid fa-shield-cat"></i> Spam Protection</label>
                             <div class="cf-turnstile" data-sitekey="1x00000000000000000000AA" data-theme="light"></div>
                         </div>
                     </form>
                 </div>
 
-                <!-- Recipients & Control Card -->
+                <!-- Recipients & Monitor Card -->
                 <div class="right-column">
                     <div class="card recipients-card fade-in delay-2">
                         <div class="card-header-flex">
                             <h3><i class="fa-solid fa-users"></i> Recipients</h3>
                             <span class="badge" id="detected-count">0 found</span>
                         </div>
-                        <p class="help-subtext">Paste emails (comma separated, new lines, or Excel copy)</p>
+                        <p class="help-subtext">Paste emails (comma-separated, per line, or Excel copy)</p>
                         <div class="form-group flex-grow">
-                            <textarea id="recipients-input" placeholder="john@example.com&#10;jane@example.com"></textarea>
+                            <textarea id="recipients-input" placeholder="client1@example.com&#10;client2@example.com"></textarea>
                         </div>
                         <div id="email-validation-error" class="error-message hidden">
                             <i class="fa-solid fa-triangle-exclamation"></i> <span>Please enter valid recipients.</span>
                         </div>
                     </div>
 
-                    <!-- Progress Monitor Card -->
                     <div class="card progress-card fade-in delay-3">
-                        <h3><i class="fa-solid fa-chart-pie"></i> Progress Monitor</h3>
+                        <h3><i class="fa-solid fa-chart-pie"></i> Delivery Status</h3>
 
                         <div class="stats-grid">
                             <div class="stat-box neutral">
@@ -141,7 +137,7 @@
 
                         <div class="status-indicator">
                             <i id="status-icon" class="fa-solid fa-circle-pause text-muted"></i>
-                            <span id="status-text">Ready to send</span>
+                            <span id="status-text">Ready</span>
                         </div>
 
                         <div class="control-buttons">
@@ -154,6 +150,7 @@
                         </div>
                     </div>
                 </div>
+
             </div>
         </section>
     </div>
