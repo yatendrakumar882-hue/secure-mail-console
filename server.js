@@ -17,16 +17,15 @@ const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
 app.use(cors());
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ limit: "50mb", extended: true }));
+app.use(express.json({ limit: "100mb" }));
+app.use(express.urlencoded({ limit: "100mb", extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
 /* ==========================================================================
-   1. CLOUDFLARE TURNSTILE TOKEN VERIFICATION
+   1. CLOUDFLARE TURNSTILE
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
-  if (!token) return true; // Allows testing if turnstile key is not set
-  if (TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
+  if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
 
   try {
     const formData = new URLSearchParams();
@@ -42,13 +41,12 @@ async function verifyTurnstileToken(token, remoteIp) {
     const outcome = await result.json();
     return outcome.success === true;
   } catch (error) {
-    console.error('Turnstile verification error:', error);
     return false;
   }
 }
 
 /* ==========================================================================
-   2. GMAIL SECURE CONNECTION POOL (STARTTLS 587)
+   2. GMAIL SMTP POOL (PORT 587 STARTTLS)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -74,7 +72,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. SPINTAX & RECIPIENT DATA ENGINE
+   3. SPINTAX & DATA PARSER
    ========================================================================== */
 function parseRecipientData(input) {
   let email = "";
@@ -155,7 +153,7 @@ function personalizeContent(template, recipient) {
 }
 
 /* ==========================================================================
-   4. INLINE IMAGE & BASE64 PARSER (Ensures PNG/Photo displays on Client UI)
+   4. INLINE PASTED PNG EXTRACTOR (Auto-CID Embed for High Visibility)
    ========================================================================== */
 function processHtmlImages(htmlContent) {
   let html = htmlContent;
@@ -168,7 +166,7 @@ function processHtmlImages(htmlContent) {
     const fullImgTag = match[0];
     const mimeType = match[2];
     const base64Data = match[3];
-    const cid = `img_${Date.now()}_${index}@console.mail`;
+    const cid = `pasted_img_${Date.now()}_${index}@inline.mail`;
 
     const newImgTag = fullImgTag.replace(match[1], `cid:${cid}`);
     html = html.replace(fullImgTag, newImgTag);
@@ -193,7 +191,7 @@ function createPlainTextFromHtml(html) {
     .replace(/<br\s*[\/]?>/gi, '\n')
     .replace(/<\/p>/gi, '\n\n')
     .replace(/<\/div>/gi, '\n')
-    .replace(/<[^>]*>/g, '')
+    .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
@@ -219,28 +217,24 @@ app.post("/api/verify", async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
 
-  if (!email || !appPassword) {
-    return res.status(400).json({ success: false, message: "Credentials required" });
-  }
+  if (!email || !appPassword) return res.status(400).json({ success: false, message: "Credentials required" });
 
   if (cfToken) {
     const isHuman = await verifyTurnstileToken(cfToken, clientIp);
-    if (!isHuman) {
-      return res.status(403).json({ success: false, message: "Cloudflare Turnstile Verification Failed" });
-    }
+    if (!isHuman) return res.status(403).json({ success: false, message: "Security Verification Failed" });
   }
 
   try {
     const transporter = getPort587Transporter(email, appPassword);
     await transporter.verify();
-    return res.json({ success: true, message: "SMTP connection verified" });
+    return res.json({ success: true, message: "SMTP verified successfully" });
   } catch (error) {
-    return res.status(401).json({ success: false, message: "SMTP Authentication failed. Check 16-char App Password." });
+    return res.status(401).json({ success: false, message: "SMTP Auth Failed. Check 16-char App Password." });
   }
 });
 
 /* ==========================================================================
-   6. BATCH SEND STREAM (Supports PNG Display, 50% Link & Avast Signature)
+   6. SEND STREAM (Long Enterprise Compliance Footer + Inline Paste PNG)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -260,7 +254,7 @@ app.post('/api/send-stream', async (req, res) => {
   if (cfToken) {
     const isHuman = await verifyTurnstileToken(cfToken, clientIp);
     if (!isHuman) {
-      res.write(`data: ${JSON.stringify({ success: false, error: "Security check failed (Bot Protection)" })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: false, error: "Turnstile Security Verification Failed" })}\n\n`);
       res.end();
       return;
     }
@@ -277,9 +271,10 @@ app.post('/api/send-stream', async (req, res) => {
   const transporter = getPort587Transporter(email, appPassword);
   const BATCH_SIZE = 3;
 
-  // Exact 2-3 lines below template (Avast signature)
-  const plainAvastFooter = "\n\n\nVirus-free.www.avast.com";
-  const htmlAvastFooter = `<br><br><br><p style="margin: 0; padding-top: 10px; font-size: 12px; color: #7f8c8d; font-family: Arial, sans-serif;">Virus-free.www.avast.com</p>`;
+  // 48-Word Enterprise Compliance & Confidentiality Footer (High Deliverability Trust)
+  const plainLongFooter = "\n\n\n---\nConfidentiality Notice: This electronic mail transmission contains legally privileged and confidential information intended only for the use of the individual named above. If you are not the intended recipient, please delete this communication immediately. If you prefer not to receive commercial notices, reply with opt-out in the subject.";
+  
+  const htmlLongFooter = `<br><br><div style="margin-top: 25px; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #888888; font-family: Arial, sans-serif; line-height: 1.45;"><strong>Confidentiality Notice:</strong> This electronic mail transmission contains legally privileged and confidential information intended only for the use of the individual named above. If you are not the intended recipient, please delete this communication immediately. If you prefer not to receive commercial notices, reply with opt-out in the subject.</div>`;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -300,9 +295,9 @@ app.post('/api/send-stream', async (req, res) => {
 
         let finalHtml = "";
         if (isHtml) {
-          finalHtml = `<div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #222222; line-height: 1.6;">${personalizedBody}</div>` + htmlAvastFooter;
+          finalHtml = `<div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #222222; line-height: 1.6;">${personalizedBody}</div>` + htmlLongFooter;
         } else {
-          finalHtml = `<div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #222222; line-height: 1.6;">${personalizedBody.replace(/\n/g, '<br>')}</div>` + htmlAvastFooter;
+          finalHtml = `<div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #222222; line-height: 1.6;">${personalizedBody.replace(/\n/g, '<br>')}</div>` + htmlLongFooter;
         }
 
         const { html: processedHtml, attachments } = processHtmlImages(finalHtml);
@@ -313,7 +308,7 @@ app.post('/api/send-stream', async (req, res) => {
           replyTo: cleanEmail,
           subject: personalizedSubject,
           html: processedHtml,
-          text: createPlainTextFromHtml(processedHtml) + plainAvastFooter,
+          text: createPlainTextFromHtml(processedHtml) + plainLongFooter,
           attachments: attachments,
           date: new Date()
         };
