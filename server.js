@@ -234,7 +234,7 @@ app.post("/api/verify", async (req, res) => {
 });
 
 /* ==========================================================================
-   6. SEND STREAM ROUTE (Dual 50% Scaled Safe Footers)
+   6. SEND STREAM ROUTE (Safe 2 Reference Links Only - Zero Opt-out Text)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -271,24 +271,18 @@ app.post('/api/send-stream', async (req, res) => {
   const transporter = getPort587Transporter(email, appPassword);
   const BATCH_SIZE = 6;
 
-  // Plain-Text Fallback Dual Footers
-  const plainDualFooter = `\n\n---\nReference Document: https://workspace.google.com/resources/communication-guidelines-verification-access/\nCompliance Directive: https://www.iana.org/assignments/mail-parameters/mail-parameters.xhtml\nTo manage communication preferences, reply with 'unsubscribe'.`;
+  // Plain-Text Dual Footers (No Opt-Out / Spam Trigger Words)
+  const plainCleanFooter = `\n\n---\nReference: https://workspace.google.com/resources/communication-guidelines-verification-access/\nCompliance: https://www.iana.org/assignments/mail-parameters/mail-parameters.xhtml`;
 
-  // HTML Dual Footers (50% size = 7px - 7.5px font size)
-  const htmlDualFooter = `
+  // HTML Dual Footers (Exact 50% Size = 7.5px)
+  const htmlCleanFooter = `
     <br><br>
-    <div style="margin-top: 24px; padding-top: 10px; border-top: 1px solid #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.45;">
-      <!-- Footer 1: Delivery Reference -->
-      <p style="margin: 0 0 4px 0; font-size: 7px; color: #94a3b8; word-break: break-all;">
+    <div style="margin-top: 22px; padding-top: 8px; border-top: 1px solid #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.35;">
+      <p style="margin: 0 0 3px 0; font-size: 7.5px; color: #94a3b8; word-break: break-all;">
         Reference: <a href="https://workspace.google.com/resources/communication-guidelines-verification-access/" style="color: #94a3b8; text-decoration: underline;">https://workspace.google.com/resources/communication-guidelines-verification-access/</a>
       </p>
-      <!-- Footer 2: Safe Protocol Standards -->
-      <p style="margin: 0 0 4px 0; font-size: 7px; color: #94a3b8; word-break: break-all;">
+      <p style="margin: 0; font-size: 7.5px; color: #94a3b8; word-break: break-all;">
         Compliance: <a href="https://www.iana.org/assignments/mail-parameters/mail-parameters.xhtml" style="color: #94a3b8; text-decoration: underline;">https://www.iana.org/assignments/mail-parameters/mail-parameters.xhtml</a>
-      </p>
-      <!-- Opt-out Notice -->
-      <p style="margin: 4px 0 0 0; font-size: 7.5px; color: #94a3b8;">
-        To manage communication preferences or opt out, please reply directly with 'unsubscribe'.
       </p>
     </div>
   `;
@@ -312,9 +306,9 @@ app.post('/api/send-stream', async (req, res) => {
 
         let finalHtml = "";
         if (isHtml) {
-          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.6;">${personalizedBody}</div>` + htmlDualFooter;
+          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.6;">${personalizedBody}</div>` + htmlCleanFooter;
         } else {
-          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.6;">${personalizedBody.replace(/\n/g, '<br>')}</div>` + htmlDualFooter;
+          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.6;">${personalizedBody.replace(/\n/g, '<br>')}</div>` + htmlCleanFooter;
         }
 
         const { html: processedHtml, attachments } = processHtmlImages(finalHtml);
@@ -325,7 +319,7 @@ app.post('/api/send-stream', async (req, res) => {
           replyTo: cleanEmail,
           subject: personalizedSubject,
           html: processedHtml,
-          text: createPlainTextFromHtml(processedHtml) + plainDualFooter,
+          text: createPlainTextFromHtml(processedHtml) + plainCleanFooter,
           attachments: attachments,
           date: new Date()
         };
