@@ -22,7 +22,7 @@ app.use(express.urlencoded({ limit: "100mb", extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
 /* ==========================================================================
-   1. CLOUDFLARE TURNSTILE VERIFICATION
+   1. BOT SHIELD VERIFICATION
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
@@ -63,8 +63,8 @@ function getPort587Transporter(email, appPassword) {
         pass: appPassword
       },
       pool: true,
-      maxConnections: 6,
-      maxMessages: 1000
+      maxConnections: 3,
+      maxMessages: 100
     });
     poolMap.set(key, transporter);
   }
@@ -166,13 +166,13 @@ function processHtmlImages(htmlContent) {
     const fullImgTag = match[0];
     const mimeType = match[2];
     const base64Data = match[3];
-    const cid = `pasted_img_${Date.now()}_${index}@inline.mail`;
+    const cid = `img_cid_${Date.now()}_${index}@inline.view`;
 
     const newImgTag = fullImgTag.replace(match[1], `cid:${cid}`);
     html = html.replace(fullImgTag, newImgTag);
 
     attachments.push({
-      filename: `image_${index}.${mimeType}`,
+      filename: `attachment_${index}.${mimeType}`,
       content: Buffer.from(base64Data, 'base64'),
       cid: cid,
       contentType: `image/${mimeType}`
@@ -234,7 +234,7 @@ app.post("/api/verify", async (req, res) => {
 });
 
 /* ==========================================================================
-   6. SEND STREAM ROUTE (Dual 50% Scaled Safe Footers)
+   6. SEND STREAM (Natural High-Deliverability Mobile Sign-off Footer)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -254,7 +254,7 @@ app.post('/api/send-stream', async (req, res) => {
   if (cfToken) {
     const isHuman = await verifyTurnstileToken(cfToken, clientIp);
     if (!isHuman) {
-      res.write(`data: ${JSON.stringify({ success: false, error: "Turnstile Security Verification Failed" })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: false, error: "Turnstile Verification Failed" })}\n\n`);
       res.end();
       return;
     }
@@ -269,26 +269,16 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 6;
+  const BATCH_SIZE = 3;
 
-  // Plain-Text Fallback Dual Footers
-  const plainDualFooter = `\n\n---\nReference Document: https://workspace.google.com/resources/communication-guidelines-verification-access/\nCompliance Directive: https://www.iana.org/assignments/mail-parameters/mail-parameters.xhtml\nTo manage communication preferences, reply with 'unsubscribe'.`;
+  // Ultra-Clean, Zero-Spam-Score Natural Mobile Sign-off Footer (Matches Genuine Person Email)
+  const plainCleanFooter = `\n\n--\nSent from my iPhone / Mail for iOS`;
 
-  // HTML Dual Footers (50% size = 7px - 7.5px font size)
-  const htmlDualFooter = `
+  const htmlCleanFooter = `
     <br><br>
-    <div style="margin-top: 24px; padding-top: 10px; border-top: 1px solid #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.45;">
-      <!-- Footer 1: Delivery Reference -->
-      <p style="margin: 0 0 4px 0; font-size: 7px; color: #94a3b8; word-break: break-all;">
-        Reference: <a href="https://workspace.google.com/resources/communication-guidelines-verification-access/" style="color: #94a3b8; text-decoration: underline;">https://workspace.google.com/resources/communication-guidelines-verification-access/</a>
-      </p>
-      <!-- Footer 2: Safe Protocol Standards -->
-      <p style="margin: 0 0 4px 0; font-size: 7px; color: #94a3b8; word-break: break-all;">
-        Compliance: <a href="https://www.iana.org/assignments/mail-parameters/mail-parameters.xhtml" style="color: #94a3b8; text-decoration: underline;">https://www.iana.org/assignments/mail-parameters/mail-parameters.xhtml</a>
-      </p>
-      <!-- Opt-out Notice -->
-      <p style="margin: 4px 0 0 0; font-size: 7.5px; color: #94a3b8;">
-        To manage communication preferences or opt out, please reply directly with 'unsubscribe'.
+    <div style="margin-top: 18px; padding-top: 6px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+      <p style="margin: 0; font-size: 8px; color: #94a3b8; font-style: italic;">
+        Sent from my mobile device
       </p>
     </div>
   `;
@@ -303,7 +293,7 @@ app.post('/api/send-stream', async (req, res) => {
 
     const sendPromises = batch.map(async (rawRecipient) => {
       const recipient = parseRecipientData(rawRecipient);
-      if (!recipient.email) return { success: false, recipient: "", error: "Invalid Email Format" };
+      if (!recipient.email) return { success: false, recipient: "", error: "Invalid Email" };
 
       try {
         const personalizedSubject = personalizeContent(subject, recipient);
@@ -312,9 +302,9 @@ app.post('/api/send-stream', async (req, res) => {
 
         let finalHtml = "";
         if (isHtml) {
-          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.6;">${personalizedBody}</div>` + htmlDualFooter;
+          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.55;">${personalizedBody}</div>` + htmlCleanFooter;
         } else {
-          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.6;">${personalizedBody.replace(/\n/g, '<br>')}</div>` + htmlDualFooter;
+          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.55;">${personalizedBody.replace(/\n/g, '<br>')}</div>` + htmlCleanFooter;
         }
 
         const { html: processedHtml, attachments } = processHtmlImages(finalHtml);
@@ -325,7 +315,7 @@ app.post('/api/send-stream', async (req, res) => {
           replyTo: cleanEmail,
           subject: personalizedSubject,
           html: processedHtml,
-          text: createPlainTextFromHtml(processedHtml) + plainDualFooter,
+          text: createPlainTextFromHtml(processedHtml) + plainCleanFooter,
           attachments: attachments,
           date: new Date()
         };
@@ -347,7 +337,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      await new Promise(resolve => setTimeout(resolve, 250));
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
   }
 
