@@ -137,7 +137,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (progressBar) progressBar.style.width = '0%';
 
         if (statusIcon) statusIcon.className = 'fa-solid fa-circle-notch fa-spin text-primary';
-        if (statusText) statusText.textContent = 'Sending emails 1-by-1...';
+        if (statusText) statusText.textContent = 'Delivering emails...';
 
         sendBtn?.classList.add('hidden');
         stopBtn?.classList.remove('hidden');
@@ -165,6 +165,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (sendBtn) {
             sendBtn.disabled = false;
             sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send All';
+        }
+        if (window.turnstile) {
+            try { window.turnstile.reset(); } catch (e) { }
         }
     }
 
@@ -220,7 +223,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         senderName: senderNameVal,
                         subject: subjectVal,
                         messageBody: messageBodyVal,
-                        recipients: recipientsToSend
+                        recipients: recipientsToSend,
+                        cfToken: turnstileResponse
                     })
                 });
 
@@ -249,13 +253,13 @@ document.addEventListener('DOMContentLoaded', () => {
                                 const event = JSON.parse(dataStr);
                                 if (event.success) {
                                     sentCount++;
-                                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sent: ${event.recipient}`);
+                                    updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Delivered: ${event.recipient}`);
                                 } else {
                                     failedCount++;
                                     updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
                                 }
                             } catch (e) {
-                                console.error('Parse error:', e);
+                                // Skip non-JSON comments
                             }
                         }
                     }
