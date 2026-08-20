@@ -115,6 +115,22 @@ body {
     color: var(--text-main);
 }
 
+.editor-header-flex {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.35rem;
+}
+
+.badge-sub {
+    font-size: 0.7rem;
+    background-color: #ecfdf5;
+    color: var(--success-color);
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
 input[type="email"],
 input[type="text"],
 input[type="password"],
@@ -129,17 +145,32 @@ textarea {
     background-color: #fff;
 }
 
-input:focus,
-textarea:focus {
+/* Rich Editable Canvas styling */
+.rich-editor {
+    width: 100%;
+    min-height: 120px !important;
+    height: 120px !important;
+    overflow-y: auto;
+    padding: 0.65rem 0.85rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background-color: #ffffff;
+    font-size: 0.95rem;
+    line-height: 1.5;
     outline: none;
+    transition: all 0.2s;
+}
+
+.rich-editor:focus {
     border-color: var(--primary-color);
     box-shadow: 0 0 0 3px var(--input-focus);
 }
 
-#message-body {
-    resize: vertical;
-    min-height: 110px !important;
-    height: 110px !important;
+.rich-editor:empty:before {
+    content: attr(data-placeholder);
+    color: #94a3b8;
+    pointer-events: none;
+    display: block;
 }
 
 #recipients-input {
