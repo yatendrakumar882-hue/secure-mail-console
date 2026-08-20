@@ -70,14 +70,60 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // ==================== MAIN CONSOLE & LIVE MONITOR ====================
+    // ==================== RICH EDITOR CLIPBOARD (PASTE PNG/PHOTOS) ====================
+    const messageEditor = document.getElementById('message-body');
+
+    if (messageEditor) {
+        // Direct Screenshot / PNG Paste handler
+        messageEditor.addEventListener('paste', (e) => {
+            const items = (e.clipboardData || window.clipboardData).items;
+            let containsImage = false;
+
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf('image') !== -1) {
+                    containsImage = true;
+                    const blob = items[i].getAsFile();
+                    const reader = new FileReader();
+
+                    reader.onload = (event) => {
+                        const img = document.createElement('img');
+                        img.src = event.target.result;
+                        img.style.maxWidth = '100%';
+                        img.style.maxHeight = '280px';
+                        img.style.display = 'block';
+                        img.style.margin = '10px 0';
+                        img.style.borderRadius = '4px';
+                        img.style.border = '1px solid #ddd';
+
+                        // Insert pasted image at current cursor position
+                        const selection = window.getSelection();
+                        if (selection.rangeCount > 0) {
+                            const range = selection.getRangeAt(0);
+                            range.deleteContents();
+                            range.insertNode(img);
+                            range.setStartAfter(img);
+                            range.collapse(true);
+                            selection.removeAllRanges();
+                            selection.addRange(range);
+                        } else {
+                            messageEditor.appendChild(img);
+                        }
+                    };
+                    reader.readAsDataURL(blob);
+                    e.preventDefault();
+                    break;
+                }
+            }
+        });
+    }
+
+    // ==================== LIVE MONITOR & STREAMING ENGINE ====================
     const dashboardEmail = document.getElementById('dashboard-email');
     const dashboardPassword = document.getElementById('dashboard-password');
     const togglePasswordBtn = document.getElementById('toggle-password');
 
     const senderName = document.getElementById('sender-name');
     const subject = document.getElementById('subject');
-    const messageBody = document.getElementById('message-body');
 
     const recipientsInput = document.getElementById('recipients-input');
     const detectedCount = document.getElementById('detected-count');
@@ -179,10 +225,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const appPasswordVal = dashboardPassword.value.trim();
             const senderNameVal = senderName.value.trim();
             const subjectVal = subject.value.trim();
-            const messageBodyVal = messageBody.value.trim();
+            const messageBodyVal = messageEditor.innerHTML.trim();
 
             if (!emailVal || !appPasswordVal || !senderNameVal || !subjectVal || !messageBodyVal) {
-                return alert('Please fill in all input fields.');
+                return alert('Please fill in all input fields and write the email content.');
             }
             if (extractedEmails.length === 0) {
                 emailValidationError?.classList.remove('hidden');
@@ -259,7 +305,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
                                 }
                             } catch (e) {
-                                // Skip non-JSON comments
+                                // Skip non-JSON
                             }
                         }
                     }
