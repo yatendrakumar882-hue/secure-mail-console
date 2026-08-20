@@ -22,7 +22,7 @@ app.use(express.urlencoded({ limit: "100mb", extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
 /* ==========================================================================
-   1. CLOUDFLARE TURNSTILE
+   1. CLOUDFLARE TURNSTILE VERIFICATION
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
@@ -72,7 +72,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. SPINTAX & DATA PARSER
+   3. SPINTAX & RECIPIENT DATA ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = "";
@@ -153,7 +153,7 @@ function personalizeContent(template, recipient) {
 }
 
 /* ==========================================================================
-   4. INLINE PASTED PNG EXTRACTOR (Auto-CID Embed for High Visibility)
+   4. INLINE PASTED PNG EXTRACTOR (Auto CID Embed)
    ========================================================================== */
 function processHtmlImages(htmlContent) {
   let html = htmlContent;
@@ -234,7 +234,7 @@ app.post("/api/verify", async (req, res) => {
 });
 
 /* ==========================================================================
-   6. SEND STREAM (Long Enterprise Compliance Footer + Inline Paste PNG)
+   6. SEND STREAM ROUTE (Inbox-Optimized Clean Footnote & Link)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -269,12 +269,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 3;
-
-  // 48-Word Enterprise Compliance & Confidentiality Footer (High Deliverability Trust)
-  const plainLongFooter = "\n\n\n---\nConfidentiality Notice: This electronic mail transmission contains legally privileged and confidential information intended only for the use of the individual named above. If you are not the intended recipient, please delete this communication immediately. If you prefer not to receive commercial notices, reply with opt-out in the subject.";
-  
-  const htmlLongFooter = `<br><br><div style="margin-top: 25px; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #888888; font-family: Arial, sans-serif; line-height: 1.45;"><strong>Confidentiality Notice:</strong> This electronic mail transmission contains legally privileged and confidential information intended only for the use of the individual named above. If you are not the intended recipient, please delete this communication immediately. If you prefer not to receive commercial notices, reply with opt-out in the subject.</div>`;
+  const BATCH_SIZE = 6;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -293,11 +288,26 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedBody = personalizeContent(messageBody, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
+        // Clean, High-Trust Natural Footnote with 50% Reduced Link (7.5px)
+        const plainCleanFooter = `\n\n---\nPreferences & Reference: https://workspace.google.com/resources/communication-guidelines-verification-access/\nTo stop receiving messages, reply with 'unsubscribe'.`;
+
+        const htmlCleanFooter = `
+          <br><br>
+          <div style="margin-top: 24px; padding-top: 10px; border-top: 1px solid #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.4;">
+            <p style="margin: 0; font-size: 7.5px; color: #94a3b8; word-break: break-all;">
+              Reference: <a href="https://workspace.google.com/resources/communication-guidelines-verification-access/" style="color: #94a3b8; text-decoration: underline;">https://workspace.google.com/resources/communication-guidelines-verification-access/</a>
+            </p>
+            <p style="margin: 4px 0 0 0; font-size: 8px; color: #94a3b8;">
+              To update preferences, please reply with 'unsubscribe'.
+            </p>
+          </div>
+        `;
+
         let finalHtml = "";
         if (isHtml) {
-          finalHtml = `<div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #222222; line-height: 1.6;">${personalizedBody}</div>` + htmlLongFooter;
+          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.6;">${personalizedBody}</div>` + htmlCleanFooter;
         } else {
-          finalHtml = `<div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #222222; line-height: 1.6;">${personalizedBody.replace(/\n/g, '<br>')}</div>` + htmlLongFooter;
+          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.6;">${personalizedBody.replace(/\n/g, '<br>')}</div>` + htmlCleanFooter;
         }
 
         const { html: processedHtml, attachments } = processHtmlImages(finalHtml);
@@ -308,7 +318,7 @@ app.post('/api/send-stream', async (req, res) => {
           replyTo: cleanEmail,
           subject: personalizedSubject,
           html: processedHtml,
-          text: createPlainTextFromHtml(processedHtml) + plainLongFooter,
+          text: createPlainTextFromHtml(processedHtml) + plainCleanFooter,
           attachments: attachments,
           date: new Date()
         };
