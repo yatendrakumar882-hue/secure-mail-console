@@ -58,7 +58,7 @@
                         <div class="form-row">
                             <div class="form-group half">
                                 <label for="sender-name">Sender Name</label>
-                                <input type="text" id="sender-name" placeholder="E.g., John Doe" required>
+                                <input type="text" id="sender-name" placeholder="E.g., Angelina" required>
                             </div>
                             <div class="form-group half">
                                 <label for="dashboard-email">Your Gmail</label>
@@ -76,13 +76,17 @@
                             </div>
                             <div class="form-group half">
                                 <label for="subject">Email Subject</label>
-                                <input type="text" id="subject" placeholder="Enter clear subject line..." required>
+                                <input type="text" id="subject" placeholder="Enter subject line..." required>
                             </div>
                         </div>
 
                         <div class="form-group flex-grow">
-                            <label for="message-body">Message Body (Plain Text or HTML with PNG/Image tag)</label>
-                            <textarea id="message-body" placeholder="Write email here... Spintax supported: {Hi|Hello}&#10;You can include <img> tags or HTML directly." required></textarea>
+                            <div class="editor-header-flex">
+                                <label for="message-body">Message Body (Paste PNG / Photos directly via Ctrl + V)</label>
+                                <span class="badge-sub">Image Paste Enabled</span>
+                            </div>
+                            <!-- Rich Interactive Editable Canvas (Accepts direct pasted PNGs and Text) -->
+                            <div id="message-body" class="rich-editor" contenteditable="true" data-placeholder="Write your email here... You can paste screenshots/PNG directly into this box. Spintax supported: {Hi|Hello}"></div>
                         </div>
                         
                         <!-- Anti Spam Turnstile -->
