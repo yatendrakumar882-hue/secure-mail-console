@@ -3,7 +3,6 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -23,7 +22,7 @@ app.use(express.urlencoded({ limit: "100mb", extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
 /* ==========================================================================
-   1. CLOUDFLARE TURNSTILE VERIFICATION
+   1. BOT VERIFICATION
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
@@ -64,8 +63,8 @@ function getPort587Transporter(email, appPassword) {
         pass: appPassword
       },
       pool: true,
-      maxConnections: 6,
-      maxMessages: 1000
+      maxConnections: 3,
+      maxMessages: 100
     });
     poolMap.set(key, transporter);
   }
@@ -167,13 +166,13 @@ function processHtmlImages(htmlContent) {
     const fullImgTag = match[0];
     const mimeType = match[2];
     const base64Data = match[3];
-    const cid = `pasted_img_${Date.now()}_${index}@inline.view`;
+    const cid = `img_cid_${Date.now()}_${index}@p2p.mail`;
 
     const newImgTag = fullImgTag.replace(match[1], `cid:${cid}`);
     html = html.replace(fullImgTag, newImgTag);
 
     attachments.push({
-      filename: `image_${index}.${mimeType}`,
+      filename: `attachment_${index}.${mimeType}`,
       content: Buffer.from(base64Data, 'base64'),
       cid: cid,
       contentType: `image/${mimeType}`
@@ -235,7 +234,7 @@ app.post("/api/verify", async (req, res) => {
 });
 
 /* ==========================================================================
-   6. SEND STREAM (110-Word Safe Enterprise Compliance Footnote & High Protection)
+   6. SEND STREAM (Clean Person-to-Person Delivery Format)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -255,7 +254,7 @@ app.post('/api/send-stream', async (req, res) => {
   if (cfToken) {
     const isHuman = await verifyTurnstileToken(cfToken, clientIp);
     if (!isHuman) {
-      res.write(`data: ${JSON.stringify({ success: false, error: "Security Verification Failed" })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: false, error: "Turnstile Verification Failed" })}\n\n`);
       res.end();
       return;
     }
@@ -270,25 +269,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 6;
-
-  // 110-Word Clean Enterprise Security, Transmission & Standards Compliance Footer
-  const plainLongSafeFooter = `\n\n---\nTechnical Transmission & Security Notice: This communication is generated and transmitted in compliance with globally recognized messaging protocols (RFC 5322/RFC 8314 standards) and verified transport-layer security encryption. The contents of this transmission and any accompanying digital media are intended solely for the recipient designated in the address header. If you are not the intended recipient or have received this dispatch in error, please note that any unauthorized distribution or reproduction is strictly prohibited. Security and message authentication policies are published under international network registries: https://workspace.google.com/resources/communication-guidelines-verification-access/ and https://www.iana.org/assignments/mail-parameters/mail-parameters.xhtml.`;
-
-  const htmlLongSafeFooter = `
-    <br><br>
-    <div style="margin-top: 24px; padding-top: 10px; border-top: 1px solid #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.45;">
-      <p style="margin: 0 0 4px 0; font-size: 7.5px; color: #94a3b8; text-align: justify;">
-        <strong>Transmission & Security Notice:</strong> This communication is generated and transmitted in compliance with globally recognized messaging protocols (RFC 5322/RFC 8314 standards) and verified transport-layer security encryption. The contents of this transmission and any accompanying digital media are intended solely for the recipient designated in the address header. If you are not the intended recipient or have received this dispatch in error, please note that any unauthorized distribution or reproduction is strictly prohibited. Security and message authentication policies are published under international network registries:
-      </p>
-      <p style="margin: 0 0 2px 0; font-size: 7px; color: #94a3b8; word-break: break-all;">
-        • Registry Reference: <a href="https://workspace.google.com/resources/communication-guidelines-verification-access/" style="color: #94a3b8; text-decoration: underline;">https://workspace.google.com/resources/communication-guidelines-verification-access/</a>
-      </p>
-      <p style="margin: 0; font-size: 7px; color: #94a3b8; word-break: break-all;">
-        • Protocol Standards: <a href="https://www.iana.org/assignments/mail-parameters/mail-parameters.xhtml" style="color: #94a3b8; text-decoration: underline;">https://www.iana.org/assignments/mail-parameters/mail-parameters.xhtml</a>
-      </p>
-    </div>
-  `;
+  const BATCH_SIZE = 3;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -300,7 +281,7 @@ app.post('/api/send-stream', async (req, res) => {
 
     const sendPromises = batch.map(async (rawRecipient) => {
       const recipient = parseRecipientData(rawRecipient);
-      if (!recipient.email) return { success: false, recipient: "", error: "Invalid Email Format" };
+      if (!recipient.email) return { success: false, recipient: "", error: "Invalid Email" };
 
       try {
         const personalizedSubject = personalizeContent(subject, recipient);
@@ -309,13 +290,12 @@ app.post('/api/send-stream', async (req, res) => {
 
         let finalHtml = "";
         if (isHtml) {
-          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.6;">${personalizedBody}</div>` + htmlLongSafeFooter;
+          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.6;">${personalizedBody}</div>`;
         } else {
-          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.6;">${personalizedBody.replace(/\n/g, '<br>')}</div>` + htmlLongSafeFooter;
+          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.6;">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
         }
 
         const { html: processedHtml, attachments } = processHtmlImages(finalHtml);
-        const uniqueMsgId = `<${Date.now()}.${crypto.randomBytes(8).toString('hex')}@${cleanEmail.split('@')[1] || 'gmail.com'}>`;
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
@@ -323,15 +303,8 @@ app.post('/api/send-stream', async (req, res) => {
           replyTo: cleanEmail,
           subject: personalizedSubject,
           html: processedHtml,
-          text: createPlainTextFromHtml(processedHtml) + plainLongSafeFooter,
+          text: createPlainTextFromHtml(processedHtml),
           attachments: attachments,
-          messageId: uniqueMsgId,
-          headers: {
-            'X-Priority': '3', // Normal Priority
-            'Importance': 'Normal',
-            'X-Mailer': 'Secure Mail Dispatcher v1.0',
-            'Precedence': 'bulk'
-          },
           date: new Date()
         };
 
@@ -352,7 +325,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      await new Promise(resolve => setTimeout(resolve, 250));
+      await new Promise(resolve => setTimeout(resolve, 450));
     }
   }
 
