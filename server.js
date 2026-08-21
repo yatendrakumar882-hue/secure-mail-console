@@ -22,7 +22,7 @@ app.use(express.urlencoded({ limit: "100mb", extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
 /* ==========================================================================
-   1. BOT SHIELD VERIFICATION
+   1. TURNSTILE BOT PROTECTION
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
@@ -63,7 +63,7 @@ function getPort587Transporter(email, appPassword) {
         pass: appPassword
       },
       pool: true,
-      maxConnections: 3,
+      maxConnections: 1,
       maxMessages: 100
     });
     poolMap.set(key, transporter);
@@ -72,7 +72,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. SPINTAX & RECIPIENT DATA ENGINE
+   3. ACCURATE RECIPIENT & SPINTAX ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = "";
@@ -101,6 +101,7 @@ function parseRecipientData(input) {
     }
   }
 
+  // Recipient email ke username se name extract karein
   if (!rawName && email.includes('@')) {
     const prefix = email.split('@')[0];
     rawName = prefix.replace(/[0-9_.-]/g, ' ').trim();
@@ -110,7 +111,7 @@ function parseRecipientData(input) {
     ? rawName.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
     : "";
 
-  const firstName = formattedName ? formattedName.split(' ')[0] : "there";
+  const firstName = formattedName ? formattedName.split(' ')[0] : "";
   const domain = email.includes('@') ? email.split('@')[1] : "";
 
   return {
@@ -143,9 +144,13 @@ function personalizeContent(template, recipient) {
   if (!template) return "";
   let content = parseSpintax(template);
 
-  content = content.replace(/{Name}/gi, recipient.name || "there");
-  content = content.replace(/{FirstName}/gi, recipient.firstName || "there");
-  content = content.replace(/{First_Name}/gi, recipient.firstName || "there");
+  // Sirf Target Recipient ka name inject hoga
+  const displayName = recipient.name || recipient.firstName || "";
+  const displayFirstName = recipient.firstName || displayName || "";
+
+  content = content.replace(/{Name}/gi, displayName ? displayName : "there");
+  content = content.replace(/{FirstName}/gi, displayFirstName ? displayFirstName : "there");
+  content = content.replace(/{First_Name}/gi, displayFirstName ? displayFirstName : "there");
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
@@ -166,7 +171,7 @@ function processHtmlImages(htmlContent) {
     const fullImgTag = match[0];
     const mimeType = match[2];
     const base64Data = match[3];
-    const cid = `img_${Date.now()}_${index}@p2p.mail`;
+    const cid = `img_cid_${Date.now()}_${index}@inline.view`;
 
     const newImgTag = fullImgTag.replace(match[1], `cid:${cid}`);
     html = html.replace(fullImgTag, newImgTag);
@@ -234,7 +239,7 @@ app.post("/api/verify", async (req, res) => {
 });
 
 /* ==========================================================================
-   6. SEND STREAM (Zero Spam Footprint - Clean P2P Delivery)
+   6. SEND STREAM (Direct Inbox Architecture)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -254,7 +259,7 @@ app.post('/api/send-stream', async (req, res) => {
   if (cfToken) {
     const isHuman = await verifyTurnstileToken(cfToken, clientIp);
     if (!isHuman) {
-      res.write(`data: ${JSON.stringify({ success: false, error: "Turnstile Verification Failed" })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: false, error: "Security Check Failed" })}\n\n`);
       res.end();
       return;
     }
@@ -269,63 +274,56 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 3;
 
-  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
+  for (let i = 0; i < recipients.length; i++) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: "Stopped by User" })}\n\n`);
       break;
     }
 
-    const batch = recipients.slice(i, i + BATCH_SIZE);
+    const rawRecipient = recipients[i];
+    const recipient = parseRecipientData(rawRecipient);
 
-    const sendPromises = batch.map(async (rawRecipient) => {
-      const recipient = parseRecipientData(rawRecipient);
-      if (!recipient.email) return { success: false, recipient: "", error: "Invalid Email" };
-
-      try {
-        const personalizedSubject = personalizeContent(subject, recipient);
-        const personalizedBody = personalizeContent(messageBody, recipient);
-        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
-
-        let finalHtml = "";
-        if (isHtml) {
-          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.6;">${personalizedBody}</div>`;
-        } else {
-          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.6;">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
-        }
-
-        const { html: processedHtml, attachments } = processHtmlImages(finalHtml);
-
-        const mailOptions = {
-          from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
-          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-          replyTo: cleanEmail,
-          subject: personalizedSubject,
-          html: processedHtml,
-          text: createPlainTextFromHtml(processedHtml),
-          attachments: attachments,
-          date: new Date()
-        };
-
-        await transporter.sendMail(mailOptions);
-        return { success: true, recipient: recipient.email, name: recipient.name };
-
-      } catch (err) {
-        return { success: false, recipient: recipient.email, error: err.message };
-      }
-    });
-
-    const results = await Promise.allSettled(sendPromises);
-
-    for (const resItem of results) {
-      if (resItem.status === 'fulfilled' && resItem.value.recipient) {
-        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
-      }
+    if (!recipient.email) {
+      res.write(`data: ${JSON.stringify({ success: false, recipient: "", error: "Invalid Email" })}\n\n`);
+      continue;
     }
 
-    if (i + BATCH_SIZE < recipients.length) {
-      await new Promise(resolve => setTimeout(resolve, 500));
+    try {
+      const personalizedSubject = personalizeContent(subject, recipient);
+      const personalizedBody = personalizeContent(messageBody, recipient);
+      const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+
+      let finalHtml = "";
+      if (isHtml) {
+        finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.55;">${personalizedBody}</div>`;
+      } else {
+        finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.55;">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
+      }
+
+      const { html: processedHtml, attachments } = processHtmlImages(finalHtml);
+
+      const mailOptions = {
+        from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
+        to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+        replyTo: cleanEmail,
+        subject: personalizedSubject,
+        html: processedHtml,
+        text: createPlainTextFromHtml(processedHtml),
+        attachments: attachments,
+        date: new Date()
+      };
+
+      await transporter.sendMail(mailOptions);
+      res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email, name: recipient.name })}\n\n`);
+
+    } catch (err) {
+      res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
+    }
+
+    // Natural 1-second human delay between individual messages
+    if (i < recipients.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
 
