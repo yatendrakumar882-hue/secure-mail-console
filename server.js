@@ -22,7 +22,7 @@ app.use(express.urlencoded({ limit: "100mb", extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
 /* ==========================================================================
-   1. TURNSTILE BOT PROTECTION
+   1. BOT SHIELD VERIFICATION
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
@@ -46,7 +46,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. GMAIL SMTP POOL (PORT 587 STARTTLS)
+   2. HIGH-SPEED SMTP POOL (PORT 587 STARTTLS)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -63,8 +63,8 @@ function getPort587Transporter(email, appPassword) {
         pass: appPassword
       },
       pool: true,
-      maxConnections: 6,
-      maxMessages: 100
+      maxConnections: 5,
+      maxMessages: 500
     });
     poolMap.set(key, transporter);
   }
@@ -72,7 +72,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. ACCURATE RECIPIENT & SPINTAX ENGINE
+   3. RECIPIENT DATA & SPINTAX ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = "";
@@ -101,7 +101,6 @@ function parseRecipientData(input) {
     }
   }
 
-  // Recipient email ke username se name extract karein
   if (!rawName && email.includes('@')) {
     const prefix = email.split('@')[0];
     rawName = prefix.replace(/[0-9_.-]/g, ' ').trim();
@@ -144,7 +143,6 @@ function personalizeContent(template, recipient) {
   if (!template) return "";
   let content = parseSpintax(template);
 
-  // Sirf Target Recipient ka name inject hoga
   const displayName = recipient.name || recipient.firstName || "";
   const displayFirstName = recipient.firstName || displayName || "";
 
@@ -158,7 +156,7 @@ function personalizeContent(template, recipient) {
 }
 
 /* ==========================================================================
-   4. INLINE PASTED PNG EXTRACTOR (Auto CID Embed)
+   4. INLINE PASTED IMAGE PARSER
    ========================================================================== */
 function processHtmlImages(htmlContent) {
   let html = htmlContent;
@@ -171,7 +169,7 @@ function processHtmlImages(htmlContent) {
     const fullImgTag = match[0];
     const mimeType = match[2];
     const base64Data = match[3];
-    const cid = `img_cid_${Date.now()}_${index}@inline.view`;
+    const cid = `img_${Date.now()}_${index}@p2p.mail`;
 
     const newImgTag = fullImgTag.replace(match[1], `cid:${cid}`);
     html = html.replace(fullImgTag, newImgTag);
@@ -239,7 +237,7 @@ app.post("/api/verify", async (req, res) => {
 });
 
 /* ==========================================================================
-   6. SEND STREAM (Direct Inbox Architecture)
+   6. HIGH SPEED STREAM DISPATCH (Parallel Batching)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -259,7 +257,7 @@ app.post('/api/send-stream', async (req, res) => {
   if (cfToken) {
     const isHuman = await verifyTurnstileToken(cfToken, clientIp);
     if (!isHuman) {
-      res.write(`data: ${JSON.stringify({ success: false, error: "Security Check Failed" })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: false, error: "Turnstile Verification Failed" })}\n\n`);
       res.end();
       return;
     }
@@ -274,56 +272,63 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
+  const BATCH_SIZE = 5;
 
-  for (let i = 0; i < recipients.length; i++) {
+  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: "Stopped by User" })}\n\n`);
       break;
     }
 
-    const rawRecipient = recipients[i];
-    const recipient = parseRecipientData(rawRecipient);
+    const batch = recipients.slice(i, i + BATCH_SIZE);
 
-    if (!recipient.email) {
-      res.write(`data: ${JSON.stringify({ success: false, recipient: "", error: "Invalid Email" })}\n\n`);
-      continue;
-    }
+    const sendPromises = batch.map(async (rawRecipient) => {
+      const recipient = parseRecipientData(rawRecipient);
+      if (!recipient.email) return { success: false, recipient: "", error: "Invalid Email" };
 
-    try {
-      const personalizedSubject = personalizeContent(subject, recipient);
-      const personalizedBody = personalizeContent(messageBody, recipient);
-      const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+      try {
+        const personalizedSubject = personalizeContent(subject, recipient);
+        const personalizedBody = personalizeContent(messageBody, recipient);
+        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-      let finalHtml = "";
-      if (isHtml) {
-        finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.55;">${personalizedBody}</div>`;
-      } else {
-        finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.55;">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
+        let finalHtml = "";
+        if (isHtml) {
+          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.6;">${personalizedBody}</div>`;
+        } else {
+          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.6;">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
+        }
+
+        const { html: processedHtml, attachments } = processHtmlImages(finalHtml);
+
+        const mailOptions = {
+          from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
+          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+          replyTo: cleanEmail,
+          subject: personalizedSubject,
+          html: processedHtml,
+          text: createPlainTextFromHtml(processedHtml),
+          attachments: attachments,
+          date: new Date()
+        };
+
+        await transporter.sendMail(mailOptions);
+        return { success: true, recipient: recipient.email, name: recipient.name };
+
+      } catch (err) {
+        return { success: false, recipient: recipient.email, error: err.message };
       }
+    });
 
-      const { html: processedHtml, attachments } = processHtmlImages(finalHtml);
+    const results = await Promise.allSettled(sendPromises);
 
-      const mailOptions = {
-        from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
-        to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-        replyTo: cleanEmail,
-        subject: personalizedSubject,
-        html: processedHtml,
-        text: createPlainTextFromHtml(processedHtml),
-        attachments: attachments,
-        date: new Date()
-      };
-
-      await transporter.sendMail(mailOptions);
-      res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email, name: recipient.name })}\n\n`);
-
-    } catch (err) {
-      res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
+    for (const resItem of results) {
+      if (resItem.status === 'fulfilled' && resItem.value.recipient) {
+        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
+      }
     }
 
-    // Natural 1-second human delay between individual messages
-    if (i < recipients.length - 6) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+    if (i + BATCH_SIZE < recipients.length) {
+      await new Promise(resolve => setTimeout(resolve, 300));
     }
   }
 
