@@ -70,15 +70,15 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // ==================== IMAGE RESIZE TOOLBAR OVERLAY ====================
+    // ==================== IMAGE RESIZER TOOLBAR ====================
     let selectedImage = null;
     const resizeToolbar = document.createElement('div');
     resizeToolbar.className = 'img-resize-toolbar hidden';
     resizeToolbar.innerHTML = `
         <span class="resize-title">Size:</span>
-        <button type="button" class="btn-resize-preset" data-size="25%">S (25%)</button>
-        <button type="button" class="btn-resize-preset" data-size="50%">M (50%)</button>
-        <button type="button" class="btn-resize-preset" data-size="75%">L (75%)</button>
+        <button type="button" class="btn-resize-preset" data-size="25%">S</button>
+        <button type="button" class="btn-resize-preset" data-size="50%">M</button>
+        <button type="button" class="btn-resize-preset" data-size="75%">L</button>
         <button type="button" class="btn-resize-preset" data-size="100%">Full</button>
         <input type="range" class="img-resize-slider" min="15" max="100" value="50" step="5">
         <span class="slider-val-label">50%</span>
@@ -100,7 +100,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!selectedImage) return;
         const val = e.target.value;
         selectedImage.style.width = `${val}%`;
-        selectedImage.setAttribute('width', `${val}%`);
         sliderLabel.textContent = `${val}%`;
     });
 
@@ -109,7 +108,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!selectedImage) return;
             const size = btn.getAttribute('data-size');
             selectedImage.style.width = size;
-            selectedImage.setAttribute('width', size);
             const num = parseInt(size);
             slider.value = num;
             sliderLabel.textContent = size;
@@ -153,7 +151,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         const img = document.createElement('img');
                         img.src = event.target.result;
                         img.className = 'resizable-email-img';
-                        img.style.width = '50%'; // Default initial size
+                        img.style.width = '50%';
                         img.style.height = 'auto';
                         img.style.maxWidth = '100%';
                         img.style.display = 'block';
@@ -370,7 +368,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
                                 }
                             } catch (e) {
-                                // Ignore non-json chunks
+                                // Skip non-JSON
                             }
                         }
                     }
