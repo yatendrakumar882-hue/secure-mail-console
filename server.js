@@ -63,7 +63,7 @@ function getPort587Transporter(email, appPassword) {
         pass: appPassword
       },
       pool: true,
-      maxConnections: 1,
+      maxConnections: 6,
       maxMessages: 100
     });
     poolMap.set(key, transporter);
@@ -322,7 +322,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     // Natural 1-second human delay between individual messages
-    if (i < recipients.length - 1) {
+    if (i < recipients.length - 6) {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
