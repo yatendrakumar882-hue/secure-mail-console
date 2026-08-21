@@ -22,7 +22,7 @@ app.use(express.urlencoded({ limit: "100mb", extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
 /* ==========================================================================
-   1. BOT VERIFICATION
+   1. BOT SHIELD VERIFICATION
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
@@ -166,13 +166,13 @@ function processHtmlImages(htmlContent) {
     const fullImgTag = match[0];
     const mimeType = match[2];
     const base64Data = match[3];
-    const cid = `img_cid_${Date.now()}_${index}@p2p.mail`;
+    const cid = `img_${Date.now()}_${index}@p2p.mail`;
 
     const newImgTag = fullImgTag.replace(match[1], `cid:${cid}`);
     html = html.replace(fullImgTag, newImgTag);
 
     attachments.push({
-      filename: `attachment_${index}.${mimeType}`,
+      filename: `image_${index}.${mimeType}`,
       content: Buffer.from(base64Data, 'base64'),
       cid: cid,
       contentType: `image/${mimeType}`
@@ -234,7 +234,7 @@ app.post("/api/verify", async (req, res) => {
 });
 
 /* ==========================================================================
-   6. SEND STREAM (Clean Person-to-Person Delivery Format)
+   6. SEND STREAM (Zero Spam Footprint - Clean P2P Delivery)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -325,7 +325,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      await new Promise(resolve => setTimeout(resolve, 450));
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
   }
 
