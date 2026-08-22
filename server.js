@@ -22,7 +22,7 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
-/* ---------------- 1. BOT VERIFICATION ---------------- */
+/* ---------------- 1. BOT SHIELD ---------------- */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
 
@@ -44,24 +44,25 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-/* ---------------- 2. GMAIL CLIENT TRANSPORTER (EHLO OPTIMIZED) ---------------- */
-function getDirectTransporter(email, appPassword) {
+/* ---------------- 2. DIRECT GMAIL TRANSPORTER (STARTTLS 587) ---------------- */
+function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
-  const key = `inbox_ssl_${cleanEmail}_${appPassword}`;
+  const key = `port587_${cleanEmail}_${appPassword}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,
-      name: 'mail.google.com', // Sets trusted EHLO greeting to mimic official client
+      port: 587,
+      secure: false,
+      name: 'mail.google.com', // Mimics official Gmail client EHLO greeting
+      requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: appPassword
       },
       pool: true,
-      maxConnections: 3,
-      maxMessages: 100,
+      maxConnections: 1, // Single connection per account prevents burst spam triggers
+      maxMessages: 200,
       tls: {
         rejectUnauthorized: true
       }
@@ -71,7 +72,7 @@ function getDirectTransporter(email, appPassword) {
   return poolMap.get(key);
 }
 
-/* ---------------- 3. RECIPIENT DATA & SPINTAX ---------------- */
+/* ---------------- 3. RECIPIENT DATA & SPINTAX ENGINE ---------------- */
 function parseRecipientData(input) {
   let email = "";
   let rawName = "";
@@ -170,7 +171,7 @@ function createPlainTextFromHtml(html) {
     .trim();
 }
 
-/* ---------------- 4. ROUTES ---------------- */
+/* ---------------- 4. API ROUTES ---------------- */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -193,7 +194,7 @@ app.post("/api/verify", async (req, res) => {
   }
 
   try {
-    const transporter = getDirectTransporter(email, appPassword);
+    const transporter = getPort587Transporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: "SMTP verified successfully" });
   } catch (error) {
@@ -201,7 +202,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ---------------- 5. STREAM DISPATCH ---------------- */
+/* ---------------- 5. SEQUENTIAL DISPATCH (PREVENTS SPAM BURST) ---------------- */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -234,8 +235,9 @@ app.post('/api/send-stream', async (req, res) => {
     res.write(': keep-alive\n\n');
   }, 4000);
 
-  const transporter = getDirectTransporter(email, appPassword);
+  const transporter = getPort587Transporter(email, appPassword);
 
+  // Sequential sending avoids burst trigger so emails continuously hit Primary Inbox
   for (let i = 0; i < recipients.length; i++) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: "Stopped by User" })}\n\n`);
@@ -279,10 +281,10 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // Natural 1.2s - 2.5s jitter delay between emails to avoid Google burst spam flags
+    // Dynamic 800ms - 1500ms jitter delay: Fast enough while staying within Gmail natural sending limits
     if (i < recipients.length - 1) {
-      const randomDelay = Math.floor(Math.random() * 1200) + 1200;
-      await new Promise(resolve => setTimeout(resolve, randomDelay));
+      const jitter = Math.floor(Math.random() * 700) + 800;
+      await new Promise(resolve => setTimeout(resolve, jitter));
     }
   }
 
