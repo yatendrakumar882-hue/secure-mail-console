@@ -3,6 +3,7 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -43,11 +44,11 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-/* ---------------- 2. DIRECT GMAIL TRANSPORTER (PORT 465 SSL) ---------------- */
+/* ---------------- 2. GMAIL TRANSPORTER (PORT 465 SSL) ---------------- */
 function getDirectTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '');
-  const key = `direct_ssl_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_tunnel_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -61,7 +62,7 @@ function getDirectTransporter(email, appPassword) {
       },
       pool: true,
       maxConnections: 1,
-      maxMessages: 250,
+      maxMessages: 100,
       tls: {
         rejectUnauthorized: true
       }
@@ -71,7 +72,7 @@ function getDirectTransporter(email, appPassword) {
   return poolMap.get(key);
 }
 
-/* ---------------- 3. RECIPIENT & SPINTAX ENGINE ---------------- */
+/* ---------------- 3. RECIPIENT & SPINTAX ---------------- */
 function parseRecipientData(input) {
   let email = "";
   let rawName = "";
@@ -153,6 +154,17 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
+// Generates an invisible zero-width unique footprint per email to bypass duplicate hash filters
+function appendUniqueEntropy(text) {
+  const invisibleChars = ['\u200B', '\u200C', '\u200D', '\uFEFF'];
+  const count = Math.floor(Math.random() * 4) + 2;
+  let entropy = '';
+  for (let i = 0; i < count; i++) {
+    entropy += invisibleChars[Math.floor(Math.random() * invisibleChars.length)];
+  }
+  return text + entropy;
+}
+
 /* ---------------- 4. API ROUTES ---------------- */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -184,7 +196,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ---------------- 5. STREAM DISPATCH ---------------- */
+/* ---------------- 5. STREAM DISPATCH (PERMANENT INBOX PACING) ---------------- */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -235,7 +247,9 @@ app.post('/api/send-stream', async (req, res) => {
 
     try {
       const personalizedSubject = personalizeContent(subject, recipient);
-      const personalizedBody = personalizeContent(messageBody, recipient);
+      let personalizedBody = personalizeContent(messageBody, recipient);
+      personalizedBody = appendUniqueEntropy(personalizedBody);
+
       const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
       const mailOptions = {
@@ -259,10 +273,10 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // Adaptive Safe Jitter: 1200ms to 2400ms (1.2s - 2.4s)
+    // High-Deliverability Human Pacing: 3.0s to 5.5s
     if (i < recipients.length - 1) {
-      const naturalJitter = Math.floor(Math.random() * 1200) + 1200;
-      await new Promise(resolve => setTimeout(resolve, naturalJitter));
+      const humanDelay = Math.floor(Math.random() * 2500) + 3000;
+      await new Promise(resolve => setTimeout(resolve, humanDelay));
     }
   }
 
