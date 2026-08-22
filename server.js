@@ -3,7 +3,6 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -11,7 +10,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const SITE_PASSWORD = process.env.SITE_PASSWORD || '####@';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const globalSession = { stopRequested: false };
@@ -22,7 +21,7 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
-/* ---------------- 1. TURNSTILE BOT PROTECTION ---------------- */
+/* ---------------- TURNSTILE VERIFICATION ---------------- */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
 
@@ -44,34 +43,31 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-/* ---------------- 2. DIRECT GMAIL SSL TRANSPORTER ---------------- */
-function getDirectTransporter(email, appPassword) {
+/* ---------------- GMAIL SMTP TRANSPORTER POOL ---------------- */
+function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
-  const cleanPass = appPassword.replace(/\s+/g, '');
-  const key = `inbox_pipe_${cleanEmail}_${cleanPass}`;
+  const key = `port587_${cleanEmail}_${appPassword}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,
+      port: 587,
+      secure: false,
+      requireTLS: true,
       auth: {
         user: cleanEmail,
-        pass: cleanPass
+        pass: appPassword
       },
       pool: true,
-      maxConnections: 1,
-      maxMessages: 100,
-      tls: {
-        rejectUnauthorized: true
-      }
+      maxConnections: 5,
+      maxMessages: 500
     });
     poolMap.set(key, transporter);
   }
   return poolMap.get(key);
 }
 
-/* ---------------- 3. RECIPIENT DATA & SPINTAX ---------------- */
+/* ---------------- RECIPIENT DATA & SPINTAX ---------------- */
 function parseRecipientData(input) {
   let email = "";
   let rawName = "";
@@ -153,17 +149,24 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-function appendUniqueEntropy(text) {
-  const invisibleChars = ['\u200B', '\u200C', '\u200D', '\uFEFF'];
-  const count = Math.floor(Math.random() * 4) + 2;
-  let entropy = '';
-  for (let i = 0; i < count; i++) {
-    entropy += invisibleChars[Math.floor(Math.random() * invisibleChars.length)];
-  }
-  return text + entropy;
+function createPlainTextFromHtml(html) {
+  if (!html) return "";
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*[\/]?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\n\s*\n/g, '\n\n')
+    .trim();
 }
 
-/* ---------------- 4. API ROUTES ---------------- */
+/* ---------------- API ROUTES ---------------- */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -186,7 +189,7 @@ app.post("/api/verify", async (req, res) => {
   }
 
   try {
-    const transporter = getDirectTransporter(email, appPassword);
+    const transporter = getPort587Transporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: "SMTP verified successfully" });
   } catch (error) {
@@ -194,7 +197,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ---------------- 5. 6-EMAIL BATCH DISPATCH STREAM ---------------- */
+/* ---------------- SEND STREAM (Parallel Batching & High Deliverability) ---------------- */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -227,8 +230,8 @@ app.post('/api/send-stream', async (req, res) => {
     res.write(': keep-alive\n\n');
   }, 4000);
 
-  const transporter = getDirectTransporter(email, appPassword);
-  const BATCH_SIZE = 6;
+  const transporter = getPort587Transporter(email, appPassword);
+  const BATCH_SIZE = 5;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -236,49 +239,52 @@ app.post('/api/send-stream', async (req, res) => {
       break;
     }
 
-    const currentBatch = recipients.slice(i, i + BATCH_SIZE);
+    const batch = recipients.slice(i, i + BATCH_SIZE);
 
-    for (let j = 0; j < currentBatch.length; j++) {
-      if (globalSession.stopRequested) break;
-
-      const rawRecipient = currentBatch[j];
+    const sendPromises = batch.map(async (rawRecipient) => {
       const recipient = parseRecipientData(rawRecipient);
-
-      if (!recipient.email) {
-        res.write(`data: ${JSON.stringify({ success: false, recipient: "", error: "Invalid Email" })}\n\n`);
-        continue;
-      }
+      if (!recipient.email) return { success: false, recipient: "", error: "Invalid Email" };
 
       try {
         const personalizedSubject = personalizeContent(subject, recipient);
-        let personalizedBody = personalizeContent(messageBody, recipient);
-        personalizedBody = appendUniqueEntropy(personalizedBody);
+        const personalizedBody = personalizeContent(messageBody, recipient);
+        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+
+        let finalHtml = "";
+        if (isHtml) {
+          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.6;">${personalizedBody}</div>`;
+        } else {
+          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.6;">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
+        }
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+          replyTo: cleanEmail,
           subject: personalizedSubject,
-          text: personalizedBody
+          html: finalHtml,
+          text: createPlainTextFromHtml(finalHtml),
+          date: new Date()
         };
 
         await transporter.sendMail(mailOptions);
-        res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email, name: recipient.name })}\n\n`);
+        return { success: true, recipient: recipient.email, name: recipient.name };
 
       } catch (err) {
-        res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
+        return { success: false, recipient: recipient.email, error: err.message };
       }
+    });
 
-      // Intra-batch micro human delay (300ms - 600ms) between individual emails
-      if (j < currentBatch.length - 1) {
-        const microDelay = Math.floor(Math.random() * 300) + 300;
-        await new Promise(resolve => setTimeout(resolve, microDelay));
+    const results = await Promise.allSettled(sendPromises);
+
+    for (const resItem of results) {
+      if (resItem.status === 'fulfilled' && resItem.value.recipient) {
+        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
       }
     }
 
-    // Safe slow batch cooldown (3.5s - 5.5s) after every 6 emails
-    if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const batchCooldown = Math.floor(Math.random() * 2000) + 3500;
-      await new Promise(resolve => setTimeout(resolve, batchCooldown));
+    if (i + BATCH_SIZE < recipients.length) {
+      await new Promise(resolve => setTimeout(resolve, 300));
     }
   }
 
