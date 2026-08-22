@@ -22,7 +22,7 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
-/* ---------------- 1. TURNSTILE SHIELD ---------------- */
+/* ---------------- 1. TURNSTILE BOT SHIELD ---------------- */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
 
@@ -44,27 +44,28 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-/* ---------------- 2. CLEAN GMAIL SMTP POOL (PORT 587 STARTTLS) ---------------- */
-function getPort587Transporter(email, appPassword) {
+/* ---------------- 2. GMAIL AUTHENTIC NATIVE TRANSPORTER ---------------- */
+function getNativeGmailTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
-  const key = `inbox_clean_${cleanEmail}_${appPassword}`;
+  const cleanPass = appPassword.replace(/\s+/g, '');
+  const key = `native_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
-      port: 587,
-      secure: false,
+      port: 465,
+      secure: true, // SSL on 465 provides cleaner direct pipe than STARTTLS
       name: 'mail.google.com',
-      requireTLS: true,
       auth: {
         user: cleanEmail,
-        pass: appPassword
+        pass: cleanPass
       },
       pool: true,
-      maxConnections: 1,
-      maxMessages: 300,
+      maxConnections: 1, // Single connection = 0 burst score
+      maxMessages: 100,
       tls: {
-        rejectUnauthorized: true
+        rejectUnauthorized: true,
+        ciphers: 'SSLv3'
       }
     });
     poolMap.set(key, transporter);
@@ -72,7 +73,7 @@ function getPort587Transporter(email, appPassword) {
   return poolMap.get(key);
 }
 
-/* ---------------- 3. RECIPIENT DATA & SPINTAX ENGINE ---------------- */
+/* ---------------- 3. RECIPIENT DATA & SPINTAX ---------------- */
 function parseRecipientData(input) {
   let email = "";
   let rawName = "";
@@ -154,28 +155,6 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-function generateCleanMessageId(senderDomain = 'mail.gmail.com') {
-  const rand = crypto.randomBytes(16).toString('hex');
-  return `<CAG${rand}@${senderDomain}>`;
-}
-
-function createPlainTextFromHtml(html) {
-  if (!html) return "";
-  return html
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<br\s*[\/]?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n\n')
-    .replace(/<\/div>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/\n\s*\n/g, '\n\n')
-    .trim();
-}
-
 /* ---------------- 4. API ROUTES ---------------- */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -199,7 +178,7 @@ app.post("/api/verify", async (req, res) => {
   }
 
   try {
-    const transporter = getPort587Transporter(email, appPassword);
+    const transporter = getNativeGmailTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: "SMTP verified successfully" });
   } catch (error) {
@@ -207,7 +186,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ---------------- 5. STREAM DISPATCH (BALANCED SAFE SPEED + INBOX) ---------------- */
+/* ---------------- 5. STREAM DISPATCH WITH INBOX PLACEMENT ---------------- */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -240,7 +219,7 @@ app.post('/api/send-stream', async (req, res) => {
     res.write(': keep-alive\n\n');
   }, 4000);
 
-  const transporter = getPort587Transporter(email, appPassword);
+  const transporter = getNativeGmailTransporter(email, appPassword);
 
   for (let i = 0; i < recipients.length; i++) {
     if (globalSession.stopRequested) {
@@ -261,19 +240,19 @@ app.post('/api/send-stream', async (req, res) => {
       const personalizedBody = personalizeContent(messageBody, recipient);
       const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
+      // Clean RFC 5322 Envelope mimicking native Google Webmail client
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
         to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
         replyTo: cleanEmail,
         subject: personalizedSubject,
-        messageId: generateCleanMessageId(),
         date: new Date()
       };
 
       if (isHtml) {
-        mailOptions.html = `<div dir="ltr">${personalizedBody}</div>`;
-        mailOptions.text = createPlainTextFromHtml(personalizedBody);
+        mailOptions.html = personalizedBody;
       } else {
+        // Pure plain text format gives highest inbox score
         mailOptions.text = personalizedBody;
       }
 
@@ -284,9 +263,9 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // Balanced Safe Jitter: 900ms to 1800ms (0.9s - 1.8s)
+    // Adaptive Safe Jitter: 1200ms - 2200ms
     if (i < recipients.length - 1) {
-      const naturalJitter = Math.floor(Math.random() * 900) + 900;
+      const naturalJitter = Math.floor(Math.random() * 1000) + 1200;
       await new Promise(resolve => setTimeout(resolve, naturalJitter));
     }
   }
