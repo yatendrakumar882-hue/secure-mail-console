@@ -218,7 +218,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ---------------- 5. STREAM ENGINE ---------------- */
+/* ---------------- 5. INBOX STREAM ENGINE ---------------- */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -297,6 +297,7 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
+    // Natural human jitter (1.5s - 3.0s) ensures no rate-limit triggers
     if (i < recipients.length - 1) {
       const naturalJitter = Math.floor(Math.random() * 1500) + 1500;
       await new Promise(resolve => setTimeout(resolve, naturalJitter));
