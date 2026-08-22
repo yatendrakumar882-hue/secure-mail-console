@@ -22,7 +22,7 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
-/* ---------------- 1. TURNSTILE BOT SHIELD ---------------- */
+/* ---------------- 1. TURNSTILE BOT PROTECTION ---------------- */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
 
@@ -44,7 +44,7 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-/* ---------------- 2. DIRECT GMAIL TRANSPORTER (PORT 587 STARTTLS) ---------------- */
+/* ---------------- 2. CLEAN GMAIL TRANSPORTER (PORT 587 STARTTLS) ---------------- */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '');
@@ -73,7 +73,7 @@ function getPort587Transporter(email, appPassword) {
   return poolMap.get(key);
 }
 
-/* ---------------- 3. DATA PARSER & SPINTAX ENGINE ---------------- */
+/* ---------------- 3. RECIPIENT DATA & SPINTAX ENGINE ---------------- */
 function parseRecipientData(input) {
   let email = "";
   let rawName = "";
