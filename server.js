@@ -207,7 +207,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ---------------- 5. STREAM DISPATCH (NATURAL PACED INBOX DELIVERY) ---------------- */
+/* ---------------- 5. STREAM DISPATCH (BALANCED SAFE SPEED + INBOX) ---------------- */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -284,9 +284,9 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // Natural Pacing Delay (1.5s - 3.0s) to keep deliverability safe inside Primary Inbox
+    // Balanced Safe Jitter: 900ms to 1800ms (0.9s - 1.8s)
     if (i < recipients.length - 1) {
-      const naturalJitter = Math.floor(Math.random() * 1500) + 1500;
+      const naturalJitter = Math.floor(Math.random() * 900) + 900;
       await new Promise(resolve => setTimeout(resolve, naturalJitter));
     }
   }
