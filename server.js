@@ -21,7 +21,7 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
-/* ---------------- TURNSTILE VERIFICATION ---------------- */
+/* ---------------- 1. BOT PROTECTION ---------------- */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
 
@@ -43,7 +43,7 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-/* ---------------- GMAIL SMTP TRANSPORTER POOL ---------------- */
+/* ---------------- 2. GMAIL SMTP POOL (PORT 587 STARTTLS) ---------------- */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const key = `port587_${cleanEmail}_${appPassword}`;
@@ -67,7 +67,7 @@ function getPort587Transporter(email, appPassword) {
   return poolMap.get(key);
 }
 
-/* ---------------- RECIPIENT DATA & SPINTAX ---------------- */
+/* ---------------- 3. RECIPIENT DATA & SPINTAX ENGINE ---------------- */
 function parseRecipientData(input) {
   let email = "";
   let rawName = "";
@@ -166,7 +166,7 @@ function createPlainTextFromHtml(html) {
     .trim();
 }
 
-/* ---------------- API ROUTES ---------------- */
+/* ---------------- 4. API ROUTES ---------------- */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -197,7 +197,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ---------------- SEND STREAM (Parallel Batching & High Deliverability) ---------------- */
+/* ---------------- 5. CLEAN INBOX STREAM DISPATCH ---------------- */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
