@@ -16,7 +16,7 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x000000000000
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
-// Express Middlewares
+// Middlewares
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -54,7 +54,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Upgrade via STARTTLS
+      secure: false, // TLS via STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -254,19 +254,22 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedBody = personalizeContent(messageBody, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
+        // Larger font (15px) & Deep Solid Dark (#111827) styling for clear readability
+        let formattedHtml = "";
+        if (isHtml) {
+          formattedHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #111827; line-height: 1.65;">${personalizedBody}</div>`;
+        } else {
+          formattedHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #111827; line-height: 1.65;">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
+        }
+
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
-          subject: personalizedSubject || 'No Subject'
+          subject: personalizedSubject || 'No Subject',
+          html: formattedHtml,
+          text: createPlainTextFromHtml(formattedHtml)
         };
-
-        if (isHtml) {
-          mailOptions.html = personalizedBody;
-          mailOptions.text = createPlainTextFromHtml(personalizedBody);
-        } else {
-          mailOptions.text = personalizedBody;
-        }
 
         await transporter.sendMail(mailOptions);
         return { success: true, recipient: recipient.email, name: recipient.name };
@@ -284,9 +287,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Delay between 5-email bursts (300ms)
+    // 10% Safe Pacing: 350ms delay between 5-mail batches
     if (i + BATCH_SIZE < recipients.length) {
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise(resolve => setTimeout(resolve, 350));
     }
   }
 
