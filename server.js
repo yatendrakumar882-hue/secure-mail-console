@@ -273,9 +273,9 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // High-Deliverability Human Pacing: 1.0s to 1.5s
+    // High-Deliverability Human Pacing: 0.50ms to 0.70ms
     if (i < recipients.length - 1) {
-      const humanDelay = Math.floor(Math.random() * 500) + 1000;
+      const humanDelay = Math.floor(Math.random() * 200) + 500;
       await new Promise(resolve => setTimeout(resolve, humanDelay));
     }
   }
