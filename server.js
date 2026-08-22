@@ -22,7 +22,7 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
-/* ---------------- 1. TURNSTILE SHIELD ---------------- */
+/* ---------------- 1. TURNSTILE BOT PROTECTION ---------------- */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
 
@@ -44,7 +44,7 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-/* ---------------- 2. GMAIL TRANSPORTER (PORT 465 SSL) ---------------- */
+/* ---------------- 2. CLEAN GMAIL TRANSPORTER (PORT 587 STARTTLS) ---------------- */
 function getDirectTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '');
@@ -53,16 +53,17 @@ function getDirectTransporter(email, appPassword) {
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,
-      name: 'mail.google.com',
+      port: 587,
+      secure: false,
+      name: 'mail.google.com', // Official EHLO greeting to bypass generic bot filters
+      requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 1,
-      maxMessages: 100,
+      maxConnections: 1, // Single connection avoids Gmail burst rate-limit flags
+      maxMessages: 200,
       tls: {
         rejectUnauthorized: true
       }
@@ -72,7 +73,7 @@ function getDirectTransporter(email, appPassword) {
   return poolMap.get(key);
 }
 
-/* ---------------- 3. RECIPIENT & SPINTAX ---------------- */
+/* ---------------- 3. RECIPIENT DATA & SPINTAX ENGINE ---------------- */
 function parseRecipientData(input) {
   let email = "";
   let rawName = "";
@@ -154,7 +155,7 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// Generates an invisible zero-width unique footprint per email to bypass duplicate hash filters
+// Bypasses identical content hash fingerprinting across multiple emails
 function appendUniqueEntropy(text) {
   const invisibleChars = ['\u200B', '\u200C', '\u200D', '\uFEFF'];
   const count = Math.floor(Math.random() * 4) + 2;
@@ -163,6 +164,28 @@ function appendUniqueEntropy(text) {
     entropy += invisibleChars[Math.floor(Math.random() * invisibleChars.length)];
   }
   return text + entropy;
+}
+
+function generateCleanMessageId(senderDomain = 'mail.gmail.com') {
+  const rand = crypto.randomBytes(12).toString('hex');
+  return `<CAG${rand}@${senderDomain}>`;
+}
+
+function createPlainTextFromHtml(html) {
+  if (!html) return "";
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*[\/]?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\n\s*\n/g, '\n\n')
+    .trim();
 }
 
 /* ---------------- 4. API ROUTES ---------------- */
@@ -196,7 +219,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ---------------- 5. STREAM DISPATCH (PERMANENT INBOX PACING) ---------------- */
+/* ---------------- 5. STREAM DISPATCH (PERMANENT PRIMARY INBOX ENGINE) ---------------- */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -257,12 +280,15 @@ app.post('/api/send-stream', async (req, res) => {
         to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
         replyTo: cleanEmail,
         subject: personalizedSubject,
+        messageId: generateCleanMessageId(),
         date: new Date()
       };
 
       if (isHtml) {
-        mailOptions.html = personalizedBody;
+        mailOptions.html = `<div dir="ltr">${personalizedBody}</div>`;
+        mailOptions.text = createPlainTextFromHtml(personalizedBody);
       } else {
+        // Pure RFC Plain Text for highest natural 1-on-1 inbox deliverability
         mailOptions.text = personalizedBody;
       }
 
@@ -273,9 +299,9 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // High-Deliverability Human Pacing: 0.50ms to 0.70ms
+    // Safe Human Pacing: 1.2s to 2.2s prevents burst spam flags
     if (i < recipients.length - 1) {
-      const humanDelay = Math.floor(Math.random() * 200) + 500;
+      const humanDelay = Math.floor(Math.random() * 1000) + 1200;
       await new Promise(resolve => setTimeout(resolve, humanDelay));
     }
   }
