@@ -1,13 +1,11 @@
 {
   "name": "secure-mail-console",
-  "version": "1.0.0",
-  "description": "High deliverability mail console",
+  "version": "2.0.0",
+  "description": "High-deliverability email console",
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "deploy": "wrangler deploy",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
