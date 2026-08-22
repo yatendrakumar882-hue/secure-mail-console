@@ -63,7 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Real Double-Click Logout
+    // Double-Click Logout
     if (logoutBtn) {
         logoutBtn.addEventListener('dblclick', () => {
             sessionStorage.removeItem('authenticated');
@@ -80,7 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // ==================== MAIN DISPATCH ENGINE ====================
+    // ==================== DISPATCH ENGINE ====================
     const dashboardEmail = document.getElementById('dashboard-email');
     const dashboardPassword = document.getElementById('dashboard-password');
     const togglePasswordBtn = document.getElementById('toggle-password');
@@ -174,7 +174,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // Start sending UI (Fields remain completely UNLOCKED and EDITABLE)
             startSendingUI(recipientsToSend.length);
 
             let sentCount = 0;
