@@ -19,13 +19,11 @@
             </div>
             <h2>Access Protected</h2>
             <p>Enter the password to continue</p>
-            <form id="gate-form" autocomplete="off" onsubmit="return false;">
+            <form id="gate-form" autocomplete="off">
                 <div class="form-group">
                     <div class="password-wrapper">
-                        <input type="password" id="gate-password" placeholder="Enter password..." autocomplete="new-password" required>
-                        <button type="button" id="toggle-gate-password" class="icon-button" aria-label="Toggle Password Visibility">
-                            <i class="fa-regular fa-eye"></i>
-                        </button>
+                        <input type="password" id="gate-password" placeholder="Enter password..." autocomplete="off" required>
+                        <button type="button" id="toggle-gate-password" class="icon-button"><i class="fa-regular fa-eye"></i></button>
                     </div>
                 </div>
                 <div id="gate-error" class="gate-error hidden">
@@ -58,7 +56,7 @@
                 <!-- Composer Card -->
                 <div class="card composer-card fade-in delay-1">
                     <h3><i class="fa-solid fa-pen-to-square"></i> Compose Message</h3>
-                    <form id="compose-form" autocomplete="off" onsubmit="return false;">
+                    <form id="compose-form" onsubmit="return false;">
                         
                         <!-- Row 1: Sender Name & Your Gmail -->
                         <div class="form-row">
@@ -68,7 +66,7 @@
                             </div>
                             <div class="form-group half">
                                 <label for="dashboard-email">Your Gmail</label>
-                                <input type="email" id="dashboard-email" placeholder="you@gmail.com" spellcheck="false" required>
+                                <input type="email" id="dashboard-email" placeholder="you@gmail.com" required>
                             </div>
                         </div>
 
@@ -77,10 +75,8 @@
                             <div class="form-group half">
                                 <label for="dashboard-password">App Password</label>
                                 <div class="password-wrapper">
-                                    <input type="password" id="dashboard-password" placeholder="16-char app password" autocomplete="new-password" required>
-                                    <button type="button" id="toggle-password" class="icon-button" aria-label="Toggle Password Visibility">
-                                        <i class="fa-regular fa-eye"></i>
-                                    </button>
+                                    <input type="password" id="dashboard-password" placeholder="16-char app password" required>
+                                    <button type="button" id="toggle-password" class="icon-button"><i class="fa-regular fa-eye"></i></button>
                                 </div>
                             </div>
                             <div class="form-group half">
@@ -91,8 +87,8 @@
 
                         <!-- Row 3: Message Body -->
                         <div class="form-group flex-grow">
-                            <label for="message-body">Message Body (Plain Text)</label>
-                            <textarea id="message-body" placeholder="Write your email here... Spintax supported: {Hi|Hello}" spellcheck="false" required></textarea>
+                            <label for="message-body">Message Body (Plain Text / HTML)</label>
+                            <textarea id="message-body" placeholder="Write your email here... Spintax supported: {Hi|Hello}" required></textarea>
                         </div>
                         
                         <!-- Anti Spam Turnstile -->
@@ -112,7 +108,7 @@
                         </div>
                         <p class="help-subtext">Paste emails (comma separated, new lines, or Excel copy)</p>
                         <div class="form-group flex-grow" style="margin-bottom: 0;">
-                            <textarea id="recipients-input" placeholder="john@example.com&#10;jane@example.com" spellcheck="false"></textarea>
+                            <textarea id="recipients-input" placeholder="john@example.com&#10;jane@example.com"></textarea>
                         </div>
                         <div id="email-validation-error" class="error-message hidden">
                             <i class="fa-solid fa-triangle-exclamation"></i> <span>Please enter valid recipients.</span>
