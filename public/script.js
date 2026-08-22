@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
 
-    // ==================== PASSWORD GATE ====================
+    // ==================== PASSWORD GATE & LOGOUT ====================
     const passwordGate = document.getElementById('password-gate');
     const mainApp = document.getElementById('main-app');
     const gateForm = document.getElementById('gate-form');
@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const gateError = document.getElementById('gate-error');
     const gateSubmitBtn = document.getElementById('gate-submit-btn');
     const toggleGatePassword = document.getElementById('toggle-gate-password');
+    const logoutBtn = document.getElementById('logout-btn');
 
     if (sessionStorage.getItem('authenticated') === 'true') {
         passwordGate.classList.add('hidden');
@@ -62,7 +63,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // ==================== MAIN APP LOGIC ====================
+    // Real Double-Click Logout Handler
+    if (logoutBtn) {
+        logoutBtn.addEventListener('dblclick', () => {
+            sessionStorage.removeItem('authenticated');
+            window.location.reload();
+        });
+
+        // Single click hint
+        let clickTimer;
+        logoutBtn.addEventListener('click', () => {
+            clearTimeout(clickTimer);
+            clickTimer = setTimeout(() => {
+                logoutBtn.classList.add('btn-shake');
+                setTimeout(() => logoutBtn.classList.remove('btn-shake'), 400);
+            }, 250);
+        });
+    }
+
+    // ==================== MAIN DISPATCH ENGINE ====================
     const dashboardEmail = document.getElementById('dashboard-email');
     const dashboardPassword = document.getElementById('dashboard-password');
     const togglePasswordBtn = document.getElementById('toggle-password');
@@ -156,7 +175,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // Start sending UI (Fields remain completely UNLOCKED)
+            // Start sending UI (Inputs remain completely UNLOCKED)
             startSendingUI(recipientsToSend.length);
 
             let sentCount = 0;
@@ -206,9 +225,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 failedCount++;
                                 updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
                             }
-                        } catch (e) {
-                            // Ignore non-json chunk
-                        }
+                        } catch (e) { }
                     }
                 }
             }
@@ -257,7 +274,6 @@ document.addEventListener('DOMContentLoaded', () => {
         statusIcon.className = 'fa-solid fa-circle-notch fa-spin text-primary';
         statusText.textContent = 'Sending emails...';
 
-        // Button disables and shows Sending..., all other inputs remain completely editable
         sendBtn.disabled = true;
         sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending...';
         stopBtn.classList.remove('hidden');
