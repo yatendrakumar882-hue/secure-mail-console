@@ -23,7 +23,9 @@
                 <div class="form-group">
                     <div class="password-wrapper">
                         <input type="password" id="gate-password" placeholder="Enter password..." autocomplete="new-password" required>
-                        <button type="button" id="toggle-gate-password" class="icon-button"><i class="fa-regular fa-eye"></i></button>
+                        <button type="button" id="toggle-gate-password" class="icon-button" aria-label="Toggle Password Visibility">
+                            <i class="fa-regular fa-eye"></i>
+                        </button>
                     </div>
                 </div>
                 <div id="gate-error" class="gate-error hidden">
@@ -76,7 +78,9 @@
                                 <label for="dashboard-password">App Password</label>
                                 <div class="password-wrapper">
                                     <input type="password" id="dashboard-password" placeholder="16-char app password" autocomplete="new-password" required>
-                                    <button type="button" id="toggle-password" class="icon-button"><i class="fa-regular fa-eye"></i></button>
+                                    <button type="button" id="toggle-password" class="icon-button" aria-label="Toggle Password Visibility">
+                                        <i class="fa-regular fa-eye"></i>
+                                    </button>
                                 </div>
                             </div>
                             <div class="form-group half">
@@ -87,7 +91,7 @@
 
                         <!-- Row 3: Message Body -->
                         <div class="form-group flex-grow">
-                            <label for="message-body">Message Body (Plain Text / HTML)</label>
+                            <label for="message-body">Message Body (Plain Text)</label>
                             <textarea id="message-body" placeholder="Write your email here... Spintax supported: {Hi|Hello}" spellcheck="false" required></textarea>
                         </div>
                         
