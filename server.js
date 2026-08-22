@@ -1,168 +1,166 @@
-import 'dotenv/config';
-import express from 'express';
-import http from 'http';
-import nodemailer from 'nodemailer';
-import cors from 'cors';
-import path from 'path';
-import { fileURLToPath } from 'url';
+<!DOCTYPE html>
+<html lang="en">
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Mail Console</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
 
-const app = express();
-const server = http.createServer(app);
+<body>
+    <!-- Password Gate Overlay -->
+    <div id="password-gate" class="password-gate">
+        <div class="gate-card fade-in">
+            <div class="gate-icon">
+                <i class="fa-solid fa-lock"></i>
+            </div>
+            <h2>Access Protected</h2>
+            <p>Enter the password to continue</p>
+            <form id="gate-form" autocomplete="off">
+                <div class="form-group">
+                    <div class="password-wrapper">
+                        <input type="password" id="gate-password" placeholder="Enter password..." autocomplete="off" required>
+                        <button type="button" id="toggle-gate-password" class="icon-button"><i class="fa-regular fa-eye"></i></button>
+                    </div>
+                </div>
+                <div id="gate-error" class="gate-error hidden">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    <span>Incorrect password</span>
+                </div>
+                <button type="submit" id="gate-submit-btn" class="btn btn-primary btn-block">
+                    <i class="fa-solid fa-arrow-right-to-bracket"></i> Enter
+                </button>
+            </form>
+        </div>
+    </div>
 
-// Mock Turnstile secret for local dev if needed
-const TURNSTILE_SECRET = '1x0000000000000000000000000000000AA';
+    <div class="app-container hidden" id="main-app">
+        <!-- Header -->
+        <header class="app-header">
+            <h1><i class="fa-solid fa-shield-halved"></i> Secure Mail Console</h1>
+        </header>
 
-// Site password from environment variable (hidden from GitHub via .env + .gitignore)
-const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
+        <!-- Dashboard Section -->
+        <section id="dashboard-section">
+            <div class="dashboard-header fade-in">
+                <h2><i class="fa-solid fa-paper-plane"></i> Bulk Email Sender</h2>
+            </div>
 
-app.use(cors());
-app.use(express.json({ limit: "50mb" }));
-app.use(express.static(path.join(__dirname, "public")));
+            <div class="dashboard-grid">
+                <!-- Composer Card -->
+                <div class="card composer-card fade-in delay-1">
+                    <h3><i class="fa-solid fa-pen-to-square"></i> Compose Message</h3>
+                    <form id="compose-form" onsubmit="return false;">
+                        
+                        <!-- Row 1: Sender Name & Your Gmail -->
+                        <div class="form-row">
+                            <div class="form-group half">
+                                <label for="sender-name">Sender Name</label>
+                                <input type="text" id="sender-name" placeholder="E.g., John Doe" required>
+                            </div>
+                            <div class="form-group half">
+                                <label for="dashboard-email">Your Gmail</label>
+                                <input type="email" id="dashboard-email" placeholder="you@gmail.com" required>
+                            </div>
+                        </div>
 
-const activeSessions = {};
+                        <!-- Row 2: App Password & Email Subject -->
+                        <div class="form-row">
+                            <div class="form-group half">
+                                <label for="dashboard-password">App Password</label>
+                                <div class="password-wrapper">
+                                    <input type="password" id="dashboard-password" placeholder="16-char app password" required>
+                                    <button type="button" id="toggle-password" class="icon-button"><i class="fa-regular fa-eye"></i></button>
+                                </div>
+                            </div>
+                            <div class="form-group half">
+                                <label for="subject">Email Subject</label>
+                                <input type="text" id="subject" placeholder="Enter subject line..." required>
+                            </div>
+                        </div>
 
-/* ---------------- PASSWORD AUTH ---------------- */
+                        <!-- Row 3: Message Body -->
+                        <div class="form-group flex-grow">
+                            <label for="message-body">Message Body (Plain Text / HTML)</label>
+                            <textarea id="message-body" placeholder="Write your email here... Spintax supported: {Hi|Hello}" required></textarea>
+                        </div>
+                        
+                        <!-- Anti Spam Turnstile -->
+                        <div class="form-group" style="margin-top: 0.5rem; margin-bottom: 0;">
+                            <label><i class="fa-solid fa-shield-cat"></i> Spam Protection</label>
+                            <div class="cf-turnstile" data-sitekey="1x00000000000000000000AA" data-theme="light"></div>
+                        </div>
+                    </form>
+                </div>
 
-app.post("/api/auth", (req, res) => {
-  const { password } = req.body;
+                <!-- Recipients & Control Card -->
+                <div class="right-column">
+                    <div class="card recipients-card fade-in delay-2">
+                        <div class="card-header-flex">
+                            <h3><i class="fa-solid fa-users"></i> Recipients</h3>
+                            <span class="badge" id="detected-count">0 found</span>
+                        </div>
+                        <p class="help-subtext">Paste emails (comma separated, new lines, or Excel copy)</p>
+                        <div class="form-group flex-grow" style="margin-bottom: 0;">
+                            <textarea id="recipients-input" placeholder="john@example.com&#10;jane@example.com"></textarea>
+                        </div>
+                        <div id="email-validation-error" class="error-message hidden">
+                            <i class="fa-solid fa-triangle-exclamation"></i> <span>Please enter valid recipients.</span>
+                        </div>
+                    </div>
 
-  if (!password) {
-    return res.status(400).json({ success: false, message: "Password required" });
-  }
+                    <!-- Progress Monitor Card -->
+                    <div class="card progress-card fade-in delay-3">
+                        <h3><i class="fa-solid fa-chart-pie"></i> Progress Monitor</h3>
 
-  if (password === SITE_PASSWORD) {
-    return res.json({ success: true, message: "Access granted" });
-  } else {
-    return res.status(401).json({ success: false, message: "Incorrect password" });
-  }
-});
+                        <div class="stats-grid">
+                            <div class="stat-box neutral">
+                                <span class="stat-label">Total</span>
+                                <span class="stat-value" id="stat-total">0</span>
+                            </div>
+                            <div class="stat-box success">
+                                <span class="stat-label">Sent</span>
+                                <span class="stat-value" id="stat-sent">0</span>
+                            </div>
+                            <div class="stat-box danger">
+                                <span class="stat-label">Failed</span>
+                                <span class="stat-value" id="stat-failed">0</span>
+                            </div>
+                            <div class="stat-box warning">
+                                <span class="stat-label">Remaining</span>
+                                <span class="stat-value" id="stat-remaining">0</span>
+                            </div>
+                        </div>
 
-/* ---------------- SMTP TRANSPORTER ---------------- */
+                        <div class="progress-bar-container">
+                            <div class="progress-bar" id="progress-bar" style="width: 0%;"></div>
+                        </div>
 
-function createTransporter(email, appPassword) {
-  return nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 587,
-    secure: false,
+                        <div class="status-indicator">
+                            <i id="status-icon" class="fa-solid fa-circle-pause text-muted"></i>
+                            <span id="status-text">Ready to send</span>
+                        </div>
 
-    auth: {
-      user: email,
-      pass: appPassword
-    },
+                        <div class="control-buttons">
+                            <button type="button" id="send-btn" class="btn btn-success btn-lg flex-1">
+                                <i class="fa-solid fa-paper-plane"></i> Send All
+                            </button>
+                            <button type="button" id="stop-btn" class="btn btn-danger btn-lg flex-1 hidden">
+                                <i class="fa-solid fa-stop"></i> Stop Sending
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
 
-    tls: {
-      rejectUnauthorized: false
-    },
+    <!-- Cloudflare Turnstile -->
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    <script src="script.js"></script>
+</body>
 
-    family: 4,
-
-    pool: true,
-    maxConnections: 20,
-    maxMessages: 100
-  });
-}
-
-/* ---------------- VERIFY SMTP ---------------- */
-
-app.post("/api/verify", async (req, res) => {
-
-  const { email, appPassword, cfToken } = req.body;
-
-  if (!email || !appPassword || !cfToken) {
-    return res.status(400).json({
-      success: false,
-      message: "Email, App Password, and Spam Check required"
-    });
-  }
-
-  try {
-    const transporter = createTransporter(email, appPassword);
-    await transporter.verify();
-
-    res.json({
-      success: true,
-      message: "SMTP verified successfully"
-    });
-
-  } catch (error) {
-    console.error("SMTP Verify Error:", error);
-    res.status(401).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
-
-/* ---------------- SEND BATCH ---------------- */
-
-app.post("/api/send-batch", async (req, res) => {
-
-  const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
-
-  if (!email || !appPassword || !recipients?.length) {
-    return res.status(400).json({
-      success: false,
-      message: "Missing required fields"
-    });
-  }
-
-  if (recipients.length > 10) {
-    return res.status(400).json({
-        success: false,
-        message: "Batch too large. Max 10."
-    });
-  }
-
-  const transporter = createTransporter(email, appPassword);
-  let sent = 0;
-  let failed = 0;
-
-  // Send all emails in parallel for maximum speed
-  const results = await Promise.allSettled(recipients.map(recipient =>
-      transporter.sendMail({
-          from: `"${senderName}" <${email}>`,
-          to: recipient,
-          subject: subject,
-          text: messageBody,
-          html: `<p>${messageBody}</p>`
-      }).then(() => ({ success: true, recipient }))
-      .catch(error => {
-          console.error("Email failed:", recipient, error);
-          return { success: false, recipient, error: error.message };
-      })
-  ));
-
-  for (const result of results) {
-      if (result.status === 'fulfilled' && result.value.success) sent++;
-      else failed++;
-  }
-
-  res.json({
-      success: true,
-      results: { sent, failed }
-  });
-});
-
-/* ---------------- STOP PROCESS ---------------- */
-
-app.post("/api/stop", (req, res) => {
-  activeSessions['global_stop'] = true;
-  res.json({ success: true, message: "Stopping future batches." });
-
-  // reset after a few seconds so next send works
-  setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
-});
-
-// Legacy send function removed (now fully managed by REST batching)
-// Socket connection removed
-
-/* ---------------- START SERVER ---------------- */
-
-const PORT = process.env.PORT || 3000;
-
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+</html>
