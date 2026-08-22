@@ -16,6 +16,7 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x000000000000
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
+// Express Middlewares
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -46,21 +47,24 @@ async function verifyTurnstileToken(token, remoteIp) {
 /* ---------------- GMAIL SMTP TRANSPORTER POOL ---------------- */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
-  const key = `port587_${cleanEmail}_${appPassword}`;
+  const cleanPass = appPassword.replace(/\s+/g, '').trim();
+  const key = `port587_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false,
+      secure: false, // Upgrade via STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
-        pass: appPassword
+        pass: cleanPass
       },
       pool: true,
       maxConnections: 5,
-      maxMessages: 500
+      maxMessages: 500,
+      socketTimeout: 30000,
+      connectionTimeout: 30000
     });
     poolMap.set(key, transporter);
   }
@@ -197,7 +201,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ---------------- SEND STREAM (Parallel Batching & High Deliverability) ---------------- */
+/* ---------------- SEND STREAM ---------------- */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -250,22 +254,19 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedBody = personalizeContent(messageBody, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-        let finalHtml = "";
-        if (isHtml) {
-          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.6;">${personalizedBody}</div>`;
-        } else {
-          finalHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1e293b; line-height: 1.6;">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
-        }
-
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
-          subject: personalizedSubject,
-          html: finalHtml,
-          text: createPlainTextFromHtml(finalHtml),
-          date: new Date()
+          subject: personalizedSubject || 'No Subject'
         };
+
+        if (isHtml) {
+          mailOptions.html = personalizedBody;
+          mailOptions.text = createPlainTextFromHtml(personalizedBody);
+        } else {
+          mailOptions.text = personalizedBody;
+        }
 
         await transporter.sendMail(mailOptions);
         return { success: true, recipient: recipient.email, name: recipient.name };
@@ -283,6 +284,7 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
+    // Delay between 5-email bursts (300ms)
     if (i + BATCH_SIZE < recipients.length) {
       await new Promise(resolve => setTimeout(resolve, 300));
     }
