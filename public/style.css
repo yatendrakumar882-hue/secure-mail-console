@@ -99,6 +99,7 @@ body {
     backdrop-filter: blur(10px);
 }
 
+/* Forms */
 .form-group {
     margin-bottom: 1.25rem;
 }
