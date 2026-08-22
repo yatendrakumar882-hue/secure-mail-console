@@ -21,7 +21,7 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
-/* ---------------- 1. TURNSTILE VERIFICATION ---------------- */
+/* ---------------- 1. TURNSTILE BOT PROTECTION ---------------- */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
 
@@ -43,11 +43,11 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-/* ---------------- 2. DIRECT GMAIL NATIVE TRANSPORTER ---------------- */
-function getNativeGmailTransporter(email, appPassword) {
+/* ---------------- 2. CLEAN GMAIL SSL TRANSPORTER ---------------- */
+function getDirectTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '');
-  const key = `native_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_pipe_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -60,14 +60,17 @@ function getNativeGmailTransporter(email, appPassword) {
       },
       pool: true,
       maxConnections: 1,
-      maxMessages: 100
+      maxMessages: 100,
+      tls: {
+        rejectUnauthorized: true
+      }
     });
     poolMap.set(key, transporter);
   }
   return poolMap.get(key);
 }
 
-/* ---------------- 3. RECIPIENT DATA & SPINTAX ENGINE ---------------- */
+/* ---------------- 3. RECIPIENT DATA & SPINTAX ---------------- */
 function parseRecipientData(input) {
   let email = "";
   let rawName = "";
@@ -172,7 +175,7 @@ app.post("/api/verify", async (req, res) => {
   }
 
   try {
-    const transporter = getNativeGmailTransporter(email, appPassword);
+    const transporter = getDirectTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: "SMTP verified successfully" });
   } catch (error) {
@@ -180,7 +183,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ---------------- 5. CLEAN INBOX DISPATCH STREAM ---------------- */
+/* ---------------- 5. PURE INBOX DISPATCH STREAM ---------------- */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -213,7 +216,7 @@ app.post('/api/send-stream', async (req, res) => {
     res.write(': keep-alive\n\n');
   }, 4000);
 
-  const transporter = getNativeGmailTransporter(email, appPassword);
+  const transporter = getDirectTransporter(email, appPassword);
 
   for (let i = 0; i < recipients.length; i++) {
     if (globalSession.stopRequested) {
@@ -233,7 +236,7 @@ app.post('/api/send-stream', async (req, res) => {
       const personalizedSubject = personalizeContent(subject, recipient);
       const personalizedBody = personalizeContent(messageBody, recipient);
 
-      // Clean 1-on-1 Webmail Envelope
+      // Pure Native RFC-compliant Envelope
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
         to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -248,9 +251,9 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // Natural Pacing: 1.8s - 3.5s
+    // High-deliverability Human Delay (2.5s se 4.5s)
     if (i < recipients.length - 1) {
-      const delay = Math.floor(Math.random() * 1700) + 1800;
+      const delay = Math.floor(Math.random() * 2000) + 2500;
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
