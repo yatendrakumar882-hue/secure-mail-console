@@ -1,8 +1,1 @@
-entrypoint = "server.js"
-modules = ["nodejs-20"]
-
-[nix]
-channel = "stable-24.05"
-
-[processes]
-run = "npm start"
+run = "npm install && node server.js"
