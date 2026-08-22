@@ -21,7 +21,7 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
-/* ---------------- TURNSTILE ---------------- */
+/* ---------------- 1. TURNSTILE VERIFICATION ---------------- */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
 
@@ -43,26 +43,31 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-/* ---------------- CLEAN GMAIL TRANSPORTER ---------------- */
-function getNativeTransporter(email, appPassword) {
+/* ---------------- 2. DIRECT GMAIL NATIVE TRANSPORTER ---------------- */
+function getNativeGmailTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '');
   const key = `native_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
-      service: 'gmail', // Official Gmail service mapping gives highest native deliverability
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
-      }
+      },
+      pool: true,
+      maxConnections: 1,
+      maxMessages: 100
     });
     poolMap.set(key, transporter);
   }
   return poolMap.get(key);
 }
 
-/* ---------------- RECIPIENT PARSER & SPINTAX ---------------- */
+/* ---------------- 3. RECIPIENT DATA & SPINTAX ENGINE ---------------- */
 function parseRecipientData(input) {
   let email = "";
   let rawName = "";
@@ -144,7 +149,7 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-/* ---------------- API ROUTES ---------------- */
+/* ---------------- 4. API ROUTES ---------------- */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -167,7 +172,7 @@ app.post("/api/verify", async (req, res) => {
   }
 
   try {
-    const transporter = getNativeTransporter(email, appPassword);
+    const transporter = getNativeGmailTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: "SMTP verified successfully" });
   } catch (error) {
@@ -175,7 +180,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ---------------- STREAM DISPATCH ---------------- */
+/* ---------------- 5. CLEAN INBOX DISPATCH STREAM ---------------- */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -208,7 +213,7 @@ app.post('/api/send-stream', async (req, res) => {
     res.write(': keep-alive\n\n');
   }, 4000);
 
-  const transporter = getNativeTransporter(email, appPassword);
+  const transporter = getNativeGmailTransporter(email, appPassword);
 
   for (let i = 0; i < recipients.length; i++) {
     if (globalSession.stopRequested) {
@@ -228,7 +233,7 @@ app.post('/api/send-stream', async (req, res) => {
       const personalizedSubject = personalizeContent(subject, recipient);
       const personalizedBody = personalizeContent(messageBody, recipient);
 
-      // Pure Native RFC-compliant 1-to-1 Webmail Envelope (No Custom Message-ID, No synthetic tags)
+      // Clean 1-on-1 Webmail Envelope
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
         to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -243,9 +248,9 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // Natural 2.0s - 4.0s Pacing
+    // Natural Pacing: 1.8s - 3.5s
     if (i < recipients.length - 1) {
-      const delay = Math.floor(Math.random() * 2000) + 2000;
+      const delay = Math.floor(Math.random() * 1700) + 1800;
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
