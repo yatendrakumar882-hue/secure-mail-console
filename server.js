@@ -3,6 +3,7 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -152,6 +153,17 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
+// Bypasses identical content hash fingerprinting across bulk iterations
+function appendUniqueEntropy(text) {
+  const invisibleChars = ['\u200B', '\u200C', '\u200D', '\uFEFF'];
+  const count = Math.floor(Math.random() * 4) + 2;
+  let entropy = '';
+  for (let i = 0; i < count; i++) {
+    entropy += invisibleChars[Math.floor(Math.random() * invisibleChars.length)];
+  }
+  return text + entropy;
+}
+
 /* ---------------- 4. API ROUTES ---------------- */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -234,9 +246,10 @@ app.post('/api/send-stream', async (req, res) => {
 
     try {
       const personalizedSubject = personalizeContent(subject, recipient);
-      const personalizedBody = personalizeContent(messageBody, recipient);
+      let personalizedBody = personalizeContent(messageBody, recipient);
+      personalizedBody = appendUniqueEntropy(personalizedBody);
 
-      // Pure Native RFC-compliant Envelope
+      // Pure Native RFC-compliant Envelope (Zero synthetic headers)
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
         to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -251,7 +264,7 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // High-deliverability Human Delay (200ms se 400ms)
+    // Maintained Fast Speed Delay (200ms se 400ms)
     if (i < recipients.length - 1) {
       const delay = Math.floor(Math.random() * 200) + 200;
       await new Promise(resolve => setTimeout(resolve, delay));
