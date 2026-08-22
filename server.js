@@ -49,7 +49,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
+   GMAIL TLS TRANSPORTER POOL (Fast Handshake & Reusable Sockets)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -67,8 +67,8 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 2,
-      maxMessages: 200,
+      maxConnections: 5,
+      maxMessages: 500,
       socketTimeout: 30000,
       connectionTimeout: 30000
     });
@@ -219,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE (Paced Natural Sending)
+   STREAMING DISPATCH ROUTE (Fast Speed Flow)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -294,10 +294,10 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // Natural Human Pacing: 300ms se 400ms ka gap har email ke baad
+    // Fast Speed: 200ms - 250ms gap between each email dispatch
     if (i < recipients.length - 1) {
-      const naturalDelay = Math.floor(300 + Math.random() * 100);
-      await new Promise(resolve => setTimeout(resolve, naturalDelay));
+      const fastDelay = Math.floor(200 + Math.random() * 50);
+      await new Promise(resolve => setTimeout(resolve, fastDelay));
     }
   }
 
