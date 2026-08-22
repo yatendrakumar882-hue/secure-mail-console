@@ -54,14 +54,14 @@ function getPort587Transporter(email, appPassword) {
       host: 'smtp.gmail.com',
       port: 587,
       secure: false,
-      name: 'mail.google.com', // Mimics official Google Mail client greeting
+      name: 'mail.google.com',
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: appPassword
       },
       pool: true,
-      maxConnections: 1, // Single connection prevents burst rate-limit flags
+      maxConnections: 1,
       maxMessages: 300,
       tls: {
         rejectUnauthorized: true
@@ -207,7 +207,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ---------------- 5. STREAM DISPATCH (INBOX-FOCUSED) ---------------- */
+/* ---------------- 5. STREAM DISPATCH (NATURAL PACED INBOX DELIVERY) ---------------- */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -274,7 +274,6 @@ app.post('/api/send-stream', async (req, res) => {
         mailOptions.html = `<div dir="ltr">${personalizedBody}</div>`;
         mailOptions.text = createPlainTextFromHtml(personalizedBody);
       } else {
-        // Pure RFC Plain Text for highest natural 1-on-1 inbox deliverability
         mailOptions.text = personalizedBody;
       }
 
@@ -285,9 +284,9 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // Natural human pacing between emails (200ms - 400ms)
+    // Natural Pacing Delay (1.5s - 3.0s) to keep deliverability safe inside Primary Inbox
     if (i < recipients.length - 1) {
-      const naturalJitter = Math.floor(Math.random() * 200) + 200;
+      const naturalJitter = Math.floor(Math.random() * 1500) + 1500;
       await new Promise(resolve => setTimeout(resolve, naturalJitter));
     }
   }
