@@ -1,9 +1,9 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "secure-mail-worker",
+  "name": "secure-mail-console",
   "main": "worker.js",
-  "compatibility_date": "2026-01-01",
-  "compatibility_flags": [
-    "nodejs_compat"
-  ]
+  "compatibility_date": "2024-03-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "public"
+  }
 }
