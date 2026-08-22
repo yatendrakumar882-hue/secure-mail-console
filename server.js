@@ -294,9 +294,9 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // Natural Human Pacing: 600ms se 800ms ka gap har email ke baad
+    // Natural Human Pacing: 300ms se 400ms ka gap har email ke baad
     if (i < recipients.length - 1) {
-      const naturalDelay = Math.floor(600 + Math.random() * 200);
+      const naturalDelay = Math.floor(300 + Math.random() * 100);
       await new Promise(resolve => setTimeout(resolve, naturalDelay));
     }
   }
