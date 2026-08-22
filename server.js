@@ -3,6 +3,7 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -10,7 +11,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || '####@';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const globalSession = { stopRequested: false };
@@ -21,7 +22,7 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
-/* ---------------- 1. BOT VERIFICATION ---------------- */
+/* ---------------- 1. TURNSTILE SHIELD ---------------- */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
 
@@ -43,31 +44,35 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-/* ---------------- 2. CLEAN GMAIL TRANSPORTER ---------------- */
-function getGmailTransporter(email, appPassword) {
+/* ---------------- 2. CLEAN GMAIL SMTP POOL (PORT 587 STARTTLS) ---------------- */
+function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
-  const key = `gmail_direct_${cleanEmail}_${appPassword}`;
+  const key = `inbox_clean_${cleanEmail}_${appPassword}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
       secure: false,
+      name: 'mail.google.com', // Mimics official Google Mail client greeting
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: appPassword
       },
       pool: true,
-      maxConnections: 1, // Single connection ensures zero burst flags
-      maxMessages: 250
+      maxConnections: 1, // Single connection prevents burst rate-limit flags
+      maxMessages: 300,
+      tls: {
+        rejectUnauthorized: true
+      }
     });
     poolMap.set(key, transporter);
   }
   return poolMap.get(key);
 }
 
-/* ---------------- 3. RECIPIENT DATA & SPINTAX ---------------- */
+/* ---------------- 3. RECIPIENT DATA & SPINTAX ENGINE ---------------- */
 function parseRecipientData(input) {
   let email = "";
   let rawName = "";
@@ -149,6 +154,28 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
+function generateCleanMessageId(senderDomain = 'mail.gmail.com') {
+  const rand = crypto.randomBytes(16).toString('hex');
+  return `<CAG${rand}@${senderDomain}>`;
+}
+
+function createPlainTextFromHtml(html) {
+  if (!html) return "";
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*[\/]?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\n\s*\n/g, '\n\n')
+    .trim();
+}
+
 /* ---------------- 4. API ROUTES ---------------- */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -172,7 +199,7 @@ app.post("/api/verify", async (req, res) => {
   }
 
   try {
-    const transporter = getGmailTransporter(email, appPassword);
+    const transporter = getPort587Transporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: "SMTP verified successfully" });
   } catch (error) {
@@ -180,7 +207,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ---------------- 5. PURE INBOX DISPATCH ENGINE ---------------- */
+/* ---------------- 5. STREAM DISPATCH (INBOX-FOCUSED) ---------------- */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -213,7 +240,7 @@ app.post('/api/send-stream', async (req, res) => {
     res.write(': keep-alive\n\n');
   }, 4000);
 
-  const transporter = getGmailTransporter(email, appPassword);
+  const transporter = getPort587Transporter(email, appPassword);
 
   for (let i = 0; i < recipients.length; i++) {
     if (globalSession.stopRequested) {
@@ -234,19 +261,21 @@ app.post('/api/send-stream', async (req, res) => {
       const personalizedBody = personalizeContent(messageBody, recipient);
       const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-      // Exactly mimic a mobile / 1-to-1 webmail message
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
         to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
         replyTo: cleanEmail,
         subject: personalizedSubject,
+        messageId: generateCleanMessageId(),
         date: new Date()
       };
 
       if (isHtml) {
-        mailOptions.html = personalizedBody;
+        mailOptions.html = `<div dir="ltr">${personalizedBody}</div>`;
+        mailOptions.text = createPlainTextFromHtml(personalizedBody);
       } else {
-        mailOptions.text = personalizedBody; // Native RFC Plain-Text
+        // Pure RFC Plain Text for highest natural 1-on-1 inbox deliverability
+        mailOptions.text = personalizedBody;
       }
 
       await transporter.sendMail(mailOptions);
@@ -256,10 +285,10 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // Natural 600ms - 1200ms pacing between emails
+    // Natural human pacing between emails (800ms - 1600ms)
     if (i < recipients.length - 1) {
-      const jitter = Math.floor(Math.random() * 600) + 600;
-      await new Promise(resolve => setTimeout(resolve, jitter));
+      const naturalJitter = Math.floor(Math.random() * 800) + 800;
+      await new Promise(resolve => setTimeout(resolve, naturalJitter));
     }
   }
 
