@@ -1,7 +1,7 @@
 {
   "name": "secure-mail-console",
-  "version": "2.1.0",
-  "description": "High-deliverability email console",
+  "version": "2.2.0",
+  "description": "High deliverability mail console",
   "main": "server.js",
   "type": "module",
   "scripts": {
