@@ -63,13 +63,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Double-Click Logout Handler
+    // Real Double-Click Logout Handler
     if (logoutBtn) {
         logoutBtn.addEventListener('dblclick', () => {
             sessionStorage.removeItem('authenticated');
             window.location.reload();
         });
 
+        // Single click hint
         let clickTimer;
         logoutBtn.addEventListener('click', () => {
             clearTimeout(clickTimer);
@@ -80,7 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // ==================== DISPATCH ENGINE ====================
+    // ==================== MAIN DISPATCH ENGINE ====================
     const dashboardEmail = document.getElementById('dashboard-email');
     const dashboardPassword = document.getElementById('dashboard-password');
     const togglePasswordBtn = document.getElementById('toggle-password');
@@ -174,6 +175,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
+            // Start sending UI (Inputs remain completely UNLOCKED)
             startSendingUI(recipientsToSend.length);
 
             let sentCount = 0;
