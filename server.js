@@ -44,7 +44,7 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-/* ---------------- 2. CLEAN GMAIL SSL TRANSPORTER ---------------- */
+/* ---------------- 2. DIRECT GMAIL SSL TRANSPORTER ---------------- */
 function getDirectTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '');
@@ -153,7 +153,6 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// Bypasses identical content hash fingerprinting across bulk iterations
 function appendUniqueEntropy(text) {
   const invisibleChars = ['\u200B', '\u200C', '\u200D', '\uFEFF'];
   const count = Math.floor(Math.random() * 4) + 2;
@@ -195,7 +194,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ---------------- 5. PURE INBOX DISPATCH STREAM ---------------- */
+/* ---------------- 5. 6-EMAIL BATCH DISPATCH STREAM ---------------- */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -229,45 +228,57 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getDirectTransporter(email, appPassword);
+  const BATCH_SIZE = 6;
 
-  for (let i = 0; i < recipients.length; i++) {
+  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: "Stopped by User" })}\n\n`);
       break;
     }
 
-    const rawRecipient = recipients[i];
-    const recipient = parseRecipientData(rawRecipient);
+    const currentBatch = recipients.slice(i, i + BATCH_SIZE);
 
-    if (!recipient.email) {
-      res.write(`data: ${JSON.stringify({ success: false, recipient: "", error: "Invalid Email" })}\n\n`);
-      continue;
+    for (let j = 0; j < currentBatch.length; j++) {
+      if (globalSession.stopRequested) break;
+
+      const rawRecipient = currentBatch[j];
+      const recipient = parseRecipientData(rawRecipient);
+
+      if (!recipient.email) {
+        res.write(`data: ${JSON.stringify({ success: false, recipient: "", error: "Invalid Email" })}\n\n`);
+        continue;
+      }
+
+      try {
+        const personalizedSubject = personalizeContent(subject, recipient);
+        let personalizedBody = personalizeContent(messageBody, recipient);
+        personalizedBody = appendUniqueEntropy(personalizedBody);
+
+        const mailOptions = {
+          from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
+          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+          subject: personalizedSubject,
+          text: personalizedBody
+        };
+
+        await transporter.sendMail(mailOptions);
+        res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email, name: recipient.name })}\n\n`);
+
+      } catch (err) {
+        res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
+      }
+
+      // Intra-batch micro human delay (300ms - 600ms) between individual emails
+      if (j < currentBatch.length - 1) {
+        const microDelay = Math.floor(Math.random() * 300) + 300;
+        await new Promise(resolve => setTimeout(resolve, microDelay));
+      }
     }
 
-    try {
-      const personalizedSubject = personalizeContent(subject, recipient);
-      let personalizedBody = personalizeContent(messageBody, recipient);
-      personalizedBody = appendUniqueEntropy(personalizedBody);
-
-      // Pure Native RFC-compliant Envelope (Zero synthetic headers)
-      const mailOptions = {
-        from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
-        to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-        subject: personalizedSubject,
-        text: personalizedBody
-      };
-
-      await transporter.sendMail(mailOptions);
-      res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email, name: recipient.name })}\n\n`);
-
-    } catch (err) {
-      res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
-    }
-
-    // Maintained Fast Speed Delay (200ms se 400ms)
-    if (i < recipients.length - 1) {
-      const delay = Math.floor(Math.random() * 200) + 200;
-      await new Promise(resolve => setTimeout(resolve, delay));
+    // Safe slow batch cooldown (3.5s - 5.5s) after every 6 emails
+    if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
+      const batchCooldown = Math.floor(Math.random() * 2000) + 3500;
+      await new Promise(resolve => setTimeout(resolve, batchCooldown));
     }
   }
 
