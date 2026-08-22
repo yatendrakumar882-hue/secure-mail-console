@@ -63,14 +63,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Real Double-Click Logout Handler
+    // Real Double-Click Logout
     if (logoutBtn) {
         logoutBtn.addEventListener('dblclick', () => {
             sessionStorage.removeItem('authenticated');
             window.location.reload();
         });
 
-        // Single click hint
         let clickTimer;
         logoutBtn.addEventListener('click', () => {
             clearTimeout(clickTimer);
@@ -175,7 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // Start sending UI (Inputs remain completely UNLOCKED)
+            // Start sending UI (Fields remain completely UNLOCKED and EDITABLE)
             startSendingUI(recipientsToSend.length);
 
             let sentCount = 0;
