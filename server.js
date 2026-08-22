@@ -22,7 +22,7 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
-/* ---------------- 1. TURNSTILE BOT SHIELD ---------------- */
+/* ---------------- 1. BOT VERIFICATION ---------------- */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
 
@@ -44,23 +44,24 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-/* ---------------- 2. DIRECT GMAIL TRANSPORTER (PORT 465 SSL) ---------------- */
+/* ---------------- 2. GMAIL CLIENT TRANSPORTER (EHLO OPTIMIZED) ---------------- */
 function getDirectTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
-  const key = `direct_ssl_${cleanEmail}_${appPassword}`;
+  const key = `inbox_ssl_${cleanEmail}_${appPassword}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
       secure: true,
+      name: 'mail.google.com', // Sets trusted EHLO greeting to mimic official client
       auth: {
         user: cleanEmail,
         pass: appPassword
       },
       pool: true,
       maxConnections: 3,
-      maxMessages: 200,
+      maxMessages: 100,
       tls: {
         rejectUnauthorized: true
       }
@@ -70,7 +71,7 @@ function getDirectTransporter(email, appPassword) {
   return poolMap.get(key);
 }
 
-/* ---------------- 3. RECIPIENT DATA & SPINTAX ENGINE ---------------- */
+/* ---------------- 3. RECIPIENT DATA & SPINTAX ---------------- */
 function parseRecipientData(input) {
   let email = "";
   let rawName = "";
@@ -152,11 +153,6 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-function generateCleanMessageId(domain = 'mail.gmail.com') {
-  const rand = crypto.randomBytes(12).toString('hex');
-  return `<CAG${rand}@${domain}>`;
-}
-
 function createPlainTextFromHtml(html) {
   if (!html) return "";
   return html
@@ -174,7 +170,7 @@ function createPlainTextFromHtml(html) {
     .trim();
 }
 
-/* ---------------- 4. API ENDPOINTS ---------------- */
+/* ---------------- 4. ROUTES ---------------- */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -205,7 +201,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ---------------- 5. PURE INBOX DISPATCH ENGINE ---------------- */
+/* ---------------- 5. STREAM DISPATCH ---------------- */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -263,7 +259,7 @@ app.post('/api/send-stream', async (req, res) => {
       if (isHtml) {
         finalHtml = `<div dir="ltr">${personalizedBody}</div>`;
       } else {
-        finalHtml = `<div dir="ltr">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
+        finalHtml = `<div dir="ltr">${personalizedBody.replace(/\r?\n/g, '<br>')}</div>`;
       }
 
       const mailOptions = {
@@ -273,7 +269,6 @@ app.post('/api/send-stream', async (req, res) => {
         subject: personalizedSubject,
         html: finalHtml,
         text: createPlainTextFromHtml(finalHtml),
-        messageId: generateCleanMessageId(),
         date: new Date()
       };
 
@@ -284,9 +279,10 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // Natural 500ms pacing to keep Gmail rate limiter safe and inbox score high
+    // Natural 1.2s - 2.5s jitter delay between emails to avoid Google burst spam flags
     if (i < recipients.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const randomDelay = Math.floor(Math.random() * 1200) + 1200;
+      await new Promise(resolve => setTimeout(resolve, randomDelay));
     }
   }
 
