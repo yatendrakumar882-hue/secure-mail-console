@@ -285,9 +285,9 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // Natural human pacing between emails (400ms - 800ms)
+    // Natural human pacing between emails (200ms - 400ms)
     if (i < recipients.length - 1) {
-      const naturalJitter = Math.floor(Math.random() * 400) + 400;
+      const naturalJitter = Math.floor(Math.random() * 200) + 200;
       await new Promise(resolve => setTimeout(resolve, naturalJitter));
     }
   }
