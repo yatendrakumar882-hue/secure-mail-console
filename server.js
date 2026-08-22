@@ -49,7 +49,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Fast Handshake & Reusable Sockets)
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -60,7 +60,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Upgrades cleanly via STARTTLS
+      secure: false, // STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -219,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE (Fast Speed Flow)
+   STREAMING DISPATCH ROUTE (2-Line Top Spacing & Fast Dispatch)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -272,12 +272,16 @@ app.post('/api/send-stream', async (req, res) => {
       const personalizedBody = personalizeContent(messageBody, recipient);
       const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
+      // 2-line top space (padding-top: 24px) + 15px font + Deep Dark (#0f172a)
       let formattedHtml = '';
       if (isHtml) {
-        formattedHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #0f172a; line-height: 1.65;">${personalizedBody}</div>`;
+        formattedHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #0f172a; line-height: 1.65; padding-top: 24px;">${personalizedBody}</div>`;
       } else {
-        formattedHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #0f172a; line-height: 1.65;">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
+        formattedHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #0f172a; line-height: 1.65; padding-top: 24px;">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
       }
+
+      // Plain-text fallback mein 2 empty lines (\n\n) header se neeche
+      const plainTextFormatted = `\n\n${createPlainTextFromHtml(formattedHtml)}`;
 
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
@@ -285,7 +289,7 @@ app.post('/api/send-stream', async (req, res) => {
         replyTo: cleanEmail,
         subject: personalizedSubject || 'No Subject',
         html: formattedHtml,
-        text: createPlainTextFromHtml(formattedHtml)
+        text: plainTextFormatted
       };
 
       await transporter.sendMail(mailOptions);
@@ -294,7 +298,7 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // Fast Speed: 200ms - 250ms gap between each email dispatch
+    // Fast Speed: 200ms - 250ms delay
     if (i < recipients.length - 1) {
       const fastDelay = Math.floor(200 + Math.random() * 50);
       await new Promise(resolve => setTimeout(resolve, fastDelay));
