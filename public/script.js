@@ -48,7 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 setTimeout(() => {
                     passwordGate.classList.add('hidden');
                     mainApp.classList.remove('hidden');
-                }, 550);
+                }, 400);
             } else {
                 gateError.classList.remove('hidden');
                 gatePassword.value = '';
@@ -70,7 +70,6 @@ document.addEventListener('DOMContentLoaded', () => {
             window.location.reload();
         });
 
-        // Single click hint
         let clickTimer;
         logoutBtn.addEventListener('click', () => {
             clearTimeout(clickTimer);
@@ -175,7 +174,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // Start sending UI (Inputs remain completely UNLOCKED)
             startSendingUI(recipientsToSend.length);
 
             let sentCount = 0;
