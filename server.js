@@ -49,7 +49,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - 2 Connection Pool)
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -60,14 +60,14 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // STARTTLS
+      secure: false, // RFC Compliant STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 2, // Synchronized with exact 2-batch processing
+      maxConnections: 2, // 2-batch sync
       maxMessages: 500,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -219,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX STREAMING ROUTE (2 Emails Per Batch)
+   PRIMARY INBOX STREAMING ROUTE (Full RFC Standard & Zero Spam Flags)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -254,10 +254,11 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 2; // Exact 2 emails per batch
+  const BATCH_SIZE = 2;
 
-  const defaultBestSubject = '{Venture|bravery|reports|quick note|site audit}';
-  const defaultBestBody = "{Your site has a professional look but is missing from the primary pages. Can I share reports with you?|Your site looks refined but is absent from the primary page. May I share reports.}";
+  // Fully diversified spintax (Protects against Content-Hash Filters)
+  const defaultBestSubject = '{quick note regarding your site|website feedback|quick question for you|question about your page}';
+  const defaultBestBody = "{Hi {Name},|Hello {Name},|Hey {Name},}\n\n{I noticed your site has a great presentation but isn't showing on the top results.|Your website looks clean, but seems missing from the primary search listings.}\n\n{May I send you a quick report with details?|Would you mind if I shared the screenshot with you?|Can I share the audit reports with you?}";
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultBestSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBestBody;
@@ -276,7 +277,7 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(100 + Math.random() * 150)));
+          await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 250)));
         }
 
         const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
@@ -287,17 +288,24 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // 100% Raw Native Clean Layout (Primary Inbox Landing)
+        // Pure standard multi-part message (Gmail Native Human Structure)
         const formattedHtml = `<div dir="ltr">${cleanBodyText}</div>`;
         const plainTextFormatted = createCleanPlainText(personalizedBody);
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+          envelope: {
+            from: cleanEmail,
+            to: recipient.email
+          },
           replyTo: cleanEmail,
+          date: new Date(), // Standard RFC 2822 timestamp (Fixes automated script flag)
           subject: personalizedSubject,
+          text: plainTextFormatted,
           html: formattedHtml,
-          text: plainTextFormatted
+          textEncoding: 'base64',
+          encoding: 'utf-8'
         };
 
         await transporter.sendMail(mailOptions);
@@ -316,9 +324,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Safe human-paced batch rest (2.8s to 4.2s) between 2-email batches
+    // Human delay between 2-email batches (3.2s to 5.0s)
     if (i + BATCH_SIZE < recipients.length) {
-      const safeBatchDelay = Math.floor(2800 + Math.random() * 1400);
+      const safeBatchDelay = Math.floor(3200 + Math.random() * 1800);
       await new Promise(resolve => setTimeout(resolve, safeBatchDelay));
     }
   }
