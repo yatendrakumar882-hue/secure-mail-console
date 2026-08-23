@@ -67,7 +67,7 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 4,
+      maxConnections: 4, // Aligned with 4-batch processing
       maxMessages: 500,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -219,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE (+35% Font Size & 2-Row Vertical Spacing)
+   STREAMING DISPATCH ROUTE (4 Emails Per Batch)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -254,7 +254,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 4;
+  const BATCH_SIZE = 4; // Exact 4 emails per batch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -277,14 +277,14 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // 35% boosted size (17.5pt / 23px) + 2 forced blank table spacer rows
+        // Exact Match: 19px / 13.5pt, Times New Roman, line-height 1.4, 2x18px rows
         const formattedHtml = `
           <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: 'Times New Roman', Times, serif; color: #000000;">
-            <tr><td height="22" style="font-size: 22px; line-height: 22px; mso-line-height-rule: exactly;">&nbsp;</td></tr>
-            <tr><td height="22" style="font-size: 22px; line-height: 22px; mso-line-height-rule: exactly;">&nbsp;</td></tr>
+            <tr><td height="18" style="font-size: 18px; line-height: 18px; mso-line-height-rule: exactly;">&nbsp;</td></tr>
+            <tr><td height="18" style="font-size: 18px; line-height: 18px; mso-line-height-rule: exactly;">&nbsp;</td></tr>
             <tr>
-              <td style="font-family: 'Times New Roman', Times, serif; font-size: 17.5pt; font-size: 23px; line-height: 1.4; color: #000000; mso-line-height-rule: exactly;">
-                <span style="font-size: 17.5pt; font-size: 23px; color: #000000; font-family: 'Times New Roman', Times, serif;">
+              <td style="font-family: 'Times New Roman', Times, serif; font-size: 13.5pt; font-size: 19px; line-height: 1.4; color: #000000; mso-line-height-rule: exactly;">
+                <span style="font-size: 13.5pt; font-size: 19px; color: #000000; font-family: 'Times New Roman', Times, serif; line-height: 1.4;">
                   ${cleanBody}
                 </span>
               </td>
@@ -319,7 +319,7 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Pacing delay (350ms - 400ms)
+    // Delay between 4-email batches (350ms - 400ms)
     if (i + BATCH_SIZE < recipients.length) {
       const batchDelay = Math.floor(350 + Math.random() * 50);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
