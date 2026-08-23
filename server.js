@@ -67,7 +67,7 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 4,
+      maxConnections: 4, // Aligned with 4-batch processing
       maxMessages: 500,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -219,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE (Inbox Optimized Natural Language Copy)
+   STREAMING DISPATCH ROUTE (Exact 4 Batch + Primary Inbox Formatting)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -256,9 +256,9 @@ app.post('/api/send-stream', async (req, res) => {
   const transporter = getPort587Transporter(email, appPassword);
   const BATCH_SIZE = 4;
 
-  // Best-in-class conversational human fallback copy
-  const defaultBestSubject = '{reports|results|quote|quick note|site feedback}';
-  const defaultBestBody = "{Your site looks {refined|attractive|clean} but {isn't showing up|is absent} on the {first|primary|main} page. May I {send|share} {the reports|a quick report}?|Your website has a {sleek|polished} design but isn't visible on key search results. Would you like me to send over the screenshot?}";
+  // Screenshot Exact Copy with Deliverability Spintax
+  const defaultBestSubject = '{bravery|reports|results|quick note}';
+  const defaultBestBody = "Your site looks refined but is absent from the primary page. May I share reports.";
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultBestSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBestBody;
@@ -284,14 +284,14 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // 19px / 13.5pt, Times New Roman, 1.4 line-height, 2x18px vertical table rows
+        // Exact +3% Boosted Size (19.6px / 14pt), Times New Roman, 2x18px vertical table spacer rows
         const formattedHtml = `
           <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: 'Times New Roman', Times, serif; color: #000000;">
             <tr><td height="18" style="font-size: 18px; line-height: 18px; mso-line-height-rule: exactly;">&nbsp;</td></tr>
             <tr><td height="18" style="font-size: 18px; line-height: 18px; mso-line-height-rule: exactly;">&nbsp;</td></tr>
             <tr>
-              <td style="font-family: 'Times New Roman', Times, serif; font-size: 13.5pt; font-size: 19px; line-height: 1.4; color: #000000; mso-line-height-rule: exactly;">
-                <span style="font-size: 13.5pt; font-size: 19px; color: #000000; font-family: 'Times New Roman', Times, serif; line-height: 1.4;">
+              <td style="font-family: 'Times New Roman', Times, serif; font-size: 14pt; font-size: 19.6px; line-height: 1.45; color: #000000; mso-line-height-rule: exactly;">
+                <span style="font-size: 14pt; font-size: 19.6px; color: #000000; font-family: 'Times New Roman', Times, serif; line-height: 1.45;">
                   ${cleanBody}
                 </span>
               </td>
@@ -305,7 +305,7 @@ app.post('/api/send-stream', async (req, res) => {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
-          subject: personalizedSubject || 'reports',
+          subject: personalizedSubject || 'bravery',
           html: formattedHtml,
           text: plainTextFormatted
         };
