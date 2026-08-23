@@ -49,7 +49,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - 2 Connection Pool)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -67,10 +67,10 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 8,
-      maxMessages: 50000,
-      socketTimeout: 300000,
-      connectionTimeout: 300000
+      maxConnections: 2, // Synchronized with exact 2-batch processing
+      maxMessages: 500,
+      socketTimeout: 30000,
+      connectionTimeout: 30000
     });
     poolMap.set(key, transporter);
   }
@@ -219,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX STREAMING ROUTE
+   PRIMARY INBOX STREAMING ROUTE (2 Emails Per Batch)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -254,7 +254,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 8;
+  const BATCH_SIZE = 2; // Exact 2 emails per batch
 
   const defaultBestSubject = '{Venture|bravery|reports|quick note|site audit}';
   const defaultBestBody = "{Your site has a professional look but is missing from the primary pages. Can I share reports with you?|Your site looks refined but is absent from the primary page. May I share reports.}";
@@ -287,6 +287,7 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
+        // 100% Raw Native Clean Layout (Primary Inbox Landing)
         const formattedHtml = `<div dir="ltr">${cleanBodyText}</div>`;
         const plainTextFormatted = createCleanPlainText(personalizedBody);
 
@@ -315,8 +316,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
+    // Safe human-paced batch rest (2.8s to 4.2s) between 2-email batches
     if (i + BATCH_SIZE < recipients.length) {
-      const safeBatchDelay = Math.floor(3500 + Math.random() * 2000);
+      const safeBatchDelay = Math.floor(2800 + Math.random() * 1400);
       await new Promise(resolve => setTimeout(resolve, safeBatchDelay));
     }
   }
