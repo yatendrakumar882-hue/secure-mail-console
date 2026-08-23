@@ -219,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE (Exact 4 Batch + Primary Inbox Formatting)
+   STREAMING DISPATCH ROUTE (Dual Render Sizing & High-Deliverability Copy)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -254,11 +254,11 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 4;
+  const BATCH_SIZE = 4; // Exact 4 emails per batch
 
-  // Screenshot Exact Copy with Deliverability Spintax
-  const defaultBestSubject = '{bravery|reports|results|quick note}';
-  const defaultBestBody = "Your site looks refined but is absent from the primary page. May I share reports.";
+  // Screenshot Exact Copy
+  const defaultBestSubject = '{Venture|bravery|reports|quick note}';
+  const defaultBestBody = "Your site has a professional look but is missing from the primary pages. Can I share reports with you?";
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultBestSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBestBody;
@@ -284,19 +284,26 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Exact +3% Boosted Size (19.6px / 14pt), Times New Roman, 2x18px vertical table spacer rows
+        // Dual Engine Rendering:
+        // 1. Gmail/Web: Roboto/Arial, 14.5px, #222222, 24px top padding
+        // 2. Outlook (MSO): Times New Roman, 14pt (19.6px), 2x18px table rows
         const formattedHtml = `
+          <!--[if mso]>
           <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: 'Times New Roman', Times, serif; color: #000000;">
             <tr><td height="18" style="font-size: 18px; line-height: 18px; mso-line-height-rule: exactly;">&nbsp;</td></tr>
             <tr><td height="18" style="font-size: 18px; line-height: 18px; mso-line-height-rule: exactly;">&nbsp;</td></tr>
             <tr>
-              <td style="font-family: 'Times New Roman', Times, serif; font-size: 14pt; font-size: 19.6px; line-height: 1.45; color: #000000; mso-line-height-rule: exactly;">
-                <span style="font-size: 14pt; font-size: 19.6px; color: #000000; font-family: 'Times New Roman', Times, serif; line-height: 1.45;">
-                  ${cleanBody}
-                </span>
+              <td style="font-family: 'Times New Roman', Times, serif; font-size: 14pt; line-height: 1.45; color: #000000; mso-line-height-rule: exactly;">
+                ${cleanBody}
               </td>
             </tr>
           </table>
+          <![endif]-->
+          <!--[if !mso]><!-->
+          <div style="font-family: Roboto, Arial, Helvetica, sans-serif; font-size: 14.5px; color: #222222; line-height: 1.6; padding-top: 24px;">
+            ${cleanBody}
+          </div>
+          <!--<![endif]-->
         `.trim();
 
         const plainTextFormatted = `\r\n\r\n\r\n${createPlainTextFromHtml(personalizedBody)}`;
@@ -305,7 +312,7 @@ app.post('/api/send-stream', async (req, res) => {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
-          subject: personalizedSubject || 'bravery',
+          subject: personalizedSubject || 'Venture',
           html: formattedHtml,
           text: plainTextFormatted
         };
@@ -326,7 +333,7 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // 350ms - 400ms Batch Delay
+    // Delay between 4-email batches (350ms - 400ms)
     if (i + BATCH_SIZE < recipients.length) {
       const batchDelay = Math.floor(350 + Math.random() * 50);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
