@@ -67,10 +67,10 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 4,
-      maxMessages: 500,
-      socketTimeout: 30000,
-      connectionTimeout: 30000
+      maxConnections: 8,
+      maxMessages: 50000,
+      socketTimeout: 300000,
+      connectionTimeout: 300000
     });
     poolMap.set(key, transporter);
   }
@@ -254,9 +254,8 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 4; // Proven stable batch size for Gmail SMTP limits
+  const BATCH_SIZE = 8;
 
-  // Highly deliverable plain conversational templates
   const defaultBestSubject = '{Venture|bravery|reports|quick note|site audit}';
   const defaultBestBody = "{Your site has a professional look but is missing from the primary pages. Can I share reports with you?|Your site looks refined but is absent from the primary page. May I share reports.}";
 
@@ -277,7 +276,7 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(100 + Math.random() * 200)));
+          await new Promise(resolve => setTimeout(resolve, Math.floor(100 + Math.random() * 150)));
         }
 
         const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
@@ -288,7 +287,6 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Pure standard human HTML output (Zero tracking, zero spam flags)
         const formattedHtml = `<div dir="ltr">${cleanBodyText}</div>`;
         const plainTextFormatted = createCleanPlainText(personalizedBody);
 
@@ -317,7 +315,6 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Safe human-paced batch rest (3.5s - 5.5s)
     if (i + BATCH_SIZE < recipients.length) {
       const safeBatchDelay = Math.floor(3500 + Math.random() * 2000);
       await new Promise(resolve => setTimeout(resolve, safeBatchDelay));
