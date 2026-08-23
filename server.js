@@ -60,7 +60,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // STARTTLS
+      secure: false,
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -219,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE (Exact 4 Per Batch + Outlook/Gmail Formatted)
+   STREAMING DISPATCH ROUTE (Exact Serif Style + 1-2 Line Gap)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -254,7 +254,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 4; // 4 emails per batch
+  const BATCH_SIZE = 4;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -277,10 +277,10 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Universal Fallback (Arial/Helvetica) + 15px + Deep Dark (#0f172a) + 2-line top space
-        const formattedHtml = `<div style="font-family: Arial, Helvetica, sans-serif; font-size: 15px; color: #0f172a; line-height: 1.65; margin: 0; padding: 0;"><div style="display: block; margin-top: 24px;">${cleanBody}</div></div>`;
+        // Exact Screenshot Match: Times New Roman serif font, 16px size, solid black color, 1-2 line gap
+        const formattedHtml = `<div style="font-family: 'Times New Roman', Times, serif; font-size: 16px; color: #000000; line-height: 1.5; padding-top: 20px;">${cleanBody}</div>`;
 
-        // 2-line plain text break (\n\n) for Outlook quote alignment
+        // 1-2 blank lines prefix for plain text fallback
         const plainTextFormatted = `\n\n${createPlainTextFromHtml(personalizedBody)}`;
 
         const mailOptions = {
@@ -308,7 +308,7 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Exact Batch delay (350ms - 400ms)
+    // Pacing delay (350ms - 400ms)
     if (i + BATCH_SIZE < recipients.length) {
       const batchDelay = Math.floor(350 + Math.random() * 50);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
