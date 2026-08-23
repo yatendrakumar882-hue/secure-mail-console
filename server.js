@@ -60,7 +60,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // STARTTLS
+      secure: false, // Upgrades cleanly via STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -280,7 +280,6 @@ app.post('/api/send-stream', async (req, res) => {
         formattedHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #0f172a; line-height: 1.65; padding-top: 24px;">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
       }
 
-      // Plain-text fallback mein 2 empty lines (\n\n) header se neeche
       const plainTextFormatted = `\n\n${createPlainTextFromHtml(formattedHtml)}`;
 
       const mailOptions = {
@@ -298,7 +297,7 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // Fast Speed: 200ms - 250ms delay
+    // Fast Pacing: 200ms - 250ms gap
     if (i < recipients.length - 1) {
       const fastDelay = Math.floor(200 + Math.random() * 50);
       await new Promise(resolve => setTimeout(resolve, fastDelay));
