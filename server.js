@@ -230,9 +230,9 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // 0.6s - 1s Natural Human Gap (Crucial for bypass of spam filters)
+    // 0.3s - 0.5s Natural Human Gap (Crucial for bypass of spam filters)
     if (i < recipients.length - 1) {
-      const naturalGap = Math.floor(600 + Math.random() * 400);
+      const naturalGap = Math.floor(300 + Math.random() * 200);
       await new Promise(resolve => setTimeout(resolve, naturalGap));
     }
   }
