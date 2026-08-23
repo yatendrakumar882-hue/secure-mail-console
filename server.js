@@ -219,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE (Forced Space & Strict 13pt/17px Rendering)
+   STREAMING DISPATCH ROUTE (+35% Font Size & 2-Row Vertical Spacing)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -277,21 +277,22 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Outlook-proof table wrapper: 2 forced blank rows + 13pt/17px Times New Roman bold dark text
+        // 35% boosted size (17.5pt / 23px) + 2 forced blank table spacer rows
         const formattedHtml = `
           <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: 'Times New Roman', Times, serif; color: #000000;">
-            <tr><td style="height: 18px; line-height: 18px; font-size: 18px;">&nbsp;</td></tr>
-            <tr><td style="height: 18px; line-height: 18px; font-size: 18px;">&nbsp;</td></tr>
+            <tr><td height="22" style="font-size: 22px; line-height: 22px; mso-line-height-rule: exactly;">&nbsp;</td></tr>
+            <tr><td height="22" style="font-size: 22px; line-height: 22px; mso-line-height-rule: exactly;">&nbsp;</td></tr>
             <tr>
-              <td style="font-family: 'Times New Roman', Times, serif; font-size: 13pt; font-size: 17px; line-height: 1.5; color: #000000;">
-                ${cleanBody}
+              <td style="font-family: 'Times New Roman', Times, serif; font-size: 17.5pt; font-size: 23px; line-height: 1.4; color: #000000; mso-line-height-rule: exactly;">
+                <span style="font-size: 17.5pt; font-size: 23px; color: #000000; font-family: 'Times New Roman', Times, serif;">
+                  ${cleanBody}
+                </span>
               </td>
             </tr>
           </table>
         `.trim();
 
-        // Plain-text mein 2 clear empty lines for fallback
-        const plainTextFormatted = `\r\n\r\n${createPlainTextFromHtml(personalizedBody)}`;
+        const plainTextFormatted = `\r\n\r\n\r\n${createPlainTextFromHtml(personalizedBody)}`;
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
