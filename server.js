@@ -3,7 +3,6 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -50,32 +49,28 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 RFC STARTTLS)
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_engine_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_core_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // RFC standard STARTTLS
+      secure: false, // STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6, // Matches exact 6 parallel batch slots
+      maxConnections: 4,
       maxMessages: 500,
       socketTimeout: 30000,
-      connectionTimeout: 30000,
-      tls: {
-        minVersion: 'TLSv1.2',
-        rejectUnauthorized: true
-      }
+      connectionTimeout: 30000
     });
     poolMap.set(key, transporter);
   }
@@ -224,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX DISPATCH ROUTE (6 Parallel Batch + Safe Anti-Spam Jitter)
+   PRIMARY INBOX STREAMING ROUTE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -259,9 +254,9 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 8; // Exactly 8 emails per parallel batch
+  const BATCH_SIZE = 4; // Proven stable batch size for Gmail SMTP limits
 
-  // Zero-spam primary inbox copy defaults
+  // Highly deliverable plain conversational templates
   const defaultBestSubject = '{Venture|bravery|reports|quick note|site audit}';
   const defaultBestBody = "{Your site has a professional look but is missing from the primary pages. Can I share reports with you?|Your site looks refined but is absent from the primary page. May I share reports.}";
 
@@ -281,9 +276,8 @@ app.post('/api/send-stream', async (req, res) => {
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
       try {
-        // Micro-jitter inside batch to prevent synchronous lock (50ms - 200ms)
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(50 + Math.random() * 150)));
+          await new Promise(resolve => setTimeout(resolve, Math.floor(100 + Math.random() * 200)));
         }
 
         const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
@@ -294,13 +288,9 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // 100% Genuine 1-on-1 human compose markup
+        // Pure standard human HTML output (Zero tracking, zero spam flags)
         const formattedHtml = `<div dir="ltr">${cleanBodyText}</div>`;
         const plainTextFormatted = createCleanPlainText(personalizedBody);
-
-        // Genuine Message-ID & headers
-        const domainPart = cleanEmail.includes('@') ? cleanEmail.split('@')[1] : 'gmail.com';
-        const customMessageId = `<${crypto.randomBytes(12).toString('hex')}@${domainPart}>`;
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
@@ -308,12 +298,7 @@ app.post('/api/send-stream', async (req, res) => {
           replyTo: cleanEmail,
           subject: personalizedSubject,
           html: formattedHtml,
-          text: plainTextFormatted,
-          messageId: customMessageId,
-          headers: {
-            'X-Priority': '3',
-            'Importance': 'Normal'
-          }
+          text: plainTextFormatted
         };
 
         await transporter.sendMail(mailOptions);
@@ -332,7 +317,7 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Crucial Safe Batch Rest (3.5s - 5.5s) to guarantee 0% Spam Placement
+    // Safe human-paced batch rest (3.5s - 5.5s)
     if (i + BATCH_SIZE < recipients.length) {
       const safeBatchDelay = Math.floor(3500 + Math.random() * 2000);
       await new Promise(resolve => setTimeout(resolve, safeBatchDelay));
