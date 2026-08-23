@@ -3,7 +3,6 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -50,7 +49,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
+   GMAIL TLS TRANSPORTER (Direct Standard Pipeline)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -68,8 +67,8 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 4,
-      maxMessages: 500,
+      maxConnections: 1, // Single connection for human delivery authenticity
+      maxMessages: 200,
       socketTimeout: 30000,
       connectionTimeout: 30000
     });
@@ -220,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE
+   STREAMING DISPATCH ROUTE (100% Clean Deliverability Engine)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -255,93 +254,59 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 4;
 
-  const defaultBestSubject = '{Venture|bravery|reports|quick note}';
-  const defaultBestBody = "Your site has a professional look but is missing from the primary pages. Can I share reports with you?";
+  // Highest inbox deliverability human variations
+  const defaultBestSubject = '{quick question|quick note|site feedback|reports|audit results}';
+  const defaultBestBody = "{Your site has a professional look but is missing from the primary pages. Can I share reports with you?|Your site looks refined but is absent from the primary page. May I share reports.}";
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultBestSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBestBody;
 
-  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
+  for (let i = 0; i < recipients.length; i++) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
       break;
     }
 
-    const batch = recipients.slice(i, i + BATCH_SIZE);
-
-    const sendPromises = batch.map(async (rawRecipient) => {
-      const recipient = parseRecipientData(rawRecipient);
-      if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
-
-      try {
-        const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
-        const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
-        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
-
-        const cleanBody = isHtml
-          ? personalizedBody
-          : personalizedBody.replace(/\n/g, '<br>');
-
-        // Dual Engine Safe HTML Template
-        const formattedHtml = `
-          <!--[if mso]>
-          <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: 'Times New Roman', Times, serif; color: #000000;">
-            <tr><td height="18" style="font-size: 18px; line-height: 18px; mso-line-height-rule: exactly;">&nbsp;</td></tr>
-            <tr><td height="18" style="font-size: 18px; line-height: 18px; mso-line-height-rule: exactly;">&nbsp;</td></tr>
-            <tr>
-              <td style="font-family: 'Times New Roman', Times, serif; font-size: 14pt; line-height: 1.45; color: #000000; mso-line-height-rule: exactly;">
-                ${cleanBody}
-              </td>
-            </tr>
-          </table>
-          <![endif]-->
-          <!--[if !mso]><!-->
-          <div style="font-family: Roboto, Arial, Helvetica, sans-serif; font-size: 14.5px; color: #222222; line-height: 1.6; padding-top: 24px;">
-            ${cleanBody}
-          </div>
-          <!--<![endif]-->
-        `.trim();
-
-        const plainTextFormatted = `\r\n\r\n${createPlainTextFromHtml(personalizedBody)}`;
-        const messageIdDomain = cleanEmail.includes('@') ? cleanEmail.split('@')[1] : 'gmail.com';
-        const uniqueMessageId = `<${crypto.randomUUID()}@${messageIdDomain}>`;
-
-        const mailOptions = {
-          from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
-          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-          replyTo: cleanEmail,
-          subject: personalizedSubject || 'Venture',
-          html: formattedHtml,
-          text: plainTextFormatted,
-          messageId: uniqueMessageId,
-          headers: {
-            'X-Mailer': 'Apple Mail (2.3609.60.0.4c)',
-            'X-Priority': '3',
-            'Importance': 'Normal'
-          }
-        };
-
-        await transporter.sendMail(mailOptions);
-        return { success: true, recipient: recipient.email, name: recipient.name };
-
-      } catch (err) {
-        return { success: false, recipient: recipient.email, error: err.message };
-      }
-    });
-
-    const results = await Promise.allSettled(sendPromises);
-
-    for (const resItem of results) {
-      if (resItem.status === 'fulfilled' && resItem.value.recipient) {
-        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
-      }
+    const recipient = parseRecipientData(recipients[i]);
+    if (!recipient.email) {
+      res.write(`data: ${JSON.stringify({ success: false, recipient: '', error: 'Invalid Email' })}\n\n`);
+      continue;
     }
 
-    if (i + BATCH_SIZE < recipients.length) {
-      const batchDelay = Math.floor(350 + Math.random() * 50);
-      await new Promise(resolve => setTimeout(resolve, batchDelay));
+    try {
+      const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
+      const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
+      const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+
+      const cleanBody = isHtml
+        ? personalizedBody
+        : personalizedBody.replace(/\n/g, '<br>');
+
+      // Pure Native Compose HTML (No tables, no top-space, exact standard inbox styling)
+      const formattedHtml = `<div dir="ltr" style="font-family: Arial, sans-serif; font-size: 14px; color: #222222; line-height: 1.5;">${cleanBody}</div>`;
+      const plainTextFormatted = createPlainTextFromHtml(personalizedBody);
+
+      const mailOptions = {
+        from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
+        to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+        replyTo: cleanEmail,
+        subject: personalizedSubject,
+        html: formattedHtml,
+        text: plainTextFormatted
+      };
+
+      await transporter.sendMail(mailOptions);
+      res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email, name: recipient.name })}\n\n`);
+
+    } catch (err) {
+      res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
+    }
+
+    // Natural human delay between emails (1.2s - 2.0s) to keep spam filters cold
+    if (i < recipients.length - 1) {
+      const humanDelay = Math.floor(1200 + Math.random() * 800);
+      await new Promise(resolve => setTimeout(resolve, humanDelay));
     }
   }
 
