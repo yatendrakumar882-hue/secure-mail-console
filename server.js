@@ -51,23 +51,23 @@ async function verifyTurnstileToken(token, remoteIp) {
 /* ==========================================================================
    GMAIL TLS TRANSPORTER (Direct Standard Pipeline)
    ========================================================================== */
-function getPort587Transporter(email, appPassword) {
+function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `port587_${cleanEmail}_${cleanPass}`;
+  const key = `tls_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // STARTTLS
+      secure: false, // STARTTLS RFC compliant
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 1, // Single connection for human delivery authenticity
+      maxConnections: 1, // Single natural pipeline to prevent concurrency flags
       maxMessages: 200,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -207,7 +207,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = getPort587Transporter(email, appPassword);
+    const transporter = getTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP verified successfully' });
   } catch (error) {
@@ -219,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE (100% Clean Deliverability Engine)
+   STREAMING DISPATCH ROUTE (Inbox Optimized Delivery)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -253,11 +253,11 @@ app.post('/api/send-stream', async (req, res) => {
     res.write(': keep-alive\n\n');
   }, 4000);
 
-  const transporter = getPort587Transporter(email, appPassword);
+  const transporter = getTransporter(email, appPassword);
 
-  // Highest inbox deliverability human variations
-  const defaultBestSubject = '{quick question|quick note|site feedback|reports|audit results}';
-  const defaultBestBody = "{Your site has a professional look but is missing from the primary pages. Can I share reports with you?|Your site looks refined but is absent from the primary page. May I share reports.}";
+  // Deliverability Optimized Clean Copy
+  const defaultBestSubject = '{Venture|bravery|reports|quick note|site feedback}';
+  const defaultBestBody = "Your site has a professional look but is missing from the primary pages. Can I share reports with you?";
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultBestSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBestBody;
@@ -283,8 +283,8 @@ app.post('/api/send-stream', async (req, res) => {
         ? personalizedBody
         : personalizedBody.replace(/\n/g, '<br>');
 
-      // Pure Native Compose HTML (No tables, no top-space, exact standard inbox styling)
-      const formattedHtml = `<div dir="ltr" style="font-family: Arial, sans-serif; font-size: 14px; color: #222222; line-height: 1.5;">${cleanBody}</div>`;
+      // Pure Native Clean Layout (Exact Gmail Compose Output)
+      const formattedHtml = `<div dir="ltr">${cleanBody}</div>`;
       const plainTextFormatted = createPlainTextFromHtml(personalizedBody);
 
       const mailOptions = {
@@ -303,10 +303,10 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // Natural human delay between emails (1.2s - 2.0s) to keep spam filters cold
+    // Natural Pacing: 1.5s - 2.8s Random Gap to prevent spam heuristic triggers
     if (i < recipients.length - 1) {
-      const humanDelay = Math.floor(1200 + Math.random() * 800);
-      await new Promise(resolve => setTimeout(resolve, humanDelay));
+      const naturalDelay = Math.floor(1500 + Math.random() * 1300);
+      await new Promise(resolve => setTimeout(resolve, naturalDelay));
     }
   }
 
