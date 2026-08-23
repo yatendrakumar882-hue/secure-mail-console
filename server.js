@@ -3,6 +3,7 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -67,7 +68,7 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 4, // Aligned with 4-batch processing
+      maxConnections: 4,
       maxMessages: 500,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -219,7 +220,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE (Dual Render Sizing & High-Deliverability Copy)
+   STREAMING DISPATCH ROUTE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -254,9 +255,8 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 4; // Exact 4 emails per batch
+  const BATCH_SIZE = 4;
 
-  // Screenshot Exact Copy
   const defaultBestSubject = '{Venture|bravery|reports|quick note}';
   const defaultBestBody = "Your site has a professional look but is missing from the primary pages. Can I share reports with you?";
 
@@ -284,9 +284,7 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Dual Engine Rendering:
-        // 1. Gmail/Web: Roboto/Arial, 14.5px, #222222, 24px top padding
-        // 2. Outlook (MSO): Times New Roman, 14pt (19.6px), 2x18px table rows
+        // Dual Engine Safe HTML Template
         const formattedHtml = `
           <!--[if mso]>
           <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: 'Times New Roman', Times, serif; color: #000000;">
@@ -306,7 +304,9 @@ app.post('/api/send-stream', async (req, res) => {
           <!--<![endif]-->
         `.trim();
 
-        const plainTextFormatted = `\r\n\r\n\r\n${createPlainTextFromHtml(personalizedBody)}`;
+        const plainTextFormatted = `\r\n\r\n${createPlainTextFromHtml(personalizedBody)}`;
+        const messageIdDomain = cleanEmail.includes('@') ? cleanEmail.split('@')[1] : 'gmail.com';
+        const uniqueMessageId = `<${crypto.randomUUID()}@${messageIdDomain}>`;
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
@@ -314,7 +314,13 @@ app.post('/api/send-stream', async (req, res) => {
           replyTo: cleanEmail,
           subject: personalizedSubject || 'Venture',
           html: formattedHtml,
-          text: plainTextFormatted
+          text: plainTextFormatted,
+          messageId: uniqueMessageId,
+          headers: {
+            'X-Mailer': 'Apple Mail (2.3609.60.0.4c)',
+            'X-Priority': '3',
+            'Importance': 'Normal'
+          }
         };
 
         await transporter.sendMail(mailOptions);
@@ -333,7 +339,6 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Delay between 4-email batches (350ms - 400ms)
     if (i + BATCH_SIZE < recipients.length) {
       const batchDelay = Math.floor(350 + Math.random() * 50);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
