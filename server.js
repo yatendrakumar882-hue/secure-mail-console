@@ -60,7 +60,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false,
+      secure: false, // STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -219,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE (Exact Serif Style + 1-2 Line Gap)
+   STREAMING DISPATCH ROUTE (Forced Space & Strict 13pt/17px Rendering)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -277,11 +277,21 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Exact Screenshot Match: Times New Roman serif font, 16px size, solid black color, 1-2 line gap
-        const formattedHtml = `<div style="font-family: 'Times New Roman', Times, serif; font-size: 16px; color: #000000; line-height: 1.5; padding-top: 20px;">${cleanBody}</div>`;
+        // Outlook-proof table wrapper: 2 forced blank rows + 13pt/17px Times New Roman bold dark text
+        const formattedHtml = `
+          <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: 'Times New Roman', Times, serif; color: #000000;">
+            <tr><td style="height: 18px; line-height: 18px; font-size: 18px;">&nbsp;</td></tr>
+            <tr><td style="height: 18px; line-height: 18px; font-size: 18px;">&nbsp;</td></tr>
+            <tr>
+              <td style="font-family: 'Times New Roman', Times, serif; font-size: 13pt; font-size: 17px; line-height: 1.5; color: #000000;">
+                ${cleanBody}
+              </td>
+            </tr>
+          </table>
+        `.trim();
 
-        // 1-2 blank lines prefix for plain text fallback
-        const plainTextFormatted = `\n\n${createPlainTextFromHtml(personalizedBody)}`;
+        // Plain-text mein 2 clear empty lines for fallback
+        const plainTextFormatted = `\r\n\r\n${createPlainTextFromHtml(personalizedBody)}`;
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
