@@ -14,13 +14,14 @@ const PORT = process.env.PORT || 3000;
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
-// Authorized Mobile Number for OTP Login
-const AUTHORIZED_PHONE = '6395991106';
-const FAST2SMS_API_KEY = process.env.FAST2SMS_API_KEY || ''; // Optional: Enter Fast2SMS API Key in .env
+// Dedicated Authorized Phone Number
+const ADMIN_PHONE = '6395991106';
+const FAST2SMS_API_KEY = process.env.FAST2SMS_API_KEY || '';
 
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
-const otpStore = new Map(); // In-memory OTP Cache
+const otpStore = new Map();
+const approvedDevices = new Set(); // Stores approved Machine/Session IDs
 
 // Express Configuration
 app.use(cors());
@@ -29,7 +30,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 /* ==========================================================================
-   SMS GATEWAY SENDER (Fast2SMS / Console Fallback)
+   SMS GATEWAY SENDER (Fast2SMS / Console)
    ========================================================================== */
 async function sendSMSOTP(phoneNumber, otp) {
   if (FAST2SMS_API_KEY) {
@@ -53,16 +54,16 @@ async function sendSMSOTP(phoneNumber, otp) {
     }
   }
 
-  // Console Fallback if SMS Gateway API is not configured yet
-  console.log(`\n==============================================`);
-  console.log(`📲 [SMS OTP GATEWAY] Sending to +91 ${phoneNumber}`);
-  console.log(`🔑 YOUR SECURE LOGIN OTP IS: [ ${otp} ]`);
-  console.log(`==============================================\n`);
+  // Backup Terminal Log for Testing
+  console.log(`\n======================================================`);
+  console.log(`📲 [SECURE GATEWAY] Verification SMS to: +91 ${phoneNumber}`);
+  console.log(`🔑 ENTER THIS OTP TO UNLOCK LAUNCHER: [ ${otp} ]`);
+  console.log(`======================================================\n`);
   return true;
 }
 
 /* ==========================================================================
-   TURNSTILE BOT PROTECTION VERIFICATION
+   TURNSTILE BOT PROTECTION
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
@@ -88,7 +89,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
+   GMAIL TLS TRANSPORTER (STARTTLS Port 587)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -99,14 +100,14 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // RFC Compliant STARTTLS
+      secure: false,
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5, // 5-batch synchronized pipeline
+      maxConnections: 5,
       maxMessages: 500,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -117,7 +118,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   RECIPIENT NORMALIZATION & ADVANCED SPINTAX ENGINE
+   RECIPIENT & SPINTAX RESOLVERS
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -155,14 +156,11 @@ function parseRecipientData(input) {
     ? rawName.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
     : '';
 
-  const firstName = formattedName ? formattedName.split(' ')[0] : '';
-  const domain = email.includes('@') ? email.split('@')[1] : '';
-
   return {
     email: email.toLowerCase(),
     name: formattedName,
-    firstName: firstName,
-    domain: domain
+    firstName: formattedName ? formattedName.split(' ')[0] : '',
+    domain: email.includes('@') ? email.split('@')[1] : ''
   };
 }
 
@@ -176,8 +174,7 @@ function parseSpintax(text) {
     spun = spun.replace(regex, (_, choices) => {
       if (!choices.includes('|')) return choices;
       const options = choices.split('|');
-      const pick = options[Math.floor(Math.random() * options.length)];
-      return pick ? pick.trim() : '';
+      return options[Math.floor(Math.random() * options.length)].trim();
     });
     iterations++;
   }
@@ -187,7 +184,6 @@ function parseSpintax(text) {
 function personalizeContent(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
-
   const displayName = recipient.name || recipient.firstName || 'there';
   const displayFirstName = recipient.firstName || displayName;
 
@@ -196,7 +192,6 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{First_Name}/gi, displayFirstName);
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
-
   return content;
 }
 
@@ -218,77 +213,66 @@ function createCleanPlainText(text) {
 }
 
 /* ==========================================================================
-   API ROUTES (With Phone OTP Verification)
+   2-STEP AUTH ROUTES (PASSWORD + 6395991106 OTP)
    ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Step 1: Send OTP to Phone Number
-app.post('/api/auth/send-otp', async (req, res) => {
-  const { phone } = req.body;
-  const cleanPhone = (phone || '').replace(/\D/g, '').slice(-10);
+// Step 1: Submit Password & Trigger OTP to 6395991106
+app.post('/api/auth/request-otp', async (req, res) => {
+  const { password, machineId } = req.body;
 
-  if (cleanPhone !== AUTHORIZED_PHONE) {
-    return res.status(403).json({
-      success: false,
-      message: 'Unauthorized Phone Number. Access restricted to admin.'
-    });
+  if (password !== SITE_PASSWORD) {
+    return res.status(401).json({ success: false, message: 'Invalid Password' });
   }
 
-  // Generate secure 6-digit numeric OTP
+  // Generate 6-digit Secure OTP
   const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
-  otpStore.set(cleanPhone, {
+  otpStore.set(ADMIN_PHONE, {
     otp: generatedOtp,
-    expires: Date.now() + 5 * 60 * 1000 // 5 Minutes Validity
+    machineId: machineId || 'UNKNOWN_DEVICE',
+    expires: Date.now() + 5 * 60 * 1000 // 5 Minutes
   });
 
-  await sendSMSOTP(cleanPhone, generatedOtp);
+  await sendSMSOTP(ADMIN_PHONE, generatedOtp);
 
   return res.json({
     success: true,
-    message: `OTP sent successfully to +91 ${cleanPhone.slice(0, 2)}******${cleanPhone.slice(-2)}`
+    step: 'OTP_REQUIRED',
+    phoneHint: `+91 ******${ADMIN_PHONE.slice(-4)}`,
+    message: `OTP sent to authorized number (+91 6395991106)`
   });
 });
 
-// Step 2: Verify Phone OTP
+// Step 2: Verify OTP & Grant Access to Launcher
 app.post('/api/auth/verify-otp', (req, res) => {
-  const { phone, otp } = req.body;
-  const cleanPhone = (phone || '').replace(/\D/g, '').slice(-10);
+  const { otp, machineId } = req.body;
+  const record = otpStore.get(ADMIN_PHONE);
 
-  if (cleanPhone !== AUTHORIZED_PHONE) {
-    return res.status(403).json({ success: false, message: 'Unauthorized Phone Number' });
-  }
-
-  const record = otpStore.get(cleanPhone);
   if (!record) {
     return res.status(400).json({ success: false, message: 'OTP expired or not requested' });
   }
 
   if (Date.now() > record.expires) {
-    otpStore.delete(cleanPhone);
-    return res.status(400).json({ success: false, message: 'OTP has expired' });
+    otpStore.delete(ADMIN_PHONE);
+    return res.status(400).json({ success: false, message: 'OTP Expired' });
   }
 
   if (record.otp !== String(otp).trim()) {
-    return res.status(401).json({ success: false, message: 'Invalid OTP. Please try again.' });
+    return res.status(401).json({ success: false, message: 'Invalid OTP' });
   }
 
-  otpStore.delete(cleanPhone);
-  const sessionToken = crypto.randomBytes(24).toString('hex');
+  // Authorize Device & Clear OTP
+  if (machineId) approvedDevices.add(machineId);
+  otpStore.delete(ADMIN_PHONE);
+  const sessionToken = crypto.randomBytes(32).toString('hex');
 
   return res.json({
     success: true,
-    message: 'OTP Verified Successfully',
+    message: 'Launcher Authorized Successfully',
     token: sessionToken
   });
-});
-
-// Fallback Password Auth
-app.post('/api/auth', (req, res) => {
-  const { password } = req.body;
-  if (password === SITE_PASSWORD) return res.json({ success: true, message: 'Authorized' });
-  return res.status(401).json({ success: false, message: 'Unauthorized Password' });
 });
 
 app.post('/api/verify', async (req, res) => {
@@ -319,7 +303,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX DISPATCH ROUTE (5-Batch Sync + Safe Delay)
+   PRIMARY INBOX SENDING DISPATCH (5 Emails / Batch)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -387,7 +371,6 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Pure Dual Engine Formatting
         const formattedHtml = `
           <!--[if mso]>
           <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: 'Times New Roman', Times, serif; color: #000000;">
@@ -456,7 +439,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Mailer server running on port ${PORT}`);
+  console.log(`🚀 Secure Mailer running on port ${PORT}`);
 });
 
 export default app;
