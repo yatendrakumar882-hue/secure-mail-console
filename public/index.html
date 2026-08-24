@@ -1,291 +1,168 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Bulk Email Sender</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    body { background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Mail Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
 </head>
-<body class="text-slate-800 min-h-screen flex flex-col justify-center items-center p-4">
 
-  <!-- ================= AUTH MODAL (PASSWORD: ####) ================= -->
-  <div id="authContainer" class="w-full max-w-md bg-white border border-slate-200 rounded-2xl p-8 shadow-xl">
-    <div class="text-center mb-6">
-      <div class="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-3 border border-indigo-100">
-        <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
-      </div>
-      <h2 class="text-2xl font-bold text-slate-800">Access Protected</h2>
-      <p class="text-sm text-slate-500 mt-1">Enter master password to continue</p>
+<body>
+    <!-- Password Gate Overlay -->
+    <div id="password-gate" class="password-gate">
+        <div class="gate-card fade-in">
+            <div class="gate-icon">
+                <i class="fa-solid fa-lock"></i>
+            </div>
+            <h2>Access Protected</h2>
+            <p>Enter the password to continue</p>
+            <form id="gate-form" autocomplete="off">
+                <div class="form-group">
+                    <div class="password-wrapper">
+                        <input type="password" id="gate-password" placeholder="Enter password..." autocomplete="current-password" required>
+                        <button type="button" id="toggle-gate-password" class="icon-button" aria-label="Toggle password visibility">
+                            <i class="fa-regular fa-eye"></i>
+                        </button>
+                    </div>
+                </div>
+                <div id="gate-error" class="gate-error hidden">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    <span>Incorrect password</span>
+                </div>
+                <button type="submit" id="gate-submit-btn" class="btn btn-primary btn-block">
+                    <i class="fa-solid fa-arrow-right-to-bracket"></i> Enter
+                </button>
+            </form>
+        </div>
     </div>
 
-    <div id="authAlert" class="hidden mb-4 p-3 rounded-lg text-sm bg-rose-50 border border-rose-200 text-rose-600"></div>
-
-    <form id="loginForm" class="space-y-4">
-      <div>
-        <input type="password" id="sitePassword" required placeholder="Enter password" class="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:border-indigo-600 text-slate-800 font-mono text-base placeholder-slate-400">
-      </div>
-      <button type="submit" id="loginBtn" class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium transition shadow-md shadow-indigo-600/20">➔ Enter</button>
-    </form>
-  </div>
-
-  <!-- ================= MAIN LAUNCHER CONSOLE (2-COLUMN LIGHT UI) ================= -->
-  <div id="mainDashboard" class="hidden w-full max-w-6xl">
-    
-    <!-- Top Header -->
-    <div class="flex items-center justify-between mb-6">
-      <div class="flex items-center gap-2">
-        <svg class="w-6 h-6 text-indigo-600 transform -rotate-45" fill="currentColor" viewBox="0 0 20 20"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg>
-        <h1 class="text-2xl font-bold text-slate-800">Bulk Email Sender</h1>
-      </div>
-      <button onclick="location.reload()" class="text-xs text-slate-500 hover:text-slate-800 bg-white border border-slate-300 px-3 py-1.5 rounded-lg shadow-sm">Logout</button>
-    </div>
-
-    <!-- 2-Column Grid Layout -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-      <!-- LEFT COLUMN: Compose Message -->
-      <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
-        <div class="flex items-center gap-2 border-b border-slate-100 pb-3">
-          <svg class="w-5 h-5 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-          <h2 class="font-bold text-slate-800 text-base">Compose Message</h2>
-        </div>
-
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="text-xs font-semibold text-slate-600 block mb-1">Sender Name</label>
-            <input type="text" id="senderName" placeholder="E.g., John Doe" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-indigo-500">
-          </div>
-          <div>
-            <label class="text-xs font-semibold text-slate-600 block mb-1">Your Gmail</label>
-            <input type="email" id="smtpEmail" placeholder="you@gmail.com" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-indigo-500">
-          </div>
-        </div>
-
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="text-xs font-semibold text-slate-600 block mb-1">App Password</label>
-            <input type="password" id="smtpPass" placeholder="16-char app password" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-indigo-500">
-          </div>
-          <div>
-            <label class="text-xs font-semibold text-slate-600 block mb-1">Email Subject</label>
-            <input type="text" id="subject" placeholder="Enter subject line..." class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-indigo-500">
-          </div>
-        </div>
-
-        <div>
-          <label class="text-xs font-semibold text-slate-600 block mb-1">Message Body (Plain Text / HTML)</label>
-          <textarea id="body" rows="9" placeholder="Write your email here... Spintax supported: {Hi|Hello}" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono text-slate-800 focus:outline-none focus:border-indigo-500"></textarea>
-        </div>
-
-        <!-- Protection Badge -->
-        <div class="pt-2">
-          <div class="text-xs font-semibold text-slate-500 mb-1.5 flex items-center gap-1">🛡️ Anti-Spam Security</div>
-          <div class="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-medium text-emerald-700">
-            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>Success! Primary Inbox 5-Batch Protection Active</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- RIGHT COLUMN: Recipients & Progress Monitor -->
-      <div class="space-y-6">
-
-        <!-- Recipients Box -->
-        <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-          <div class="flex justify-between items-center mb-1">
-            <div class="flex items-center gap-2">
-              <svg class="w-5 h-5 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
-              <h2 class="font-bold text-slate-800 text-base">Recipients</h2>
-            </div>
-            <span id="foundBadge" class="text-xs bg-indigo-50 text-indigo-600 font-semibold px-2.5 py-0.5 rounded-full border border-indigo-100">0 found</span>
-          </div>
-          <p class="text-xs text-slate-400 mb-3">Paste emails (comma separated, new lines, or Excel copy)</p>
-          <textarea id="recipients" rows="5" placeholder="john@example.com&#10;jane@example.com, Jane Doe" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:border-indigo-500"></textarea>
-        </div>
-
-        <!-- Progress Monitor Cards -->
-        <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
-          <div class="flex items-center gap-2 border-b border-slate-100 pb-3">
-            <svg class="w-5 h-5 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-            <h2 class="font-bold text-slate-800 text-base">Progress Monitor</h2>
-          </div>
-
-          <!-- 4 Stat Counters Grid -->
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
-              <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">TOTAL</div>
-              <div id="statTotal" class="text-2xl font-black text-indigo-600 mt-1">0</div>
-            </div>
-            <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
-              <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">SENT</div>
-              <div id="statSent" class="text-2xl font-black text-emerald-500 mt-1">0</div>
-            </div>
-            <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
-              <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">FAILED</div>
-              <div id="statFailed" class="text-2xl font-black text-rose-500 mt-1">0</div>
-            </div>
-            <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
-              <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">REMAINING</div>
-              <div id="statRemaining" class="text-2xl font-black text-amber-500 mt-1">0</div>
-            </div>
-          </div>
-
-          <!-- Status Indicator -->
-          <div class="flex items-center justify-center gap-1.5 text-xs text-slate-500 py-1">
-            <span class="w-2 h-2 rounded-full bg-slate-400" id="statusDot"></span>
-            <span id="statusText">Ready to send</span>
-          </div>
-
-          <!-- Action Buttons -->
-          <div class="flex gap-3 pt-2">
-            <button id="startBtn" class="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition shadow-md shadow-emerald-600/20">
-              <svg class="w-5 h-5 transform -rotate-45" fill="currentColor" viewBox="0 0 20 20"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg>
-              <span>Send All</span>
+    <!-- Main Dashboard Application -->
+    <div class="app-container hidden" id="main-app">
+        <header class="app-header">
+            <h1><i class="fa-solid fa-shield-halved"></i> Secure Mail Console</h1>
+            <button type="button" id="logout-btn" class="btn-logout" title="Double click to logout">
+                <i class="fa-solid fa-right-from-bracket"></i> Logout (Double Click)
             </button>
-            <button id="stopBtn" class="px-6 py-3 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl font-bold transition">Stop</button>
-          </div>
-        </div>
+        </header>
 
-      </div>
+        <section id="dashboard-section">
+            <div class="dashboard-header fade-in">
+                <h2><i class="fa-solid fa-paper-plane"></i> Bulk Email Sender</h2>
+            </div>
+
+            <div class="dashboard-grid">
+                <!-- Composer Card -->
+                <div class="card composer-card fade-in delay-1">
+                    <h3><i class="fa-solid fa-pen-to-square"></i> Compose Message</h3>
+                    <form id="compose-form" onsubmit="return false;">
+                        
+                        <div class="form-row">
+                            <div class="form-group half">
+                                <label for="sender-name">Sender Name</label>
+                                <input type="text" id="sender-name" placeholder="E.g., John Doe" required spellcheck="false">
+                            </div>
+                            <div class="form-group half">
+                                <label for="dashboard-email">Your Gmail</label>
+                                <input type="email" id="dashboard-email" placeholder="you@gmail.com" required spellcheck="false" autocomplete="email">
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group half">
+                                <label for="dashboard-password">App Password</label>
+                                <div class="password-wrapper">
+                                    <input type="password" id="dashboard-password" placeholder="16-char app password" required autocomplete="off">
+                                    <button type="button" id="toggle-password" class="icon-button" aria-label="Toggle App Password">
+                                        <i class="fa-regular fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="form-group half">
+                                <label for="subject">Email Subject</label>
+                                <input type="text" id="subject" placeholder="Enter subject line..." required>
+                            </div>
+                        </div>
+
+                        <div class="form-group flex-grow">
+                            <label for="message-body">Message Body (Plain Text / HTML)</label>
+                            <textarea id="message-body" placeholder="Write your email here... Spintax supported: {Hi|Hello} {name}" required></textarea>
+                        </div>
+                        
+                        <div class="form-group" style="margin-top: 0.5rem; margin-bottom: 0;">
+                            <label><i class="fa-solid fa-shield-cat"></i> Spam Protection</label>
+                            <div class="cf-turnstile" data-sitekey="1x00000000000000000000AA" data-theme="light"></div>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Recipients & Controls -->
+                <div class="right-column">
+                    <div class="card recipients-card fade-in delay-2">
+                        <div class="card-header-flex">
+                            <h3><i class="fa-solid fa-users"></i> Recipients</h3>
+                            <span class="badge" id="detected-count">0 found</span>
+                        </div>
+                        <p class="help-subtext">Paste emails (comma separated, new lines, or Excel copy)</p>
+                        <div class="form-group flex-grow" style="margin-bottom: 0;">
+                            <textarea id="recipients-input" placeholder="recipient1@example.com&#10;recipient2@example.com" spellcheck="false"></textarea>
+                        </div>
+                        <div id="email-validation-error" class="error-message hidden">
+                            <i class="fa-solid fa-triangle-exclamation"></i> <span>Please enter valid recipients.</span>
+                        </div>
+                    </div>
+
+                    <div class="card progress-card fade-in delay-3">
+                        <h3><i class="fa-solid fa-chart-pie"></i> Progress Monitor</h3>
+
+                        <div class="stats-grid">
+                            <div class="stat-box neutral">
+                                <span class="stat-label">Total</span>
+                                <span class="stat-value" id="stat-total">0</span>
+                            </div>
+                            <div class="stat-box success">
+                                <span class="stat-label">Sent</span>
+                                <span class="stat-value" id="stat-sent">0</span>
+                            </div>
+                            <div class="stat-box danger">
+                                <span class="stat-label">Failed</span>
+                                <span class="stat-value" id="stat-failed">0</span>
+                            </div>
+                            <div class="stat-box warning">
+                                <span class="stat-label">Remaining</span>
+                                <span class="stat-value" id="stat-remaining">0</span>
+                            </div>
+                        </div>
+
+                        <div class="progress-bar-container">
+                            <div class="progress-bar" id="progress-bar" style="width: 0%;"></div>
+                        </div>
+
+                        <div class="status-indicator">
+                            <i id="status-icon" class="fa-solid fa-circle-pause text-muted"></i>
+                            <span id="status-text">Ready to send</span>
+                        </div>
+
+                        <div class="control-buttons">
+                            <button type="button" id="send-btn" class="btn btn-success btn-lg flex-1">
+                                <i class="fa-solid fa-paper-plane"></i> Send All
+                            </button>
+                            <button type="button" id="stop-btn" class="btn btn-danger btn-lg flex-1 hidden">
+                                <i class="fa-solid fa-stop"></i> Stop Sending
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
     </div>
 
-    <!-- Live Stream Log Container -->
-    <div class="mt-6 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
-      <div class="text-xs font-bold text-slate-600 mb-2">Live Delivery Log</div>
-      <div id="logBox" class="bg-slate-900 text-slate-200 rounded-xl p-3 h-32 overflow-y-auto text-xs font-mono space-y-1">
-        <div class="text-slate-500">System idle. Ready for dispatch...</div>
-      </div>
-    </div>
-
-  </div>
-
-  <!-- Scripts -->
-  <script>
-    const loginForm = document.getElementById('loginForm');
-    const authAlert = document.getElementById('authAlert');
-
-    function showAlert(msg) {
-      authAlert.classList.remove('hidden');
-      authAlert.textContent = msg;
-    }
-
-    // Step 1: Login with Master Password
-    loginForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const pwd = document.getElementById('sitePassword').value.trim();
-      const btn = document.getElementById('loginBtn');
-      btn.disabled = true;
-      btn.textContent = 'Verifying...';
-
-      try {
-        const res = await fetch('/api/auth', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password: pwd })
-        });
-        const data = await res.json();
-        if (data.success) {
-          document.getElementById('authContainer').classList.add('hidden');
-          document.getElementById('mainDashboard').classList.remove('hidden');
-        } else {
-          showAlert('Invalid password. Access denied.');
-        }
-      } catch (err) {
-        showAlert('Server connection failed.');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = '➔ Enter';
-      }
-    });
-
-    // Auto-update recipient count
-    const recipientsInput = document.getElementById('recipients');
-    recipientsInput.addEventListener('input', () => {
-      const list = recipientsInput.value.split('\n').filter(r => r.trim());
-      document.getElementById('foundBadge').textContent = `${list.length} found`;
-      document.getElementById('statTotal').textContent = list.length;
-      document.getElementById('statRemaining').textContent = list.length;
-    });
-
-    // Stream Execution & Counter Updates
-    document.getElementById('startBtn').addEventListener('click', async () => {
-      const email = document.getElementById('smtpEmail').value;
-      const appPassword = document.getElementById('smtpPass').value;
-      const senderName = document.getElementById('senderName').value;
-      const subject = document.getElementById('subject').value;
-      const messageBody = document.getElementById('body').value;
-      const rawRecipients = recipientsInput.value.split('\n').filter(r => r.trim());
-
-      if (!email || !appPassword || rawRecipients.length === 0) {
-        alert('Please fill Sender Email, App Password, and at least one Recipient.');
-        return;
-      }
-
-      let sentCount = 0;
-      let failedCount = 0;
-      const totalCount = rawRecipients.length;
-
-      document.getElementById('statTotal').textContent = totalCount;
-      document.getElementById('statSent').textContent = '0';
-      document.getElementById('statFailed').textContent = '0';
-      document.getElementById('statRemaining').textContent = totalCount;
-      document.getElementById('statusText').textContent = 'Sending in 5-batches...';
-      document.getElementById('statusDot').className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
-
-      const logBox = document.getElementById('logBox');
-      logBox.innerHTML = '<div class="text-indigo-400">⚡ Dispatch started. Connecting to STARTTLS port 587...</div>';
-
-      const res = await fetch('/api/send-stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, appPassword, senderName, subject, messageBody, recipients: rawRecipients })
-      });
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const dataStr = line.replace('data: ', '').trim();
-            if (dataStr === '[DONE]') {
-              logBox.innerHTML += '<div class="text-emerald-400">✔ Dispatch complete. All emails processed.</div>';
-              document.getElementById('statusText').textContent = 'Completed';
-              document.getElementById('statusDot').className = 'w-2 h-2 rounded-full bg-slate-400';
-            } else {
-              try {
-                const item = JSON.parse(dataStr);
-                if (item.success) {
-                  sentCount++;
-                  document.getElementById('statSent').textContent = sentCount;
-                } else {
-                  failedCount++;
-                  document.getElementById('statFailed').textContent = failedCount;
-                }
-                const remaining = totalCount - (sentCount + failedCount);
-                document.getElementById('statRemaining').textContent = remaining >= 0 ? remaining : 0;
-
-                logBox.innerHTML += `<div class="${item.success ? 'text-emerald-400' : 'text-rose-400'}">↳ ${item.recipient} : ${item.success ? 'Delivered to Primary Inbox' : item.error}</div>`;
-                logBox.scrollTop = logBox.scrollHeight;
-              } catch(e) {}
-            }
-          }
-        }
-      }
-    });
-
-    document.getElementById('stopBtn').addEventListener('click', async () => {
-      await fetch('/api/stop', { method: 'POST' });
-      document.getElementById('statusText').textContent = 'Stopped';
-      document.getElementById('statusDot').className = 'w-2 h-2 rounded-full bg-rose-500';
-    });
-  </script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    <script src="script.js"></script>
 </body>
+
 </html>
