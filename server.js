@@ -1,8 +1,12 @@
-const express = require('express');
-const nodemailer = require('nodemailer');
-const cors = require('cors');
-const path = require('path');
-const crypto = require('crypto');
+import express from 'express';
+import nodemailer from 'nodemailer';
+import cors from 'cors';
+import path from 'path';
+import crypto from 'crypto';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -13,12 +17,12 @@ const MASTER_PASSWORD = '####';
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
-// Middleware configuration
+// Middleware
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// Serve static assets safely
+// Serve static assets from public folder
 app.use(express.static(path.join(process.cwd(), 'public')));
 
 /* ==========================================================================
@@ -39,7 +43,7 @@ app.post('/api/auth', (req, res) => {
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_core_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -52,7 +56,7 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5, // Exact 5 concurrent batch connections
+      maxConnections: 5, // 5 Batch Limit
       maxMessages: 500,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -63,7 +67,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   RECIPIENT & SPINTAX RESOLVERS
+   PARSERS & SPINTAX RESOLVER
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -280,7 +284,7 @@ app.post('/api/send-stream', async (req, res) => {
   res.end();
 });
 
-// Non-streaming fallback route
+// Non-streaming fallback API
 app.post('/api/send', async (req, res) => {
   const { email, appPassword, password, senderName, subject, messageBody, body, recipients } = req.body;
   const userPass = appPassword || password;
@@ -322,9 +326,9 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Process stopped' });
 });
 
-// Serve frontend cleanly without path crash
+// Serve frontend safely on direct URL navigation
 app.get('*', (req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
 
-module.exports = app;
+export default app;
