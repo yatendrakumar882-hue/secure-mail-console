@@ -218,7 +218,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 5-BATCH NORMAL-SIZE ENGINE
+   PRIMARY INBOX 5-BATCH (BLITCH) ENGINE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -284,19 +284,22 @@ app.post('/api/send-stream', async (req, res) => {
 
         const bodyContent = isHtml ? personalizedBody : personalizedBody.replace(/\n/g, '<br>');
 
-        // Universal Normal Typography (15.5px / 11.5pt with 1-line top quote offset)
+        // Outlook: 16.5px (12.5pt) | Gmail/Web: 15px Normal | 1-line Quote Offset (18px margin)
         const formattedHtml = `
         <!--[if mso]>
         <style type="text/css">
-          body, table, td, p, div, span { font-size: 15.5px !important; font-family: Calibri, Arial, sans-serif !important; line-height: 1.65 !important; }
+          body, table, td, p, div, span { font-size: 16.5px !important; font-family: Calibri, 'Segoe UI', Arial, sans-serif !important; line-height: 1.7 !important; }
         </style>
+        <div style="margin-top: 18px; line-height: 1.7;">
         <![endif]-->
-        <div dir="ltr" style="font-family: Calibri, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15.5px; color: #1e293b; line-height: 1.65; margin-top: 14px; padding-top: 4px;">
+        <div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #1e293b; line-height: 1.65; margin-top: 16px; padding-top: 2px;">
           ${bodyContent}
-        </div>`;
+        </div>
+        <!--[if mso]>
+        </div>
+        <![endif]-->`;
 
-        // 1 line space in plain text quote fallback
-        const plainTextFormatted = `\n${createCleanPlainText(personalizedBody)}`;
+        const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
         const randomHex = crypto.randomBytes(12).toString('hex');
         const customMessageId = `<${Date.now()}.${randomHex}@mail.gmail.com>`;
@@ -335,7 +338,6 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // 500ms to 800ms natural delay between 5-email batches
       const batchDelay = Math.floor(500 + Math.random() * 300);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
