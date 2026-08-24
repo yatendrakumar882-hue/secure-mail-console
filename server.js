@@ -4,53 +4,36 @@ import cors from 'cors';
 import crypto from 'crypto';
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-// Master Password
+// Single Master Password
 const MASTER_PASSWORD = '####';
 
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
+// Middlewares
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 /* ==========================================================================
-   AUTHENTICATION & SMTP VERIFICATION
+   AUTHENTICATION ROUTE
    ========================================================================== */
 app.post('/api/auth', (req, res) => {
   const { password } = req.body;
-  if (String(password).trim() === MASTER_PASSWORD) {
+  if (String(password || '').trim() === MASTER_PASSWORD) {
     const token = crypto.randomBytes(32).toString('hex');
     return res.json({ success: true, token, message: 'Authorized' });
   }
   return res.status(401).json({ success: false, message: 'Incorrect password' });
 });
 
-app.post('/api/verify', async (req, res) => {
-  const { email, appPassword, password } = req.body;
-  const userPass = appPassword || password;
-
-  if (!email || !userPass) {
-    return res.status(400).json({ success: false, message: 'Credentials missing' });
-  }
-
-  try {
-    const transporter = getPort587Transporter(email, userPass);
-    await transporter.verify();
-    return res.json({ success: true, message: 'SMTP connection verified' });
-  } catch (err) {
-    return res.status(401).json({ success: false, message: err.message || 'SMTP Authentication failed' });
-  }
-});
-
 /* ==========================================================================
    GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
-  const cleanEmail = email.toLowerCase().trim();
-  const cleanPass = appPassword.replace(/\s+/g, '').trim();
+  const cleanEmail = String(email).toLowerCase().trim();
+  const cleanPass = String(appPassword).replace(/\s+/g, '').trim();
   const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
@@ -64,7 +47,7 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5, // Exact 5 concurrent batch connections
+      maxConnections: 5, // 5 Batch Limit
       maxMessages: 500,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -172,37 +155,28 @@ function createCleanPlainText(text) {
 /* ==========================================================================
    PRIMARY INBOX 5-BATCH PIPELINE
    ========================================================================== */
-async function executeEmailDispatch(req, res, isStreaming = false) {
-  if (isStreaming) {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache, no-transform');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-  }
+app.post('/api/send-stream', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
 
   const { email, appPassword, password, senderName, subject, messageBody, body, recipients } = req.body;
   const userPass = appPassword || password;
   const userBody = messageBody || body || '';
 
   if (!email || !userPass || !Array.isArray(recipients) || recipients.length === 0) {
-    const errPayload = { success: false, error: 'Invalid Parameters' };
-    if (isStreaming) {
-      res.write(`data: ${JSON.stringify(errPayload)}\n\n`);
-      return res.end();
-    }
-    return res.status(400).json(errPayload);
+    res.write(`data: ${JSON.stringify({ success: false, error: 'Invalid Parameters' })}\n\n`);
+    return res.end();
   }
 
   const cleanEmail = email.toLowerCase().trim();
   const cleanSenderName = (senderName || '').replace(/["\r\n]/g, '').trim();
   globalSession.stopRequested = false;
 
-  let pingTimer;
-  if (isStreaming) {
-    pingTimer = setInterval(() => {
-      res.write(': keep-alive\n\n');
-    }, 4000);
-  }
+  const keepAlivePing = setInterval(() => {
+    try { res.write(': keep-alive\n\n'); } catch(e) {}
+  }, 4000);
 
   const transporter = getPort587Transporter(email, userPass);
   const BATCH_SIZE = 5;
@@ -213,11 +187,9 @@ async function executeEmailDispatch(req, res, isStreaming = false) {
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultBestSubject;
   const finalBodyTemplate = (userBody && userBody.trim()) ? userBody : defaultBestBody;
 
-  const summary = [];
-
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
-      if (isStreaming) res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
       break;
     }
 
@@ -287,11 +259,7 @@ async function executeEmailDispatch(req, res, isStreaming = false) {
 
     for (const resItem of results) {
       if (resItem.status === 'fulfilled' && resItem.value.recipient) {
-        if (isStreaming) {
-          res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
-        } else {
-          summary.push(resItem.value);
-        }
+        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
       }
     }
 
@@ -301,17 +269,10 @@ async function executeEmailDispatch(req, res, isStreaming = false) {
     }
   }
 
-  if (isStreaming) {
-    if (pingTimer) clearInterval(pingTimer);
-    res.write('data: [DONE]\n\n');
-    res.end();
-  } else {
-    return res.json({ success: true, results: summary });
-  }
-}
-
-app.post('/api/send-stream', (req, res) => executeEmailDispatch(req, res, true));
-app.post('/api/send', (req, res) => executeEmailDispatch(req, res, false));
+  clearInterval(keepAlivePing);
+  res.write('data: [DONE]\n\n');
+  res.end();
+});
 
 app.post('/api/stop', (req, res) => {
   globalSession.stopRequested = true;
@@ -319,9 +280,9 @@ app.post('/api/stop', (req, res) => {
 });
 
 /* ==========================================================================
-   SAFE IN-MEMORY UI (Prevents Vercel 500 Path Crash)
+   FRONTEND HTML (EMBEDDED TO PREVENT 500 CRASH)
    ========================================================================== */
-const embeddedHtml = `<!DOCTYPE html>
+const PAGE_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -340,7 +301,7 @@ const embeddedHtml = `<!DOCTYPE html>
         <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
       </div>
       <h2 class="text-2xl font-bold text-slate-800">Access Protected</h2>
-      <p class="text-sm text-slate-500 mt-1">Enter the password to continue</p>
+      <p class="text-sm text-slate-500 mt-1">Enter password to continue</p>
     </div>
 
     <div id="authAlert" class="hidden mb-4 p-3 rounded-lg text-sm bg-rose-50 border border-rose-200 text-rose-600"></div>
@@ -567,7 +528,12 @@ const embeddedHtml = `<!DOCTYPE html>
 
 app.get('*', (req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(embeddedHtml);
+  res.send(PAGE_HTML);
 });
 
-export default app;
+/* ==========================================================================
+   VERCEL NATIVE SERVERLESS HANDLER (STOPS 500 CRASHES)
+   ========================================================================== */
+export default function handler(req, res) {
+  return app(req, res);
+}
