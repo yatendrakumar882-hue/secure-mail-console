@@ -24,7 +24,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 
 /* ==========================================================================
-   TURNSTILE BOT PROTECTION
+   TURNSTILE BOT PROTECTION VERIFICATION
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
@@ -61,15 +61,15 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // STARTTLS RFC Compliance
+      secure: false, // RFC Compliant STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5,
-      maxMessages: 200,
+      maxConnections: 5, // High-speed 5 parallel streams
+      maxMessages: 500,
       socketTimeout: 35000,
       connectionTimeout: 35000
     });
@@ -79,7 +79,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   PARSING & SPINTAX PERSONALIZATION
+   PARSING & SPINTAX PERSONALIZATION ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -134,7 +134,7 @@ function parseSpintax(text) {
   const regex = /\{([^{}]+)\}/s;
   let iterations = 0;
 
-  while (regex.test(spun) && iterations < 30) {
+  while (regex.test(spun) && iterations < 35) {
     spun = spun.replace(regex, (_, choices) => {
       if (!choices.includes('|')) return choices;
       const options = choices.split('|');
@@ -162,9 +162,9 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-function createPlainTextFromHtml(html) {
-  if (!html) return '';
-  return html
+function createCleanPlainText(text) {
+  if (!text) return '';
+  return text
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<br\s*[\/]?>/gi, '\n')
@@ -218,7 +218,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 5-BATCH DISPATCH ENGINE
+   ULTRA INBOX 5-BATCH HIGH-SPEED STREAMING ROUTE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -253,7 +253,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 5; // 5 Emails Per Batch (Preserves Maximum Sending Speed)
+  const BATCH_SIZE = 5; // Fixed 5-Batch for rapid sending speed
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -269,8 +269,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Fast micro-stagger inside batch
-          await new Promise(resolve => setTimeout(resolve, Math.floor(100 + Math.random() * 150)));
+          // Rapid organic offset within the 5 batch
+          await new Promise(resolve => setTimeout(resolve, Math.floor(100 + Math.random() * 120)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient);
@@ -279,7 +279,7 @@ app.post('/api/send-stream', async (req, res) => {
 
         const bodyContent = isHtml ? personalizedBody : personalizedBody.replace(/\n/g, '<br>');
 
-        // Gmail Standard (15px) + Outlook Conditional Wide/Large Frame (17px, 700px width)
+        // Gmail Native (15px) + Outlook Conditional Full Frame (17px, 700px width)
         const formattedHtml = `
         <!--[if mso]>
         <style type="text/css">
@@ -298,7 +298,7 @@ app.post('/api/send-stream', async (req, res) => {
         </table>
         <![endif]-->`;
 
-        const plainTextFormatted = createPlainTextFromHtml(formattedHtml);
+        const plainTextFormatted = createCleanPlainText(personalizedBody);
         const randomHex = crypto.randomBytes(12).toString('hex');
         const customMessageId = `<${Date.now()}.${randomHex}@mail.gmail.com>`;
 
@@ -336,7 +336,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Balanced fast interval (500ms - 800ms) for high speed + safe delivery
+      // Balanced speed delay (500ms to 800ms)
       const batchDelay = Math.floor(500 + Math.random() * 300);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
