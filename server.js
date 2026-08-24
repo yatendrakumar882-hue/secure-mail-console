@@ -47,7 +47,7 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5, // 5 Batch Limit
+      maxConnections: 5, // 5 Batch Concurrency
       maxMessages: 500,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -153,7 +153,7 @@ function createCleanPlainText(text) {
 }
 
 /* ==========================================================================
-   PRIMARY INBOX 5-BATCH PIPELINE
+   PRIMARY INBOX 5-BATCH DISPATCH PIPELINE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -280,7 +280,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 /* ==========================================================================
-   FRONTEND HTML (EMBEDDED TO PREVENT 500 CRASH)
+   FRONTEND HTML (EMBEDDED TO PREVENT DISK ERRORS)
    ========================================================================== */
 const PAGE_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -526,14 +526,12 @@ const PAGE_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
-app.get('*', (req, res) => {
+/* Express v5 Catch-All Route (Bypasses PathError syntax crash) */
+app.use((req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(PAGE_HTML);
 });
 
-/* ==========================================================================
-   VERCEL NATIVE SERVERLESS HANDLER (STOPS 500 CRASHES)
-   ========================================================================== */
 export default function handler(req, res) {
   return app(req, res);
 }
