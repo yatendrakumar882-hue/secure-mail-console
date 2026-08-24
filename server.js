@@ -1,29 +1,25 @@
-import express from 'express';
-import nodemailer from 'nodemailer';
-import cors from 'cors';
-import path from 'path';
-import crypto from 'crypto';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const express = require('express');
+const nodemailer = require('nodemailer');
+const cors = require('cors');
+const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Single Master Password for Login
+// Single Master Password
 const MASTER_PASSWORD = '####';
 
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
-// Middlewares
+// Middleware configuration
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// Serve static assets from public directory
-app.use(express.static(path.join(__dirname, 'public')));
+// Serve static assets safely
+app.use(express.static(path.join(process.cwd(), 'public')));
 
 /* ==========================================================================
    AUTHENTICATION ROUTE
@@ -162,7 +158,7 @@ function createCleanPlainText(text) {
 }
 
 /* ==========================================================================
-   PRIMARY INBOX 5-BATCH DISPATCH PIPELINE
+   PRIMARY INBOX 5-BATCH PIPELINE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -284,7 +280,7 @@ app.post('/api/send-stream', async (req, res) => {
   res.end();
 });
 
-// Fallback non-streaming API
+// Non-streaming fallback route
 app.post('/api/send', async (req, res) => {
   const { email, appPassword, password, senderName, subject, messageBody, body, recipients } = req.body;
   const userPass = appPassword || password;
@@ -326,16 +322,9 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Process stopped' });
 });
 
-// Root fallback to serve index.html safely in serverless
+// Serve frontend cleanly without path crash
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
 
-// Start listener for local, export default for Vercel
-if (process.env.NODE_ENV !== 'production') {
-  app.listen(PORT, () => {
-    console.log(`🚀 Bulk Email Sender running on port ${PORT}`);
-  });
-}
-
-export default app;
+module.exports = app;
