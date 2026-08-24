@@ -61,7 +61,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC STARTTLS
+      secure: false, // Standard STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -255,9 +255,8 @@ app.post('/api/send-stream', async (req, res) => {
   const transporter = getPort587Transporter(email, appPassword);
   const BATCH_SIZE = 5; // 5 Emails Per Batch
 
-  // High Deliverability Spintax Defaults
-  const defaultSubject = "{quick question|quick note for {Name}|touching base regarding your page|question for you}";
-  const defaultBody = "{Hi {Name},|Hello {Name},|Good day {Name},}\n\n{I was looking at your website earlier and had a quick thought to share.|I came across your web presence today and wanted to reach out directly.}\n\n{Would you be open to a quick 2-minute feedback?|Let me know if I can share a short observation with you.}\n\nBest regards,\n" + (cleanSenderName || "Team");
+  const defaultSubject = "{quick question|quick note for {Name}|touching base|question for you}";
+  const defaultBody = "{Hi {Name},|Hello {Name},|Good day {Name},}\n\n{I was looking at your website earlier and had a quick thought to share.|I came across your web presence today and wanted to reach out directly.}\n\n{Would you be open to a quick 2-minute chat?|Let me know if I can share a short observation with you.}\n\nBest regards,\n" + (cleanSenderName || "Team");
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
@@ -276,7 +275,6 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Fast micro-gap inside batch
           await new Promise(resolve => setTimeout(resolve, Math.floor(100 + Math.random() * 120)));
         }
 
@@ -286,8 +284,8 @@ app.post('/api/send-stream', async (req, res) => {
 
         const bodyContent = isHtml ? personalizedBody : personalizedBody.replace(/\n/g, '<br>');
 
-        // Consistent typography for both Gmail & Outlook (15px regular flow)
-        const formattedHtml = `<div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #1e293b; line-height: 1.6; padding-top: 6px;">${bodyContent}</div>`;
+        // Ultra-Clean Natural Human Structure (100% identical look across Gmail & Outlook)
+        const formattedHtml = `<div dir="ltr">${bodyContent}</div>`;
         const plainTextFormatted = createCleanPlainText(personalizedBody);
 
         const randomHex = crypto.randomBytes(12).toString('hex');
@@ -327,7 +325,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // 500ms to 800ms delay between 5-email batches
+      // 500ms to 800ms natural delay between 5-email batches
       const batchDelay = Math.floor(500 + Math.random() * 300);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
