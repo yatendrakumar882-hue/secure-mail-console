@@ -3,150 +3,240 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Secure Mail Console</title>
+  <title>Bulk Email Sender</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body { background-color: #0b0f19; }
+    body { background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
   </style>
 </head>
-<body class="text-slate-100 min-h-screen flex items-center justify-center p-4">
+<body class="text-slate-800 min-h-screen flex flex-col justify-center items-center p-4">
 
-  <!-- ================= AUTHENTICATION MODAL ================= -->
-  <div id="authContainer" class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl">
+  <!-- ================= AUTH MODAL (PASSWORD: ####) ================= -->
+  <div id="authContainer" class="w-full max-w-md bg-white border border-slate-200 rounded-2xl p-8 shadow-xl">
     <div class="text-center mb-6">
-      <div class="w-14 h-14 bg-indigo-600/20 text-indigo-400 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-indigo-500/30">
+      <div class="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-3 border border-indigo-100">
         <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
       </div>
-      <h2 class="text-2xl font-bold">Secure Hardware Gateway</h2>
-      <p class="text-sm text-slate-400 mt-1">Enter authorized passkey to unlock launcher</p>
+      <h2 class="text-2xl font-bold text-slate-800">Access Protected</h2>
+      <p class="text-sm text-slate-500 mt-1">Enter master password to continue</p>
     </div>
 
-    <!-- Device Details Badge -->
-    <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 mb-5 text-xs font-mono text-slate-400 flex justify-between items-center">
-      <span>Machine: <span id="machineIdText" class="text-indigo-400">DEV_6395m_1536</span></span>
-      <span class="text-emerald-400">● Live Gateway</span>
-    </div>
+    <div id="authAlert" class="hidden mb-4 p-3 rounded-lg text-sm bg-rose-50 border border-rose-200 text-rose-600"></div>
 
-    <!-- Alert Box -->
-    <div id="authAlert" class="hidden mb-4 p-3 rounded-lg text-sm bg-rose-950/50 border border-rose-800/60 text-rose-300"></div>
-
-    <!-- Passkey Form -->
-    <form id="keyForm" class="space-y-4">
+    <form id="loginForm" class="space-y-4">
       <div>
-        <label class="text-xs text-slate-400 font-medium block mb-1">Master Security Passkey</label>
-        <input type="password" id="passkeyInput" required placeholder="Enter master security key" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl focus:outline-none focus:border-indigo-500 text-white placeholder-slate-600 font-mono text-base" value="YATENDRA@639599">
+        <input type="password" id="sitePassword" required placeholder="Enter password" class="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:border-indigo-600 text-slate-800 font-mono text-base placeholder-slate-400">
       </div>
-      <button type="submit" id="authBtn" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 rounded-xl font-medium transition shadow-lg shadow-indigo-600/30">Unlock Mail Launcher</button>
+      <button type="submit" id="loginBtn" class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium transition shadow-md shadow-indigo-600/20">➔ Enter</button>
     </form>
   </div>
 
-  <!-- ================= MAIN LAUNCHER CONSOLE ================= -->
-  <div id="mainDashboard" class="hidden w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
-    <div class="flex justify-between items-center border-b border-slate-800 pb-4 mb-6">
-      <div class="flex items-center gap-3">
-        <div class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
-        <h1 class="text-xl font-bold">Secure Mail Console <span class="text-xs bg-indigo-950 border border-indigo-700 text-indigo-300 px-2 py-0.5 rounded-full ml-2">Primary Inbox 5-Batch</span></h1>
+  <!-- ================= MAIN LAUNCHER CONSOLE (2-COLUMN LIGHT UI) ================= -->
+  <div id="mainDashboard" class="hidden w-full max-w-6xl">
+    
+    <!-- Top Header -->
+    <div class="flex items-center justify-between mb-6">
+      <div class="flex items-center gap-2">
+        <svg class="w-6 h-6 text-indigo-600 transform -rotate-45" fill="currentColor" viewBox="0 0 20 20"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg>
+        <h1 class="text-2xl font-bold text-slate-800">Bulk Email Sender</h1>
       </div>
-      <button onclick="location.reload()" class="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300">Lock Console</button>
+      <button onclick="location.reload()" class="text-xs text-slate-500 hover:text-slate-800 bg-white border border-slate-300 px-3 py-1.5 rounded-lg shadow-sm">Logout</button>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-      <!-- Left Config -->
-      <div class="space-y-4">
-        <div>
-          <label class="text-xs text-slate-400 font-medium">Sender Email (Gmail)</label>
-          <input type="email" id="smtpEmail" placeholder="your-email@gmail.com" class="w-full mt-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white">
+    <!-- 2-Column Grid Layout -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+      <!-- LEFT COLUMN: Compose Message -->
+      <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+        <div class="flex items-center gap-2 border-b border-slate-100 pb-3">
+          <svg class="w-5 h-5 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+          <h2 class="font-bold text-slate-800 text-base">Compose Message</h2>
         </div>
-        <div>
-          <label class="text-xs text-slate-400 font-medium">App Password (16-char)</label>
-          <input type="password" id="smtpPass" placeholder="xxxx xxxx xxxx xxxx" class="w-full mt-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white">
+
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="text-xs font-semibold text-slate-600 block mb-1">Sender Name</label>
+            <input type="text" id="senderName" placeholder="E.g., John Doe" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-indigo-500">
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-slate-600 block mb-1">Your Gmail</label>
+            <input type="email" id="smtpEmail" placeholder="you@gmail.com" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-indigo-500">
+          </div>
         </div>
-        <div>
-          <label class="text-xs text-slate-400 font-medium">Sender Display Name</label>
-          <input type="text" id="senderName" placeholder="John Doe" class="w-full mt-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white">
+
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="text-xs font-semibold text-slate-600 block mb-1">App Password</label>
+            <input type="password" id="smtpPass" placeholder="16-char app password" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-indigo-500">
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-slate-600 block mb-1">Email Subject</label>
+            <input type="text" id="subject" placeholder="Enter subject line..." class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-indigo-500">
+          </div>
         </div>
+
         <div>
-          <label class="text-xs text-slate-400 font-medium">Recipients (one per line or CSV)</label>
-          <textarea id="recipients" rows="6" placeholder="client1@example.com, John&#10;client2@example.com" class="w-full mt-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-white"></textarea>
+          <label class="text-xs font-semibold text-slate-600 block mb-1">Message Body (Plain Text / HTML)</label>
+          <textarea id="body" rows="9" placeholder="Write your email here... Spintax supported: {Hi|Hello}" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono text-slate-800 focus:outline-none focus:border-indigo-500"></textarea>
+        </div>
+
+        <!-- Protection Badge -->
+        <div class="pt-2">
+          <div class="text-xs font-semibold text-slate-500 mb-1.5 flex items-center gap-1">🛡️ Anti-Spam Security</div>
+          <div class="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-medium text-emerald-700">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>Success! Primary Inbox 5-Batch Protection Active</span>
+          </div>
         </div>
       </div>
 
-      <!-- Right Controls -->
-      <div class="md:col-span-2 space-y-4">
-        <div>
-          <label class="text-xs text-slate-400 font-medium">Subject Line (Spintax Supported)</label>
-          <input type="text" id="subject" placeholder="{quick note|audit reports|feedback}" class="w-full mt-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm font-mono text-white">
+      <!-- RIGHT COLUMN: Recipients & Progress Monitor -->
+      <div class="space-y-6">
+
+        <!-- Recipients Box -->
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+          <div class="flex justify-between items-center mb-1">
+            <div class="flex items-center gap-2">
+              <svg class="w-5 h-5 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+              <h2 class="font-bold text-slate-800 text-base">Recipients</h2>
+            </div>
+            <span id="foundBadge" class="text-xs bg-indigo-50 text-indigo-600 font-semibold px-2.5 py-0.5 rounded-full border border-indigo-100">0 found</span>
+          </div>
+          <p class="text-xs text-slate-400 mb-3">Paste emails (comma separated, new lines, or Excel copy)</p>
+          <textarea id="recipients" rows="5" placeholder="john@example.com&#10;jane@example.com, Jane Doe" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:border-indigo-500"></textarea>
         </div>
-        <div>
-          <label class="text-xs text-slate-400 font-medium">Message Body (Spintax Supported)</label>
-          <textarea id="body" rows="9" placeholder="{Hi {Name},|Hello {Name},}&#10;&#10;Your site looks appealing but isn't visible on top results. Would you like to review reports?" class="w-full mt-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-white"></textarea>
+
+        <!-- Progress Monitor Cards -->
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+          <div class="flex items-center gap-2 border-b border-slate-100 pb-3">
+            <svg class="w-5 h-5 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+            <h2 class="font-bold text-slate-800 text-base">Progress Monitor</h2>
+          </div>
+
+          <!-- 4 Stat Counters Grid -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+              <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">TOTAL</div>
+              <div id="statTotal" class="text-2xl font-black text-indigo-600 mt-1">0</div>
+            </div>
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+              <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">SENT</div>
+              <div id="statSent" class="text-2xl font-black text-emerald-500 mt-1">0</div>
+            </div>
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+              <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">FAILED</div>
+              <div id="statFailed" class="text-2xl font-black text-rose-500 mt-1">0</div>
+            </div>
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+              <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">REMAINING</div>
+              <div id="statRemaining" class="text-2xl font-black text-amber-500 mt-1">0</div>
+            </div>
+          </div>
+
+          <!-- Status Indicator -->
+          <div class="flex items-center justify-center gap-1.5 text-xs text-slate-500 py-1">
+            <span class="w-2 h-2 rounded-full bg-slate-400" id="statusDot"></span>
+            <span id="statusText">Ready to send</span>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="flex gap-3 pt-2">
+            <button id="startBtn" class="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition shadow-md shadow-emerald-600/20">
+              <svg class="w-5 h-5 transform -rotate-45" fill="currentColor" viewBox="0 0 20 20"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg>
+              <span>Send All</span>
+            </button>
+            <button id="stopBtn" class="px-6 py-3 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl font-bold transition">Stop</button>
+          </div>
         </div>
-        <div class="flex gap-3">
-          <button id="startBtn" class="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-xl font-medium text-sm transition">Start 5-Batch Dispatch</button>
-          <button id="stopBtn" class="px-6 py-2.5 bg-rose-600 hover:bg-rose-500 rounded-xl font-medium text-sm transition">Stop</button>
-        </div>
+
       </div>
     </div>
 
-    <!-- Live Logs -->
-    <div class="mt-6 border-t border-slate-800 pt-4">
-      <div class="text-xs font-semibold text-slate-400 mb-2">Live Dispatch Stream</div>
-      <div id="logBox" class="bg-slate-950 border border-slate-800 rounded-xl p-3 h-36 overflow-y-auto text-xs font-mono space-y-1">
-        <div class="text-slate-600">Hardware verified. Console ready for dispatch...</div>
+    <!-- Live Stream Log Container -->
+    <div class="mt-6 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+      <div class="text-xs font-bold text-slate-600 mb-2">Live Delivery Log</div>
+      <div id="logBox" class="bg-slate-900 text-slate-200 rounded-xl p-3 h-32 overflow-y-auto text-xs font-mono space-y-1">
+        <div class="text-slate-500">System idle. Ready for dispatch...</div>
       </div>
     </div>
+
   </div>
 
+  <!-- Scripts -->
   <script>
-    const keyForm = document.getElementById('keyForm');
+    const loginForm = document.getElementById('loginForm');
     const authAlert = document.getElementById('authAlert');
 
-    function showAlert(msg, isErr = true) {
+    function showAlert(msg) {
       authAlert.classList.remove('hidden');
       authAlert.textContent = msg;
-      authAlert.className = `mb-4 p-3 rounded-lg text-sm border ${isErr ? 'bg-rose-950/50 border-rose-800/60 text-rose-300' : 'bg-emerald-950/50 border-emerald-800/60 text-emerald-300'}`;
     }
 
-    // Verify Passkey
-    keyForm.addEventListener('submit', async (e) => {
+    // Step 1: Login with Master Password
+    loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const accessKey = document.getElementById('passkeyInput').value.trim();
-      const btn = document.getElementById('authBtn');
+      const pwd = document.getElementById('sitePassword').value.trim();
+      const btn = document.getElementById('loginBtn');
       btn.disabled = true;
-      btn.textContent = 'Authenticating Hardware...';
+      btn.textContent = 'Verifying...';
 
       try {
-        const res = await fetch('/api/auth/verify-key', {
+        const res = await fetch('/api/auth', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ accessKey, machineId: 'DEV_6395m_1536' })
+          body: JSON.stringify({ password: pwd })
         });
         const data = await res.json();
         if (data.success) {
           document.getElementById('authContainer').classList.add('hidden');
           document.getElementById('mainDashboard').classList.remove('hidden');
         } else {
-          showAlert(data.message || 'Invalid Master Passkey');
+          showAlert('Invalid password. Access denied.');
         }
       } catch (err) {
-        showAlert('Connection error with backend server.');
+        showAlert('Server connection failed.');
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Unlock Mail Launcher';
+        btn.textContent = '➔ Enter';
       }
     });
 
-    // 5-Batch Dispatch Stream
+    // Auto-update recipient count
+    const recipientsInput = document.getElementById('recipients');
+    recipientsInput.addEventListener('input', () => {
+      const list = recipientsInput.value.split('\n').filter(r => r.trim());
+      document.getElementById('foundBadge').textContent = `${list.length} found`;
+      document.getElementById('statTotal').textContent = list.length;
+      document.getElementById('statRemaining').textContent = list.length;
+    });
+
+    // Stream Execution & Counter Updates
     document.getElementById('startBtn').addEventListener('click', async () => {
       const email = document.getElementById('smtpEmail').value;
       const appPassword = document.getElementById('smtpPass').value;
       const senderName = document.getElementById('senderName').value;
       const subject = document.getElementById('subject').value;
       const messageBody = document.getElementById('body').value;
-      const rawRecipients = document.getElementById('recipients').value.split('\n').filter(r => r.trim());
+      const rawRecipients = recipientsInput.value.split('\n').filter(r => r.trim());
+
+      if (!email || !appPassword || rawRecipients.length === 0) {
+        alert('Please fill Sender Email, App Password, and at least one Recipient.');
+        return;
+      }
+
+      let sentCount = 0;
+      let failedCount = 0;
+      const totalCount = rawRecipients.length;
+
+      document.getElementById('statTotal').textContent = totalCount;
+      document.getElementById('statSent').textContent = '0';
+      document.getElementById('statFailed').textContent = '0';
+      document.getElementById('statRemaining').textContent = totalCount;
+      document.getElementById('statusText').textContent = 'Sending in 5-batches...';
+      document.getElementById('statusDot').className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
 
       const logBox = document.getElementById('logBox');
-      logBox.innerHTML = '<div class="text-indigo-400">⚡ Initializing 5-Batch Parallel Dispatch Pipeline...</div>';
+      logBox.innerHTML = '<div class="text-indigo-400">⚡ Dispatch started. Connecting to STARTTLS port 587...</div>';
 
       const res = await fetch('/api/send-stream', {
         method: 'POST',
@@ -166,10 +256,22 @@
           if (line.startsWith('data: ')) {
             const dataStr = line.replace('data: ', '').trim();
             if (dataStr === '[DONE]') {
-              logBox.innerHTML += '<div class="text-emerald-400">✔ All recipients processed. Delivery completed.</div>';
+              logBox.innerHTML += '<div class="text-emerald-400">✔ Dispatch complete. All emails processed.</div>';
+              document.getElementById('statusText').textContent = 'Completed';
+              document.getElementById('statusDot').className = 'w-2 h-2 rounded-full bg-slate-400';
             } else {
               try {
                 const item = JSON.parse(dataStr);
+                if (item.success) {
+                  sentCount++;
+                  document.getElementById('statSent').textContent = sentCount;
+                } else {
+                  failedCount++;
+                  document.getElementById('statFailed').textContent = failedCount;
+                }
+                const remaining = totalCount - (sentCount + failedCount);
+                document.getElementById('statRemaining').textContent = remaining >= 0 ? remaining : 0;
+
                 logBox.innerHTML += `<div class="${item.success ? 'text-emerald-400' : 'text-rose-400'}">↳ ${item.recipient} : ${item.success ? 'Delivered to Primary Inbox' : item.error}</div>`;
                 logBox.scrollTop = logBox.scrollHeight;
               } catch(e) {}
@@ -181,6 +283,8 @@
 
     document.getElementById('stopBtn').addEventListener('click', async () => {
       await fetch('/api/stop', { method: 'POST' });
+      document.getElementById('statusText').textContent = 'Stopped';
+      document.getElementById('statusDot').className = 'w-2 h-2 rounded-full bg-rose-500';
     });
   </script>
 </body>
