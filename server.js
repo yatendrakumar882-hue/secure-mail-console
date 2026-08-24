@@ -11,24 +11,23 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
-const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
-// Dedicated Authorized Number
-const ADMIN_PHONE = '6395991106';
+// Dedicated Whitelisted Admin Number
+const AUTHORIZED_PHONE = '6395991106';
 const FAST2SMS_API_KEY = process.env.FAST2SMS_API_KEY || '';
 
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 const otpStore = new Map();
 
+// Express Configuration
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 /* ==========================================================================
-   SMS GATEWAY (Fast2SMS + Terminal Fallback)
+   SMS GATEWAY (Fast2SMS API + Terminal Fallback)
    ========================================================================== */
 async function sendSMSOTP(phoneNumber, otp) {
   if (FAST2SMS_API_KEY) {
@@ -48,67 +47,77 @@ async function sendSMSOTP(phoneNumber, otp) {
       const data = await response.json();
       return data.return === true;
     } catch (err) {
-      console.error('SMS Gateway Error:', err);
+      console.error('Fast2SMS Error:', err);
     }
   }
 
+  // Backup Terminal Log for debugging
   console.log(`\n======================================================`);
-  console.log(`📲 [SMS OTP DISPATCH] Sent to: +91 ${phoneNumber}`);
-  console.log(`🔑 ENTER THIS OTP IN BROWSER: [ ${otp} ]`);
+  console.log(`📲 [DIRECT SMS OTP] Sent to: +91 ${phoneNumber}`);
+  console.log(`🔑 YOUR ACCESS CODE IS: [ ${otp} ]`);
   console.log(`======================================================\n`);
   return true;
 }
 
 /* ==========================================================================
-   2-STEP OTP AUTHENTICATION GATEWAY
+   DIRECT PHONE OTP AUTHENTICATION
    ========================================================================== */
-// Step 1: Verify Password & Dispatch OTP
-app.post('/api/auth/step1-password', async (req, res) => {
-  const { password } = req.body;
-  if (password !== SITE_PASSWORD) {
-    return res.status(401).json({ success: false, message: 'Invalid Password' });
+// Step 1: Send SMS OTP
+app.post('/api/auth/send-otp', async (req, res) => {
+  const { phone } = req.body;
+  const cleanPhone = (phone || '').replace(/\D/g, '').slice(-10);
+
+  if (cleanPhone !== AUTHORIZED_PHONE) {
+    return res.status(403).json({
+      success: false,
+      message: 'Access Denied: Unauthorized Phone Number'
+    });
   }
 
   const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
-  otpStore.set(ADMIN_PHONE, {
+  otpStore.set(cleanPhone, {
     otp: generatedOtp,
-    expires: Date.now() + 5 * 60 * 1000 // 5 Minutes
+    expires: Date.now() + 5 * 60 * 1000 // 5 Minutes Validity
   });
 
-  await sendSMSOTP(ADMIN_PHONE, generatedOtp);
+  await sendSMSOTP(cleanPhone, generatedOtp);
 
   return res.json({
     success: true,
-    step: 'OTP_PENDING',
-    phoneMasked: `+91 ${ADMIN_PHONE.slice(0, 2)}******${ADMIN_PHONE.slice(-2)}`,
-    message: 'Password verified. OTP sent to mobile.'
+    phoneMasked: `+91 ${cleanPhone.slice(0, 2)}******${cleanPhone.slice(-2)}`,
+    message: 'OTP sent successfully via SMS'
   });
 });
 
-// Step 2: Verify SMS OTP & Unlock Launcher
-app.post('/api/auth/step2-otp', (req, res) => {
-  const { otp } = req.body;
-  const record = otpStore.get(ADMIN_PHONE);
+// Step 2: Verify SMS OTP & Unlock Dashboard
+app.post('/api/auth/verify-otp', (req, res) => {
+  const { phone, otp } = req.body;
+  const cleanPhone = (phone || '').replace(/\D/g, '').slice(-10);
 
+  if (cleanPhone !== AUTHORIZED_PHONE) {
+    return res.status(403).json({ success: false, message: 'Unauthorized Phone Number' });
+  }
+
+  const record = otpStore.get(cleanPhone);
   if (!record) {
     return res.status(400).json({ success: false, message: 'OTP expired or not requested' });
   }
 
   if (Date.now() > record.expires) {
-    otpStore.delete(ADMIN_PHONE);
-    return res.status(400).json({ success: false, message: 'OTP Expired. Please retry.' });
+    otpStore.delete(cleanPhone);
+    return res.status(400).json({ success: false, message: 'OTP Expired. Please request a new one.' });
   }
 
   if (record.otp !== String(otp).trim()) {
-    return res.status(401).json({ success: false, message: 'Incorrect OTP. Try again.' });
+    return res.status(401).json({ success: false, message: 'Invalid OTP Code' });
   }
 
-  otpStore.delete(ADMIN_PHONE);
+  otpStore.delete(cleanPhone);
   const sessionToken = crypto.randomBytes(32).toString('hex');
 
   return res.json({
     success: true,
-    message: 'OTP Verified Successfully',
+    message: 'Access Granted',
     token: sessionToken
   });
 });
@@ -125,14 +134,14 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false,
+      secure: false, // RFC Compliant STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5,
+      maxConnections: 5, // Exact 5-batch concurrency
       maxMessages: 500,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -238,7 +247,7 @@ function createCleanPlainText(text) {
 }
 
 /* ==========================================================================
-   PRIMARY INBOX DISPATCH ENGINE (5 Batch Parallel + Jitter)
+   PRIMARY INBOX DISPATCH ENGINE (5 Emails / Batch)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -263,7 +272,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 5;
+  const BATCH_SIZE = 5; // Exactly 5 emails per batch
 
   const defaultBestSubject = '{quick note regarding your site|website feedback|quick question for you|question about your page}';
   const defaultBestBody = "{Hi {Name},|Hello {Name},|Hey {Name},}\n\n{I noticed your site has a great presentation but isn't showing on the top results.|Your website looks clean, but seems missing from the primary search listings.}\n\n{May I send you a quick report with details?|Would you mind if I shared the screenshot with you?|Can I share the audit reports with you?}";
@@ -296,7 +305,7 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Dual Engine Rendering: Outlook 14pt + Gmail 14.5px
+        // Dual Engine Formatting: Outlook 14pt MSO + Gmail 14.5px
         const formattedHtml = `
           <!--[if mso]>
           <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: 'Times New Roman', Times, serif; color: #000000;">
@@ -365,7 +374,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Console Engine running on port ${PORT}`);
+  console.log(`🚀 Mailer Server Running on Port ${PORT}`);
 });
 
 export default app;
