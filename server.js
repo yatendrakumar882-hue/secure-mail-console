@@ -71,7 +71,7 @@ function getPort587Transporter(email, appPassword) {
       },
       pool: true,
       maxConnections: 6, // 6 concurrent connections
-      maxMessages: 9000,
+      maxMessages: 4000,
       socketTimeout: 30000,
       connectionTimeout: 30000
     });
@@ -322,7 +322,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      const batchDelay = Math.floor(350 + Math.random() * 60);
+      const batchDelay = Math.floor(600 + Math.random() * 300);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
