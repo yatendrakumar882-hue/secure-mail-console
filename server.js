@@ -12,57 +12,41 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Hardcoded Master Passkeys (Permanent Security in Code)
-const VALID_SECURITY_KEYS = [
-  'YATENDRA@639599',
-  'ADMIN#2026',
-  'Y##'
-];
+// ONLY Single Master Password for Login
+const MASTER_PASSWORD = '####';
 
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
-// Express Configuration
+// Express Setup
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 /* ==========================================================================
-   DIRECT HARDWARE & MASTER KEY AUTHENTICATION
+   EXCLUSIVE SINGLE PASSWORD AUTHENTICATION
    ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.post('/api/auth/verify-key', (req, res) => {
-  const { accessKey, machineId } = req.body;
-  const cleanKey = (accessKey || '').trim();
-
-  if (!VALID_SECURITY_KEYS.includes(cleanKey)) {
-    return res.status(401).json({
-      success: false,
-      message: 'Invalid Master Security Key. Access Denied.'
-    });
+app.post('/api/auth', (req, res) => {
+  const { password } = req.body;
+  if (String(password).trim() === MASTER_PASSWORD) {
+    const token = crypto.randomBytes(24).toString('hex');
+    return res.json({ success: true, token });
   }
-
-  const sessionToken = crypto.randomBytes(32).toString('hex');
-
-  return res.json({
-    success: true,
-    message: 'Identity Verified & Machine Authorized',
-    sessionToken: sessionToken,
-    machineId: machineId || 'NODE_CLIENT_STABLE'
-  });
+  return res.status(401).json({ success: false, message: 'Invalid Password' });
 });
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
+   GMAIL TLS POOL ENGINE (Port 587 STARTTLS)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_core_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -75,7 +59,7 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5, // Exact 5 concurrent batch limit
+      maxConnections: 5, // Exact 5-Batch Concurrency
       maxMessages: 500,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -86,7 +70,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   RECIPIENT & SPINTAX PROCESSOR
+   RECIPIENT & SPINTAX RESOLVERS
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -181,7 +165,7 @@ function createCleanPlainText(text) {
 }
 
 /* ==========================================================================
-   PRIMARY INBOX 5-BATCH DISPATCH ENGINE
+   PRIMARY INBOX 5-BATCH DISPATCH PIPELINE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -239,7 +223,7 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Dual Engine Rendering (14pt Outlook / 14.5px Gmail)
+        // Dual Engine Formatting: Outlook 14pt MSO + Gmail 14.5px
         const formattedHtml = `
           <!--[if mso]>
           <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: 'Times New Roman', Times, serif; color: #000000;">
@@ -308,7 +292,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Secure Console Running on Port ${PORT}`);
+  console.log(`🚀 Bulk Email Sender running on port ${PORT}`);
 });
 
 export default app;
