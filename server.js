@@ -279,7 +279,7 @@ app.post('/api/send-stream', async (req, res) => {
 
         let cleanBodyHtml = '';
         if (isHtml) {
-          cleanBodyHtml = `<div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #1e293b; line-height: 1.6;">${personalizedBody}</div>`;
+          cleanBodyHtml = `<div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 18px; color: #1e293b; line-height: 1.6;">${personalizedBody}</div>`;
         } else {
           cleanBodyHtml = `<div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #1e293b; line-height: 1.6;">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
         }
