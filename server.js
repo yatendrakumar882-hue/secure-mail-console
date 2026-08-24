@@ -68,8 +68,8 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5,
-      maxMessages: 500,
+      maxConnections: 2, // Synchronized with 2-batch
+      maxMessages: 100,
       socketTimeout: 35000,
       connectionTimeout: 35000
     });
@@ -218,7 +218,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 5-BATCH (BLITCH) ENGINE
+   SAFE 2-BATCH HIGH INBOX STREAMING ROUTE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -253,7 +253,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 5; // 5 Emails Per Batch
+  const BATCH_SIZE = 2; // Exact 2 Emails per batch
 
   const defaultSubject = "{quick question|quick note for {Name}|touching base|question for you}";
   const defaultBody = "{Hi {Name},|Hello {Name},|Good day {Name},}\n\n{I was looking at your website earlier and had a quick thought to share.|I came across your web presence today and wanted to reach out directly.}\n\n{Would you be open to a quick 2-minute chat?|Let me know if I can share a short observation with you.}\n\nBest regards,\n" + (cleanSenderName || "Team");
@@ -275,7 +275,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(100 + Math.random() * 120)));
+          // Stagger between 1st and 2nd mail
+          await new Promise(resolve => setTimeout(resolve, Math.floor(600 + Math.random() * 400)));
         }
 
         const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
@@ -284,7 +285,7 @@ app.post('/api/send-stream', async (req, res) => {
 
         const bodyContent = isHtml ? personalizedBody : personalizedBody.replace(/\n/g, '<br>');
 
-        // Outlook: 16.5px (12.5pt) | Gmail/Web: 15px Normal | 1-line Quote Offset (18px margin)
+        // Universal clean typography (Outlook 16.5px, Web/Gmail 15px, with quote top gap)
         const formattedHtml = `
         <!--[if mso]>
         <style type="text/css">
@@ -301,18 +302,10 @@ app.post('/api/send-stream', async (req, res) => {
 
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
-        const randomHex = crypto.randomBytes(12).toString('hex');
-        const customMessageId = `<${Date.now()}.${randomHex}@mail.gmail.com>`;
-
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
-          envelope: {
-            from: cleanEmail,
-            to: recipient.email
-          },
-          messageId: customMessageId,
           date: new Date(),
           subject: personalizedSubject || 'No Subject',
           html: formattedHtml,
@@ -338,7 +331,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      const batchDelay = Math.floor(500 + Math.random() * 300);
+      // Safe organic delay (3.5s to 5.5s) between batches to preserve inbox landing
+      const batchDelay = Math.floor(3500 + Math.random() * 2000);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
