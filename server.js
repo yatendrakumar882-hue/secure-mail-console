@@ -3,6 +3,7 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -13,14 +14,52 @@ const PORT = process.env.PORT || 3000;
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
+// Authorized Mobile Number for OTP Login
+const AUTHORIZED_PHONE = '6395991106';
+const FAST2SMS_API_KEY = process.env.FAST2SMS_API_KEY || ''; // Optional: Enter Fast2SMS API Key in .env
+
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
+const otpStore = new Map(); // In-memory OTP Cache
 
 // Express Configuration
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+/* ==========================================================================
+   SMS GATEWAY SENDER (Fast2SMS / Console Fallback)
+   ========================================================================== */
+async function sendSMSOTP(phoneNumber, otp) {
+  if (FAST2SMS_API_KEY) {
+    try {
+      const response = await fetch('https://www.fast2sms.com/dev/bulkV2', {
+        method: 'POST',
+        headers: {
+          'authorization': FAST2SMS_API_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          variables_values: String(otp),
+          route: 'otp',
+          numbers: phoneNumber
+        })
+      });
+      const data = await response.json();
+      return data.return === true;
+    } catch (err) {
+      console.error('Fast2SMS Error:', err);
+    }
+  }
+
+  // Console Fallback if SMS Gateway API is not configured yet
+  console.log(`\n==============================================`);
+  console.log(`📲 [SMS OTP GATEWAY] Sending to +91 ${phoneNumber}`);
+  console.log(`🔑 YOUR SECURE LOGIN OTP IS: [ ${otp} ]`);
+  console.log(`==============================================\n`);
+  return true;
+}
 
 /* ==========================================================================
    TURNSTILE BOT PROTECTION VERIFICATION
@@ -67,7 +106,7 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5, // Exact 5-batch sync
+      maxConnections: 5, // 5-batch synchronized pipeline
       maxMessages: 500,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -179,12 +218,73 @@ function createCleanPlainText(text) {
 }
 
 /* ==========================================================================
-   API ROUTES
+   API ROUTES (With Phone OTP Verification)
    ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Step 1: Send OTP to Phone Number
+app.post('/api/auth/send-otp', async (req, res) => {
+  const { phone } = req.body;
+  const cleanPhone = (phone || '').replace(/\D/g, '').slice(-10);
+
+  if (cleanPhone !== AUTHORIZED_PHONE) {
+    return res.status(403).json({
+      success: false,
+      message: 'Unauthorized Phone Number. Access restricted to admin.'
+    });
+  }
+
+  // Generate secure 6-digit numeric OTP
+  const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+  otpStore.set(cleanPhone, {
+    otp: generatedOtp,
+    expires: Date.now() + 5 * 60 * 1000 // 5 Minutes Validity
+  });
+
+  await sendSMSOTP(cleanPhone, generatedOtp);
+
+  return res.json({
+    success: true,
+    message: `OTP sent successfully to +91 ${cleanPhone.slice(0, 2)}******${cleanPhone.slice(-2)}`
+  });
+});
+
+// Step 2: Verify Phone OTP
+app.post('/api/auth/verify-otp', (req, res) => {
+  const { phone, otp } = req.body;
+  const cleanPhone = (phone || '').replace(/\D/g, '').slice(-10);
+
+  if (cleanPhone !== AUTHORIZED_PHONE) {
+    return res.status(403).json({ success: false, message: 'Unauthorized Phone Number' });
+  }
+
+  const record = otpStore.get(cleanPhone);
+  if (!record) {
+    return res.status(400).json({ success: false, message: 'OTP expired or not requested' });
+  }
+
+  if (Date.now() > record.expires) {
+    otpStore.delete(cleanPhone);
+    return res.status(400).json({ success: false, message: 'OTP has expired' });
+  }
+
+  if (record.otp !== String(otp).trim()) {
+    return res.status(401).json({ success: false, message: 'Invalid OTP. Please try again.' });
+  }
+
+  otpStore.delete(cleanPhone);
+  const sessionToken = crypto.randomBytes(24).toString('hex');
+
+  return res.json({
+    success: true,
+    message: 'OTP Verified Successfully',
+    token: sessionToken
+  });
+});
+
+// Fallback Password Auth
 app.post('/api/auth', (req, res) => {
   const { password } = req.body;
   if (password === SITE_PASSWORD) return res.json({ success: true, message: 'Authorized' });
@@ -219,7 +319,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX STREAMING ROUTE (5 Parallel Batch + Exact Same Speed)
+   PRIMARY INBOX DISPATCH ROUTE (5-Batch Sync + Safe Delay)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -254,11 +354,8 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  
-  // Exact Batch Size: 5
   const BATCH_SIZE = 5;
 
-  // Fully diversified spintax (Protects against Content-Hash Spam Filters)
   const defaultBestSubject = '{quick note regarding your site|website feedback|quick question for you|question about your page}';
   const defaultBestBody = "{Hi {Name},|Hello {Name},|Hey {Name},}\n\n{I noticed your site has a great presentation but isn't showing on the top results.|Your website looks clean, but seems missing from the primary search listings.}\n\n{May I send you a quick report with details?|Would you mind if I shared the screenshot with you?|Can I share the audit reports with you?}";
 
@@ -278,7 +375,6 @@ app.post('/api/send-stream', async (req, res) => {
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
       try {
-        // Micro-jitter inside batch to avoid synchronized spikes
         if (idx > 0) {
           await new Promise(resolve => setTimeout(resolve, Math.floor(120 + Math.random() * 180)));
         }
@@ -291,12 +387,12 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Pure standard multi-part message (Gmail 14.5px sans-serif / Outlook 14pt MSO fallback)
+        // Pure Dual Engine Formatting
         const formattedHtml = `
           <!--[if mso]>
           <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: 'Times New Roman', Times, serif; color: #000000;">
             <tr>
-              <td style="font-family: 'Times New Roman', Times, serif; font-size: 17pt; line-height: 1.45; color: #000000;">
+              <td style="font-family: 'Times New Roman', Times, serif; font-size: 14pt; line-height: 1.45; color: #000000;">
                 ${cleanBodyText}
               </td>
             </tr>
@@ -319,7 +415,7 @@ app.post('/api/send-stream', async (req, res) => {
             to: recipient.email
           },
           replyTo: cleanEmail,
-          date: new Date(), // Standard RFC timestamp
+          date: new Date(),
           subject: personalizedSubject,
           html: formattedHtml,
           text: plainTextFormatted,
@@ -343,7 +439,6 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Safe batch rest (3.2s to 5.0s) between 5-email batches
     if (i + BATCH_SIZE < recipients.length) {
       const safeBatchDelay = Math.floor(3200 + Math.random() * 1800);
       await new Promise(resolve => setTimeout(resolve, safeBatchDelay));
