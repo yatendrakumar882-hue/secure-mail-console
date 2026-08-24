@@ -1,32 +1,23 @@
 import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
-import path from 'path';
 import crypto from 'crypto';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Single Master Password
+// Master Password
 const MASTER_PASSWORD = '####';
 
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
-// Middleware
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// Serve static assets from public folder
-app.use(express.static(path.join(process.cwd(), 'public')));
-
 /* ==========================================================================
-   AUTHENTICATION ROUTE
+   AUTHENTICATION & SMTP VERIFICATION
    ========================================================================== */
 app.post('/api/auth', (req, res) => {
   const { password } = req.body;
@@ -37,13 +28,30 @@ app.post('/api/auth', (req, res) => {
   return res.status(401).json({ success: false, message: 'Incorrect password' });
 });
 
+app.post('/api/verify', async (req, res) => {
+  const { email, appPassword, password } = req.body;
+  const userPass = appPassword || password;
+
+  if (!email || !userPass) {
+    return res.status(400).json({ success: false, message: 'Credentials missing' });
+  }
+
+  try {
+    const transporter = getPort587Transporter(email, userPass);
+    await transporter.verify();
+    return res.json({ success: true, message: 'SMTP connection verified' });
+  } catch (err) {
+    return res.status(401).json({ success: false, message: err.message || 'SMTP Authentication failed' });
+  }
+});
+
 /* ==========================================================================
    GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_core_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -56,7 +64,7 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5, // 5 Batch Limit
+      maxConnections: 5, // Exact 5 concurrent batch connections
       maxMessages: 500,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -67,7 +75,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   PARSERS & SPINTAX RESOLVER
+   RECIPIENT & SPINTAX RESOLVERS
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -164,29 +172,37 @@ function createCleanPlainText(text) {
 /* ==========================================================================
    PRIMARY INBOX 5-BATCH PIPELINE
    ========================================================================== */
-app.post('/api/send-stream', async (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
+async function executeEmailDispatch(req, res, isStreaming = false) {
+  if (isStreaming) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+  }
 
   const { email, appPassword, password, senderName, subject, messageBody, body, recipients } = req.body;
   const userPass = appPassword || password;
   const userBody = messageBody || body || '';
 
   if (!email || !userPass || !Array.isArray(recipients) || recipients.length === 0) {
-    res.write(`data: ${JSON.stringify({ success: false, error: 'Invalid Parameters' })}\n\n`);
-    res.end();
-    return;
+    const errPayload = { success: false, error: 'Invalid Parameters' };
+    if (isStreaming) {
+      res.write(`data: ${JSON.stringify(errPayload)}\n\n`);
+      return res.end();
+    }
+    return res.status(400).json(errPayload);
   }
 
   const cleanEmail = email.toLowerCase().trim();
   const cleanSenderName = (senderName || '').replace(/["\r\n]/g, '').trim();
   globalSession.stopRequested = false;
 
-  const keepAlivePing = setInterval(() => {
-    res.write(': keep-alive\n\n');
-  }, 4000);
+  let pingTimer;
+  if (isStreaming) {
+    pingTimer = setInterval(() => {
+      res.write(': keep-alive\n\n');
+    }, 4000);
+  }
 
   const transporter = getPort587Transporter(email, userPass);
   const BATCH_SIZE = 5;
@@ -197,9 +213,11 @@ app.post('/api/send-stream', async (req, res) => {
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultBestSubject;
   const finalBodyTemplate = (userBody && userBody.trim()) ? userBody : defaultBestBody;
 
+  const summary = [];
+
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
-      res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
+      if (isStreaming) res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
       break;
     }
 
@@ -269,7 +287,11 @@ app.post('/api/send-stream', async (req, res) => {
 
     for (const resItem of results) {
       if (resItem.status === 'fulfilled' && resItem.value.recipient) {
-        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
+        if (isStreaming) {
+          res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
+        } else {
+          summary.push(resItem.value);
+        }
       }
     }
 
@@ -279,56 +301,273 @@ app.post('/api/send-stream', async (req, res) => {
     }
   }
 
-  clearInterval(keepAlivePing);
-  res.write('data: [DONE]\n\n');
-  res.end();
-});
-
-// Non-streaming fallback API
-app.post('/api/send', async (req, res) => {
-  const { email, appPassword, password, senderName, subject, messageBody, body, recipients } = req.body;
-  const userPass = appPassword || password;
-  const userBody = messageBody || body || '';
-
-  if (!email || !userPass || !Array.isArray(recipients) || recipients.length === 0) {
-    return res.status(400).json({ success: false, error: 'Invalid Parameters' });
+  if (isStreaming) {
+    if (pingTimer) clearInterval(pingTimer);
+    res.write('data: [DONE]\n\n');
+    res.end();
+  } else {
+    return res.json({ success: true, results: summary });
   }
+}
 
-  const cleanEmail = email.toLowerCase().trim();
-  const cleanSenderName = (senderName || '').replace(/["\r\n]/g, '').trim();
-  const transporter = getPort587Transporter(email, userPass);
-  const summary = [];
-
-  for (const raw of recipients) {
-    const recipient = parseRecipientData(raw);
-    if (!recipient.email) continue;
-    try {
-      const personalizedSubject = personalizeContent(subject, recipient);
-      const personalizedBody = personalizeContent(userBody, recipient);
-      await transporter.sendMail({
-        from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
-        to: recipient.email,
-        subject: personalizedSubject,
-        html: personalizedBody.replace(/\n/g, '<br>'),
-        text: createCleanPlainText(personalizedBody)
-      });
-      summary.push({ success: true, recipient: recipient.email });
-    } catch (err) {
-      summary.push({ success: false, recipient: recipient.email, error: err.message });
-    }
-  }
-
-  return res.json({ success: true, results: summary });
-});
+app.post('/api/send-stream', (req, res) => executeEmailDispatch(req, res, true));
+app.post('/api/send', (req, res) => executeEmailDispatch(req, res, false));
 
 app.post('/api/stop', (req, res) => {
   globalSession.stopRequested = true;
   res.json({ success: true, message: 'Process stopped' });
 });
 
-// Serve frontend safely on direct URL navigation
+/* ==========================================================================
+   SAFE IN-MEMORY UI (Prevents Vercel 500 Path Crash)
+   ========================================================================== */
+const embeddedHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bulk Email Sender</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  </style>
+</head>
+<body class="text-slate-800 min-h-screen flex flex-col justify-center items-center p-4">
+
+  <div id="authContainer" class="w-full max-w-md bg-white border border-slate-200 rounded-2xl p-8 shadow-xl">
+    <div class="text-center mb-6">
+      <div class="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-3 border border-indigo-100">
+        <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+      </div>
+      <h2 class="text-2xl font-bold text-slate-800">Access Protected</h2>
+      <p class="text-sm text-slate-500 mt-1">Enter the password to continue</p>
+    </div>
+
+    <div id="authAlert" class="hidden mb-4 p-3 rounded-lg text-sm bg-rose-50 border border-rose-200 text-rose-600"></div>
+
+    <form id="loginForm" class="space-y-4">
+      <div>
+        <input type="password" id="sitePassword" required placeholder="Enter password..." class="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:border-indigo-600 text-slate-800 font-mono text-base placeholder-slate-400">
+      </div>
+      <button type="submit" id="loginBtn" class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium transition shadow-md shadow-indigo-600/20">➔ Enter</button>
+    </form>
+  </div>
+
+  <div id="mainDashboard" class="hidden w-full max-w-6xl">
+    <div class="flex items-center justify-between mb-6">
+      <div class="flex items-center gap-2">
+        <svg class="w-6 h-6 text-indigo-600 transform -rotate-45" fill="currentColor" viewBox="0 0 20 20"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg>
+        <h1 class="text-2xl font-bold text-slate-800">Bulk Email Sender</h1>
+      </div>
+      <button onclick="location.reload()" class="text-xs text-slate-500 hover:text-slate-800 bg-white border border-slate-300 px-3 py-1.5 rounded-lg shadow-sm">Logout</button>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+        <div class="flex items-center gap-2 border-b border-slate-100 pb-3">
+          <h2 class="font-bold text-slate-800 text-base">Compose Message</h2>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="text-xs font-semibold text-slate-600 block mb-1">Sender Name</label>
+            <input type="text" id="senderName" placeholder="E.g., John Doe" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-indigo-500">
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-slate-600 block mb-1">Your Gmail</label>
+            <input type="email" id="smtpEmail" placeholder="you@gmail.com" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-indigo-500">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="text-xs font-semibold text-slate-600 block mb-1">App Password</label>
+            <input type="password" id="smtpPass" placeholder="16-char app password" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-indigo-500">
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-slate-600 block mb-1">Email Subject</label>
+            <input type="text" id="subject" placeholder="Enter subject line..." class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:border-indigo-500">
+          </div>
+        </div>
+
+        <div>
+          <label class="text-xs font-semibold text-slate-600 block mb-1">Message Body (Plain Text / HTML)</label>
+          <textarea id="body" rows="9" placeholder="Write your email here... Spintax supported: {Hi|Hello}" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono text-slate-800 focus:outline-none focus:border-indigo-500"></textarea>
+        </div>
+
+        <div class="pt-2">
+          <div class="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-medium text-emerald-700">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>Success! Primary Inbox 5-Batch Protection Active</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="space-y-6">
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+          <div class="flex justify-between items-center mb-1">
+            <h2 class="font-bold text-slate-800 text-base">Recipients</h2>
+            <span id="foundBadge" class="text-xs bg-indigo-50 text-indigo-600 font-semibold px-2.5 py-0.5 rounded-full border border-indigo-100">0 found</span>
+          </div>
+          <p class="text-xs text-slate-400 mb-3">Paste emails (comma separated, new lines, or Excel copy)</p>
+          <textarea id="recipients" rows="5" placeholder="john@example.com&#10;jane@example.com, Jane Doe" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:border-indigo-500"></textarea>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+          <h2 class="font-bold text-slate-800 text-base">Progress Monitor</h2>
+          <div class="grid grid-cols-4 gap-3">
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+              <div class="text-[10px] font-bold text-slate-500 uppercase">TOTAL</div>
+              <div id="statTotal" class="text-2xl font-black text-indigo-600 mt-1">0</div>
+            </div>
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+              <div class="text-[10px] font-bold text-slate-500 uppercase">SENT</div>
+              <div id="statSent" class="text-2xl font-black text-emerald-500 mt-1">0</div>
+            </div>
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+              <div class="text-[10px] font-bold text-slate-500 uppercase">FAILED</div>
+              <div id="statFailed" class="text-2xl font-black text-rose-500 mt-1">0</div>
+            </div>
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+              <div class="text-[10px] font-bold text-slate-500 uppercase">REMAINING</div>
+              <div id="statRemaining" class="text-2xl font-black text-amber-500 mt-1">0</div>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-center gap-1.5 text-xs text-slate-500 py-1">
+            <span class="w-2 h-2 rounded-full bg-slate-400" id="statusDot"></span>
+            <span id="statusText">Ready to send</span>
+          </div>
+
+          <div class="flex gap-3 pt-2">
+            <button id="startBtn" class="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition shadow-md shadow-emerald-600/20">Send All</button>
+            <button id="stopBtn" class="px-6 py-3 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl font-bold transition">Stop</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const loginForm = document.getElementById('loginForm');
+    const authAlert = document.getElementById('authAlert');
+
+    function showAlert(msg) {
+      authAlert.classList.remove('hidden');
+      authAlert.textContent = msg;
+    }
+
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const pwd = document.getElementById('sitePassword').value.trim();
+      const btn = document.getElementById('loginBtn');
+      btn.disabled = true;
+      btn.textContent = 'Verifying...';
+
+      try {
+        const res = await fetch('/api/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pwd })
+        });
+        const data = await res.json();
+        if (data.success) {
+          document.getElementById('authContainer').classList.add('hidden');
+          document.getElementById('mainDashboard').classList.remove('hidden');
+        } else {
+          showAlert('Incorrect password');
+        }
+      } catch (err) {
+        showAlert('Authentication failed.');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '➔ Enter';
+      }
+    });
+
+    const recipientsInput = document.getElementById('recipients');
+    recipientsInput.addEventListener('input', () => {
+      const list = recipientsInput.value.split('\\n').filter(r => r.trim());
+      document.getElementById('foundBadge').textContent = list.length + ' found';
+      document.getElementById('statTotal').textContent = list.length;
+      document.getElementById('statRemaining').textContent = list.length;
+    });
+
+    document.getElementById('startBtn').addEventListener('click', async () => {
+      const email = document.getElementById('smtpEmail').value;
+      const appPassword = document.getElementById('smtpPass').value;
+      const senderName = document.getElementById('senderName').value;
+      const subject = document.getElementById('subject').value;
+      const messageBody = document.getElementById('body').value;
+      const rawRecipients = recipientsInput.value.split('\\n').filter(r => r.trim());
+
+      if (!email || !appPassword || rawRecipients.length === 0) {
+        alert('Please fill Sender Email, App Password, and at least one Recipient.');
+        return;
+      }
+
+      let sentCount = 0;
+      let failedCount = 0;
+      const totalCount = rawRecipients.length;
+
+      document.getElementById('statTotal').textContent = totalCount;
+      document.getElementById('statSent').textContent = '0';
+      document.getElementById('statFailed').textContent = '0';
+      document.getElementById('statRemaining').textContent = totalCount;
+      document.getElementById('statusText').textContent = 'Sending in 5-batches...';
+      document.getElementById('statusDot').className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
+
+      const res = await fetch('/api/send-stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, appPassword, senderName, subject, messageBody, recipients: rawRecipients })
+      });
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.replace('data: ', '').trim();
+            if (dataStr === '[DONE]') {
+              document.getElementById('statusText').textContent = 'Completed';
+              document.getElementById('statusDot').className = 'w-2 h-2 rounded-full bg-slate-400';
+            } else {
+              try {
+                const item = JSON.parse(dataStr);
+                if (item.success) {
+                  sentCount++;
+                  document.getElementById('statSent').textContent = sentCount;
+                } else {
+                  failedCount++;
+                  document.getElementById('statFailed').textContent = failedCount;
+                }
+                const rem = totalCount - (sentCount + failedCount);
+                document.getElementById('statRemaining').textContent = rem >= 0 ? rem : 0;
+              } catch(e) {}
+            }
+          }
+        }
+      }
+    });
+
+    document.getElementById('stopBtn').addEventListener('click', async () => {
+      await fetch('/api/stop', { method: 'POST' });
+      document.getElementById('statusText').textContent = 'Stopped';
+      document.getElementById('statusDot').className = 'w-2 h-2 rounded-full bg-rose-500';
+    });
+  </script>
+</body>
+</html>`;
+
 app.get('*', (req, res) => {
-  res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(embeddedHtml);
 });
 
 export default app;
