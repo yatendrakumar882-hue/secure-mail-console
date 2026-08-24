@@ -50,7 +50,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - 5 Connection Pool)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -68,10 +68,10 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 3, // Conservative pool to prevent concurrent session drops
-      maxMessages: 100,
-      socketTimeout: 30000,
-      connectionTimeout: 30000
+      maxConnections: 5, // Synchronized for 5-batch dispatch
+      maxMessages: 200,
+      socketTimeout: 35000,
+      connectionTimeout: 35000
     });
     poolMap.set(key, transporter);
   }
@@ -218,7 +218,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX OPTIMIZED STREAMING DISPATCH
+   STREAMING DISPATCH (Exact 5 Emails Per Batch)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -253,7 +253,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 5; // 5 emails per mini-batch for optimal throughput balance
+  const BATCH_SIZE = 5; // 5 Emails Per Batch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -269,8 +269,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Intra-batch delay
-          await new Promise(resolve => setTimeout(resolve, Math.floor(200 + Math.random() * 250)));
+          // Staggering within the 5-email batch
+          await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 200)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient);
@@ -322,8 +322,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Pacing delay (2.2s to 3.8s) for healthy sender reputation
-      const batchDelay = Math.floor(2200 + Math.random() * 1600);
+      // Pacing interval between 5-email batches (1.8s to 3.0s)
+      const batchDelay = Math.floor(1800 + Math.random() * 1200);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
@@ -338,12 +338,12 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Sending process stopped' });
 });
 
-// Express v5 Catch-All UI Router
+// Catch-All UI Router
 app.use((req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
 
-// Serverless handler for Vercel & local execution
+// Serverless Handler for Vercel
 export default function handler(req, res) {
   return app(req, res);
 }
