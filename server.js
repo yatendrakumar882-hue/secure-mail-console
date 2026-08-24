@@ -253,7 +253,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 3; // 3 emails per mini-batch for optimal throughput balance
+  const BATCH_SIZE = 5; // 5 emails per mini-batch for optimal throughput balance
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
