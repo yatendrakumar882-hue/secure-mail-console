@@ -61,7 +61,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard STARTTLS
+      secure: false, // Standard RFC STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -218,7 +218,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 5-BATCH (BLITCH) ENGINE
+   PRIMARY INBOX 5-BATCH NORMAL-SIZE ENGINE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -284,9 +284,19 @@ app.post('/api/send-stream', async (req, res) => {
 
         const bodyContent = isHtml ? personalizedBody : personalizedBody.replace(/\n/g, '<br>');
 
-        // Ultra-Clean Natural Human Structure (100% identical look across Gmail & Outlook)
-        const formattedHtml = `<div dir="ltr">${bodyContent}</div>`;
-        const plainTextFormatted = createCleanPlainText(personalizedBody);
+        // Universal Normal Typography (15.5px / 11.5pt with 1-line top quote offset)
+        const formattedHtml = `
+        <!--[if mso]>
+        <style type="text/css">
+          body, table, td, p, div, span { font-size: 15.5px !important; font-family: Calibri, Arial, sans-serif !important; line-height: 1.65 !important; }
+        </style>
+        <![endif]-->
+        <div dir="ltr" style="font-family: Calibri, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15.5px; color: #1e293b; line-height: 1.65; margin-top: 14px; padding-top: 4px;">
+          ${bodyContent}
+        </div>`;
+
+        // 1 line space in plain text quote fallback
+        const plainTextFormatted = `\n${createCleanPlainText(personalizedBody)}`;
 
         const randomHex = crypto.randomBytes(12).toString('hex');
         const customMessageId = `<${Date.now()}.${randomHex}@mail.gmail.com>`;
