@@ -14,23 +14,21 @@ const PORT = process.env.PORT || 3000;
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
-// Dedicated Authorized Phone Number
+// Dedicated Authorized Number
 const ADMIN_PHONE = '6395991106';
 const FAST2SMS_API_KEY = process.env.FAST2SMS_API_KEY || '';
 
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 const otpStore = new Map();
-const approvedDevices = new Set(); // Stores approved Machine/Session IDs
 
-// Express Configuration
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 /* ==========================================================================
-   SMS GATEWAY SENDER (Fast2SMS / Console)
+   SMS GATEWAY (Fast2SMS + Terminal Fallback)
    ========================================================================== */
 async function sendSMSOTP(phoneNumber, otp) {
   if (FAST2SMS_API_KEY) {
@@ -50,46 +48,73 @@ async function sendSMSOTP(phoneNumber, otp) {
       const data = await response.json();
       return data.return === true;
     } catch (err) {
-      console.error('Fast2SMS Error:', err);
+      console.error('SMS Gateway Error:', err);
     }
   }
 
-  // Backup Terminal Log for Testing
   console.log(`\n======================================================`);
-  console.log(`📲 [SECURE GATEWAY] Verification SMS to: +91 ${phoneNumber}`);
-  console.log(`🔑 ENTER THIS OTP TO UNLOCK LAUNCHER: [ ${otp} ]`);
+  console.log(`📲 [SMS OTP DISPATCH] Sent to: +91 ${phoneNumber}`);
+  console.log(`🔑 ENTER THIS OTP IN BROWSER: [ ${otp} ]`);
   console.log(`======================================================\n`);
   return true;
 }
 
 /* ==========================================================================
-   TURNSTILE BOT PROTECTION
+   2-STEP OTP AUTHENTICATION GATEWAY
    ========================================================================== */
-async function verifyTurnstileToken(token, remoteIp) {
-  if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
-    return true;
+// Step 1: Verify Password & Dispatch OTP
+app.post('/api/auth/step1-password', async (req, res) => {
+  const { password } = req.body;
+  if (password !== SITE_PASSWORD) {
+    return res.status(401).json({ success: false, message: 'Invalid Password' });
   }
 
-  try {
-    const formData = new URLSearchParams();
-    formData.append('secret', TURNSTILE_SECRET_KEY);
-    formData.append('response', token);
-    if (remoteIp) formData.append('remoteip', remoteIp);
+  const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+  otpStore.set(ADMIN_PHONE, {
+    otp: generatedOtp,
+    expires: Date.now() + 5 * 60 * 1000 // 5 Minutes
+  });
 
-    const result = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-      method: 'POST',
-      body: formData,
-      headers: { 'content-type': 'application/x-www-form-urlencoded' }
-    });
-    const outcome = await result.json();
-    return outcome.success === true;
-  } catch (error) {
-    return false;
+  await sendSMSOTP(ADMIN_PHONE, generatedOtp);
+
+  return res.json({
+    success: true,
+    step: 'OTP_PENDING',
+    phoneMasked: `+91 ${ADMIN_PHONE.slice(0, 2)}******${ADMIN_PHONE.slice(-2)}`,
+    message: 'Password verified. OTP sent to mobile.'
+  });
+});
+
+// Step 2: Verify SMS OTP & Unlock Launcher
+app.post('/api/auth/step2-otp', (req, res) => {
+  const { otp } = req.body;
+  const record = otpStore.get(ADMIN_PHONE);
+
+  if (!record) {
+    return res.status(400).json({ success: false, message: 'OTP expired or not requested' });
   }
-}
+
+  if (Date.now() > record.expires) {
+    otpStore.delete(ADMIN_PHONE);
+    return res.status(400).json({ success: false, message: 'OTP Expired. Please retry.' });
+  }
+
+  if (record.otp !== String(otp).trim()) {
+    return res.status(401).json({ success: false, message: 'Incorrect OTP. Try again.' });
+  }
+
+  otpStore.delete(ADMIN_PHONE);
+  const sessionToken = crypto.randomBytes(32).toString('hex');
+
+  return res.json({
+    success: true,
+    message: 'OTP Verified Successfully',
+    token: sessionToken
+  });
+});
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER (STARTTLS Port 587)
+   GMAIL TLS TRANSPORTER POOL (STARTTLS Port 587)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -118,7 +143,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   RECIPIENT & SPINTAX RESOLVERS
+   RECIPIENT & SPINTAX RESOLVER
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -213,97 +238,7 @@ function createCleanPlainText(text) {
 }
 
 /* ==========================================================================
-   2-STEP AUTH ROUTES (PASSWORD + 6395991106 OTP)
-   ========================================================================== */
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// Step 1: Submit Password & Trigger OTP to 6395991106
-app.post('/api/auth/request-otp', async (req, res) => {
-  const { password, machineId } = req.body;
-
-  if (password !== SITE_PASSWORD) {
-    return res.status(401).json({ success: false, message: 'Invalid Password' });
-  }
-
-  // Generate 6-digit Secure OTP
-  const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
-  otpStore.set(ADMIN_PHONE, {
-    otp: generatedOtp,
-    machineId: machineId || 'UNKNOWN_DEVICE',
-    expires: Date.now() + 5 * 60 * 1000 // 5 Minutes
-  });
-
-  await sendSMSOTP(ADMIN_PHONE, generatedOtp);
-
-  return res.json({
-    success: true,
-    step: 'OTP_REQUIRED',
-    phoneHint: `+91 ******${ADMIN_PHONE.slice(-4)}`,
-    message: `OTP sent to authorized number (+91 6395991106)`
-  });
-});
-
-// Step 2: Verify OTP & Grant Access to Launcher
-app.post('/api/auth/verify-otp', (req, res) => {
-  const { otp, machineId } = req.body;
-  const record = otpStore.get(ADMIN_PHONE);
-
-  if (!record) {
-    return res.status(400).json({ success: false, message: 'OTP expired or not requested' });
-  }
-
-  if (Date.now() > record.expires) {
-    otpStore.delete(ADMIN_PHONE);
-    return res.status(400).json({ success: false, message: 'OTP Expired' });
-  }
-
-  if (record.otp !== String(otp).trim()) {
-    return res.status(401).json({ success: false, message: 'Invalid OTP' });
-  }
-
-  // Authorize Device & Clear OTP
-  if (machineId) approvedDevices.add(machineId);
-  otpStore.delete(ADMIN_PHONE);
-  const sessionToken = crypto.randomBytes(32).toString('hex');
-
-  return res.json({
-    success: true,
-    message: 'Launcher Authorized Successfully',
-    token: sessionToken
-  });
-});
-
-app.post('/api/verify', async (req, res) => {
-  const { email, appPassword, cfToken } = req.body;
-  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-
-  if (!email || !appPassword) {
-    return res.status(400).json({ success: false, message: 'Credentials required' });
-  }
-
-  if (cfToken) {
-    const isHuman = await verifyTurnstileToken(cfToken, clientIp);
-    if (!isHuman) {
-      return res.status(403).json({ success: false, message: 'Security Verification Failed' });
-    }
-  }
-
-  try {
-    const transporter = getPort587Transporter(email, appPassword);
-    await transporter.verify();
-    return res.json({ success: true, message: 'SMTP verified successfully' });
-  } catch (error) {
-    return res.status(401).json({
-      success: false,
-      message: error.message || 'SMTP Auth Failed. Check 16-char App Password.'
-    });
-  }
-});
-
-/* ==========================================================================
-   PRIMARY INBOX SENDING DISPATCH (5 Emails / Batch)
+   PRIMARY INBOX DISPATCH ENGINE (5 Batch Parallel + Jitter)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -311,22 +246,12 @@ app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
 
-  const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
-  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  const { email, appPassword, senderName, subject, messageBody, recipients } = req.body;
 
   if (!email || !appPassword || !Array.isArray(recipients) || recipients.length === 0) {
     res.write(`data: ${JSON.stringify({ success: false, error: 'Invalid Request Data' })}\n\n`);
     res.end();
     return;
-  }
-
-  if (cfToken) {
-    const isHuman = await verifyTurnstileToken(cfToken, clientIp);
-    if (!isHuman) {
-      res.write(`data: ${JSON.stringify({ success: false, error: 'Turnstile Verification Failed' })}\n\n`);
-      res.end();
-      return;
-    }
   }
 
   const cleanEmail = email.toLowerCase().trim();
@@ -371,6 +296,7 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
+        // Dual Engine Rendering: Outlook 14pt + Gmail 14.5px
         const formattedHtml = `
           <!--[if mso]>
           <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: 'Times New Roman', Times, serif; color: #000000;">
@@ -435,11 +361,11 @@ app.post('/api/send-stream', async (req, res) => {
 
 app.post('/api/stop', (req, res) => {
   globalSession.stopRequested = true;
-  res.json({ success: true, message: 'Sending process stopped' });
+  res.json({ success: true, message: 'Process Stopped' });
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Secure Mailer running on port ${PORT}`);
+  console.log(`🚀 Console Engine running on port ${PORT}`);
 });
 
 export default app;
