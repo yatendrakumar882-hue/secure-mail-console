@@ -61,14 +61,14 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // RFC Compliant STARTTLS
+      secure: false, // Standard RFC STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5, // High-speed 5 parallel streams
+      maxConnections: 5,
       maxMessages: 500,
       socketTimeout: 35000,
       connectionTimeout: 35000
@@ -79,7 +79,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   PARSING & SPINTAX PERSONALIZATION ENGINE
+   RECIPIENT NORMALIZATION & ADVANCED SPINTAX
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -218,7 +218,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   ULTRA INBOX 5-BATCH HIGH-SPEED STREAMING ROUTE
+   PRIMARY INBOX 5-BATCH (BLITCH) ENGINE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -253,7 +253,14 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 5; // Fixed 5-Batch for rapid sending speed
+  const BATCH_SIZE = 5; // 5 Emails Per Batch
+
+  // High Deliverability Spintax Defaults
+  const defaultSubject = "{quick question|quick note for {Name}|touching base regarding your page|question for you}";
+  const defaultBody = "{Hi {Name},|Hello {Name},|Good day {Name},}\n\n{I was looking at your website earlier and had a quick thought to share.|I came across your web presence today and wanted to reach out directly.}\n\n{Would you be open to a quick 2-minute feedback?|Let me know if I can share a short observation with you.}\n\nBest regards,\n" + (cleanSenderName || "Team");
+
+  const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
+  const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -269,36 +276,20 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Rapid organic offset within the 5 batch
+          // Fast micro-gap inside batch
           await new Promise(resolve => setTimeout(resolve, Math.floor(100 + Math.random() * 120)));
         }
 
-        const personalizedSubject = personalizeContent(subject, recipient);
-        const personalizedBody = personalizeContent(messageBody, recipient);
+        const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
+        const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
         const bodyContent = isHtml ? personalizedBody : personalizedBody.replace(/\n/g, '<br>');
 
-        // Gmail Native (15px) + Outlook Conditional Full Frame (17px, 700px width)
-        const formattedHtml = `
-        <!--[if mso]>
-        <style type="text/css">
-          body, table, td, p, div, span { font-size: 17px !important; line-height: 1.7 !important; }
-        </style>
-        <table role="presentation" width="700" border="0" cellspacing="0" cellpadding="0">
-          <tr>
-            <td style="font-size: 17px; line-height: 1.7; color: #1e293b; font-family: Segoe UI, Arial, sans-serif;">
-        <![endif]-->
-        <div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #1e293b; line-height: 1.6;">
-          ${bodyContent}
-        </div>
-        <!--[if mso]>
-            </td>
-          </tr>
-        </table>
-        <![endif]-->`;
-
+        // Consistent typography for both Gmail & Outlook (15px regular flow)
+        const formattedHtml = `<div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #1e293b; line-height: 1.6; padding-top: 6px;">${bodyContent}</div>`;
         const plainTextFormatted = createCleanPlainText(personalizedBody);
+
         const randomHex = crypto.randomBytes(12).toString('hex');
         const customMessageId = `<${Date.now()}.${randomHex}@mail.gmail.com>`;
 
@@ -336,7 +327,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Balanced speed delay (500ms to 800ms)
+      // 500ms to 800ms delay between 5-email batches
       const batchDelay = Math.floor(500 + Math.random() * 300);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
