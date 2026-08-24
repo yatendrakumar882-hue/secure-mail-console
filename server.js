@@ -296,7 +296,7 @@ app.post('/api/send-stream', async (req, res) => {
           <!--[if mso]>
           <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: 'Times New Roman', Times, serif; color: #000000;">
             <tr>
-              <td style="font-family: 'Times New Roman', Times, serif; font-size: 14pt; line-height: 1.45; color: #000000;">
+              <td style="font-family: 'Times New Roman', Times, serif; font-size: 17pt; line-height: 1.45; color: #000000;">
                 ${cleanBodyText}
               </td>
             </tr>
