@@ -54,7 +54,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_core_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -67,8 +67,8 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5, // 5-batch sync
-      maxMessages: 50000,
+      maxConnections: 5, // Exact 5-batch sync
+      maxMessages: 500,
       socketTimeout: 30000,
       connectionTimeout: 30000
     });
@@ -219,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX STREAMING ROUTE (Full RFC Standard & Zero Spam Flags)
+   PRIMARY INBOX STREAMING ROUTE (5 Parallel Batch + Exact Same Speed)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -254,9 +254,11 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
+  
+  // Exact Batch Size: 5
   const BATCH_SIZE = 5;
 
-  // Fully diversified spintax (Protects against Content-Hash Filters)
+  // Fully diversified spintax (Protects against Content-Hash Spam Filters)
   const defaultBestSubject = '{quick note regarding your site|website feedback|quick question for you|question about your page}';
   const defaultBestBody = "{Hi {Name},|Hello {Name},|Hey {Name},}\n\n{I noticed your site has a great presentation but isn't showing on the top results.|Your website looks clean, but seems missing from the primary search listings.}\n\n{May I send you a quick report with details?|Would you mind if I shared the screenshot with you?|Can I share the audit reports with you?}";
 
@@ -276,8 +278,9 @@ app.post('/api/send-stream', async (req, res) => {
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
       try {
+        // Micro-jitter inside batch to avoid synchronized spikes
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 250)));
+          await new Promise(resolve => setTimeout(resolve, Math.floor(120 + Math.random() * 180)));
         }
 
         const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
@@ -288,8 +291,24 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Pure standard multi-part message (Gmail Native Human Structure)
-        const formattedHtml = `<div dir="ltr">${cleanBodyText}</div>`;
+        // Pure standard multi-part message (Gmail 14.5px sans-serif / Outlook 14pt MSO fallback)
+        const formattedHtml = `
+          <!--[if mso]>
+          <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: 'Times New Roman', Times, serif; color: #000000;">
+            <tr>
+              <td style="font-family: 'Times New Roman', Times, serif; font-size: 14pt; line-height: 1.45; color: #000000;">
+                ${cleanBodyText}
+              </td>
+            </tr>
+          </table>
+          <![endif]-->
+          <!--[if !mso]><!-->
+          <div dir="ltr" style="font-family: Roboto, Arial, Helvetica, sans-serif; font-size: 14.5px; color: #222222; line-height: 1.5;">
+            ${cleanBodyText}
+          </div>
+          <!--<![endif]-->
+        `.trim();
+
         const plainTextFormatted = createCleanPlainText(personalizedBody);
 
         const mailOptions = {
@@ -300,11 +319,11 @@ app.post('/api/send-stream', async (req, res) => {
             to: recipient.email
           },
           replyTo: cleanEmail,
-          date: new Date(), // Standard RFC 2822 timestamp (Fixes automated script flag)
+          date: new Date(), // Standard RFC timestamp
           subject: personalizedSubject,
-          text: plainTextFormatted,
           html: formattedHtml,
-          textEncoding: 'base64',
+          text: plainTextFormatted,
+          textEncoding: 'quoted-printable',
           encoding: 'utf-8'
         };
 
@@ -324,7 +343,7 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Human delay between 2-email batches (3.2s to 5.0s)
+    // Safe batch rest (3.2s to 5.0s) between 5-email batches
     if (i + BATCH_SIZE < recipients.length) {
       const safeBatchDelay = Math.floor(3200 + Math.random() * 1800);
       await new Promise(resolve => setTimeout(resolve, safeBatchDelay));
