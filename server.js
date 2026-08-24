@@ -21,8 +21,6 @@ const poolMap = new Map();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-
-// Serve static assets from public directory
 app.use(express.static(path.join(process.cwd(), 'public')));
 
 /* ==========================================================================
@@ -46,7 +44,7 @@ async function verifyTurnstileToken(token, remoteIp) {
     });
     const outcome = await result.json();
     return outcome.success === true;
-  } catch (error) {
+  } catch {
     return false;
   }
 }
@@ -70,8 +68,8 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 4, // 4 concurrent connections
-      maxMessages: 500,
+      maxConnections: 3, // Conservative pool to prevent concurrent session drops
+      maxMessages: 100,
       socketTimeout: 30000,
       connectionTimeout: 30000
     });
@@ -220,7 +218,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 4-BATCH STREAMING DISPATCH ROUTE
+   PRIMARY INBOX OPTIMIZED STREAMING DISPATCH
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -251,11 +249,11 @@ app.post('/api/send-stream', async (req, res) => {
   globalSession.stopRequested = false;
 
   const keepAlivePing = setInterval(() => {
-    try { res.write(': keep-alive\n\n'); } catch (e) {}
+    try { res.write(': keep-alive\n\n'); } catch {}
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 4; // 4 Emails Per Batch
+  const BATCH_SIZE = 3; // 3 emails per mini-batch for optimal throughput balance
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -271,7 +269,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(120 + Math.random() * 100)));
+          // Intra-batch delay
+          await new Promise(resolve => setTimeout(resolve, Math.floor(200 + Math.random() * 250)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient);
@@ -280,13 +279,14 @@ app.post('/api/send-stream', async (req, res) => {
 
         let cleanBodyHtml = '';
         if (isHtml) {
-          cleanBodyHtml = `<div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #0f172a; line-height: 1.65; padding-top: 10px;">${personalizedBody}</div>`;
+          cleanBodyHtml = `<div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #1e293b; line-height: 1.6;">${personalizedBody}</div>`;
         } else {
-          cleanBodyHtml = `<div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #0f172a; line-height: 1.65; padding-top: 10px;">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
+          cleanBodyHtml = `<div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #1e293b; line-height: 1.6;">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
         }
 
         const plainTextFormatted = createPlainTextFromHtml(cleanBodyHtml);
-        const randomMsgId = `<${crypto.randomBytes(12).toString('hex')}@mail.gmail.com>`;
+        const randomHex = crypto.randomBytes(12).toString('hex');
+        const customMessageId = `<${Date.now()}.${randomHex}@mail.gmail.com>`;
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
@@ -296,7 +296,7 @@ app.post('/api/send-stream', async (req, res) => {
             from: cleanEmail,
             to: recipient.email
           },
-          messageId: randomMsgId,
+          messageId: customMessageId,
           date: new Date(),
           subject: personalizedSubject || 'No Subject',
           html: cleanBodyHtml,
@@ -322,7 +322,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      const batchDelay = Math.floor(350 + Math.random() * 60);
+      // Pacing delay (2.2s to 3.8s) for healthy sender reputation
+      const batchDelay = Math.floor(2200 + Math.random() * 1600);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
