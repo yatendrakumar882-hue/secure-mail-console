@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const SITE_PASSWORD = process.env.SITE_PASSWORD || '####';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const globalSession = { stopRequested: false };
@@ -60,14 +60,14 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Pure STARTTLS
+      secure: false, // Standard RFC STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5, // 5 Parallel Streams
+      maxConnections: 5, // 5 Parallel Connections
       maxMessages: 500,
       socketTimeout: 35000,
       connectionTimeout: 35000
@@ -217,7 +217,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 5-BATCH DIRECT DISPATCH
+   PRIMARY INBOX 5-BATCH DIRECT ENGINE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -252,7 +252,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 5; // 5 Emails in 1 Batch
+  const BATCH_SIZE = 5; // 5 Emails in 1 Parallel Batch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -268,7 +268,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(120 + Math.random() * 150)));
+          // Fast micro-gap inside batch
+          await new Promise(resolve => setTimeout(resolve, Math.floor(100 + Math.random() * 120)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient);
@@ -277,7 +278,7 @@ app.post('/api/send-stream', async (req, res) => {
 
         const bodyContent = isHtml ? personalizedBody : personalizedBody.replace(/\n/g, '<br>');
 
-        // Natural clean email styling (Outlook 16.5px, Web/Gmail 15px with top line separation)
+        // Universal clean typography (Outlook 16.5px, Web/Gmail 15px with top line separation)
         const formattedHtml = `
         <!--[if mso]>
         <style type="text/css">
@@ -294,7 +295,7 @@ app.post('/api/send-stream', async (req, res) => {
 
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
-        // Authentic Header Payload
+        // Authentic Header Payload (Allows Gmail SMTP to attach official DKIM/Message-ID)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -324,8 +325,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // 1.2s to 1.8s delay between 5-batches to prevent spam filters
-      const batchDelay = Math.floor(1200 + Math.random() * 600);
+      // 500ms to 800ms natural delay between 5-batches
+      const batchDelay = Math.floor(500 + Math.random() * 300);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
