@@ -49,7 +49,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - 6 Connections Synchronized)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -67,8 +67,8 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5, // Batch-aligned connections
-      maxMessages: 10000,
+      maxConnections: 6, // 6 Connections for 6-Batch Stream
+      maxMessages: 1500,
       socketTimeout: 30000,
       connectionTimeout: 30000
     });
@@ -197,7 +197,7 @@ function parseSpintax(text) {
 function personalizeContent(template, recipient) {
   if (!template) return '';
   
-  // 1. Auto-sanitize A to Z spam words
+  // 1. Auto-sanitize A-to-Z spam words
   let content = sanitizeSpamWords(template);
   
   // 2. Resolve spintax variations
@@ -271,7 +271,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 3-BATCH ENGINE (A-to-Z AUTO CLEANSED)
+   PRIMARY INBOX 6-BATCH ENGINE (6 EMAILS PER BLITCH)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -306,7 +306,9 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 5; // Line: Batch size control
+  
+  // 6 EMAILS IN 1 BATCH/BLITCH
+  const BATCH_SIZE = 6; 
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -322,8 +324,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Intra-batch micro stagger (250ms - 400ms)
-          await new Promise(resolve => setTimeout(resolve, Math.floor(250 + Math.random() * 150)));
+          // Micro-stagger inside 6-batch (120ms - 200ms) to prevent socket collision
+          await new Promise(resolve => setTimeout(resolve, Math.floor(120 + Math.random() * 80)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient);
@@ -364,8 +366,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural inter-batch delay (1.8s - 2.8s)
-      const batchDelay = Math.floor(1800 + Math.random() * 1000);
+      // Natural 800ms - 1200ms gap between 6-batches
+      const batchDelay = Math.floor(800 + Math.random() * 400);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
