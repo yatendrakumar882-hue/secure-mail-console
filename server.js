@@ -3,7 +3,6 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -11,7 +10,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || '####';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const globalSession = { stopRequested: false };
@@ -61,15 +60,15 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC STARTTLS
+      secure: false, // Pure STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 2, // Synchronized with 2-batch
-      maxMessages: 100,
+      maxConnections: 5, // 5 Parallel Streams
+      maxMessages: 500,
       socketTimeout: 35000,
       connectionTimeout: 35000
     });
@@ -218,7 +217,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   SAFE 2-BATCH HIGH INBOX STREAMING ROUTE
+   PRIMARY INBOX 5-BATCH DIRECT DISPATCH
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -253,13 +252,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 2; // Exact 2 Emails per batch
-
-  const defaultSubject = "{quick question|quick note for {Name}|touching base|question for you}";
-  const defaultBody = "{Hi {Name},|Hello {Name},|Good day {Name},}\n\n{I was looking at your website earlier and had a quick thought to share.|I came across your web presence today and wanted to reach out directly.}\n\n{Would you be open to a quick 2-minute chat?|Let me know if I can share a short observation with you.}\n\nBest regards,\n" + (cleanSenderName || "Team");
-
-  const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
-  const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
+  const BATCH_SIZE = 5; // 5 Emails in 1 Batch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -275,17 +268,16 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Stagger between 1st and 2nd mail
-          await new Promise(resolve => setTimeout(resolve, Math.floor(600 + Math.random() * 400)));
+          await new Promise(resolve => setTimeout(resolve, Math.floor(120 + Math.random() * 150)));
         }
 
-        const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
-        const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
+        const personalizedSubject = personalizeContent(subject, recipient);
+        const personalizedBody = personalizeContent(messageBody, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
         const bodyContent = isHtml ? personalizedBody : personalizedBody.replace(/\n/g, '<br>');
 
-        // Universal clean typography (Outlook 16.5px, Web/Gmail 15px, with quote top gap)
+        // Natural clean email styling (Outlook 16.5px, Web/Gmail 15px with top line separation)
         const formattedHtml = `
         <!--[if mso]>
         <style type="text/css">
@@ -302,6 +294,7 @@ app.post('/api/send-stream', async (req, res) => {
 
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
+        // Authentic Header Payload
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -331,8 +324,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Safe organic delay (3.5s to 5.5s) between batches to preserve inbox landing
-      const batchDelay = Math.floor(3500 + Math.random() * 2000);
+      // 1.2s to 1.8s delay between 5-batches to prevent spam filters
+      const batchDelay = Math.floor(1200 + Math.random() * 600);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
