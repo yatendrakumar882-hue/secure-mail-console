@@ -1,7 +1,7 @@
 {
   "name": "secure-mail-console",
   "version": "1.0.0",
-  "description": "High Deliverability Secure Outreach Mailer",
+  "description": "High Deliverability Mail Console",
   "main": "server.js",
   "type": "module",
   "scripts": {
