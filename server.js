@@ -60,7 +60,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // RFC Compliant STARTTLS
+      secure: false, // Standard RFC STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -79,7 +79,7 @@ function getPort587Transporter(email, appPassword) {
 
 /* ==========================================================================
    INVISIBLE ANTI-FILTER TOKENIZER (Zero-Width Cloaking)
-   Protects original words from Bayesian scanners without altering visual text
+   Words remain visually unchanged to humans while bypassing spam filter tokens
    ========================================================================== */
 const SENSITIVE_KEYWORDS = [
   'quote', 'quotes', 'proposal', 'proposals', 'price', 'pricing', 'cost',
@@ -95,7 +95,6 @@ function applyInvisibleAntiFilter(htmlContent) {
     const regex = new RegExp(`\\b(${word})\\b`, 'gi');
     cloaked = cloaked.replace(regex, (match) => {
       if (match.length > 2) {
-        // Insert invisible Zero-Width Non-Joiner (zwnj) inside word
         return match.slice(0, 1) + '&zwnj;' + match.slice(1);
       }
       return match;
@@ -281,7 +280,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 5; // 5 Parallel Emails Per Batch
+  const BATCH_SIZE = 5; // 5 Emails in 1 Parallel Batch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -297,7 +296,6 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Staggering within the 5 batch to avoid spam detection
           await new Promise(resolve => setTimeout(resolve, Math.floor(200 + Math.random() * 150)));
         }
 
@@ -307,10 +305,10 @@ app.post('/api/send-stream', async (req, res) => {
 
         let bodyContent = isHtml ? personalizedBody : personalizedBody.replace(/\n/g, '<br>');
 
-        // Apply Invisible Anti-Filter Cloaking (Preserves exact visible wording)
+        // Invisible zero-width non-joiner cloaking
         bodyContent = applyInvisibleAntiFilter(bodyContent);
 
-        // Universal clean typography (Outlook 16.5px, Webmail 15px with top 1-line space)
+        // Outlook 16.5px (12.5pt) | Gmail 15px Normal | 1-line quote separation
         const formattedHtml = `
         <!--[if mso]>
         <style type="text/css">
@@ -327,7 +325,7 @@ app.post('/api/send-stream', async (req, res) => {
 
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
-        // Authentic Header Payload (Allows official DKIM & Native Message-ID)
+        // Authentic DKIM & Native Message-ID Payload
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -357,7 +355,6 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // 1.2s to 1.8s anti-block pacing interval between batches
       const batchDelay = Math.floor(1200 + Math.random() * 600);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
@@ -373,7 +370,7 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Sending process stopped' });
 });
 
-// Express v5 Catch-All UI Router
+// Express Catch-All UI Router
 app.use((req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
