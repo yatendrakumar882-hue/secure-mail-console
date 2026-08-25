@@ -43,34 +43,34 @@ async function verifyTurnstileToken(token, remoteIp) {
     });
     const outcome = await result.json();
     return outcome.success === true;
-  } catch {
+  } catch (error) {
     return false;
   }
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - 8 Parallel Connections)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_core_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_core_8b_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC STARTTLS
+      secure: false, // RFC Standard STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 4, // Aligned with 4-batch processing
-      maxMessages: 500,
-      socketTimeout: 30000,
-      connectionTimeout: 30000
+      maxConnections: 8, // 8-Batch Synchronized Channel Pool
+      maxMessages: 1000,
+      socketTimeout: 35000,
+      connectionTimeout: 35000
     });
     poolMap.set(key, transporter);
   }
@@ -219,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   FAST 4-BATCH PRIMARY INBOX STREAMING ROUTE
+   FAST 8-BATCH PRIMARY INBOX STREAMING DISPATCH ROUTE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -254,7 +254,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 4; // Exact 4-batch parallel dispatch
+  const BATCH_SIZE = 8; // Exact 8 Emails Per Batch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -270,8 +270,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Fast micro-gap inside batch (100ms - 180ms)
-          await new Promise(resolve => setTimeout(resolve, Math.floor(100 + Math.random() * 80)));
+          // Rapid organic offset within 8-batch (prevents simultaneous socket collisions)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(70 + Math.random() * 50)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient);
@@ -282,7 +282,7 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Gmail 15px | Outlook 16.5px (12.5pt) | 1-line top margin quote offset
+        // Universal Responsive Layout: Gmail 15px | Outlook 16.5px (12.5pt) | 1-line Quote Offset
         const formattedHtml = `
         <!--[if mso]>
         <style type="text/css">
@@ -299,7 +299,7 @@ app.post('/api/send-stream', async (req, res) => {
 
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
-        // Authentic RFC standard payload (Quoted-Printable eliminates spam scores)
+        // Authentic RFC 5322 Standard Payload (Quoted-Printable for Zero Spam Flagging)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -329,8 +329,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Rapid balanced delay (350ms - 500ms) matching previous 25-email high speed
-      const safeBatchDelay = Math.floor(350 + Math.random() * 150);
+      // Natural pacing interval (400ms - 600ms) between 8-batches
+      const safeBatchDelay = Math.floor(400 + Math.random() * 200);
       await new Promise(resolve => setTimeout(resolve, safeBatchDelay));
     }
   }
