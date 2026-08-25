@@ -60,17 +60,17 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC STARTTLS
+      secure: false, // RFC Compliant STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5, // 5 Parallel Connections
-      maxMessages: 500,
-      socketTimeout: 35000,
-      connectionTimeout: 35000
+      maxConnections: 2, // Safe 2-connection pool
+      maxMessages: 100,
+      socketTimeout: 40000,
+      connectionTimeout: 40000
     });
     poolMap.set(key, transporter);
   }
@@ -217,7 +217,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 5-BATCH DIRECT ENGINE
+   PRIMARY INBOX 2-BATCH SAFE PACING ENGINE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -252,7 +252,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 5; // 5 Emails in 1 Parallel Batch
+  const BATCH_SIZE = 2; // Safe 2-email batch to bypass spam rate-limiters
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -268,8 +268,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Fast micro-gap inside batch
-          await new Promise(resolve => setTimeout(resolve, Math.floor(100 + Math.random() * 120)));
+          // 400ms - 700ms offset between 1st & 2nd email
+          await new Promise(resolve => setTimeout(resolve, Math.floor(400 + Math.random() * 300)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient);
@@ -295,7 +295,7 @@ app.post('/api/send-stream', async (req, res) => {
 
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
-        // Authentic Header Payload (Allows Gmail SMTP to attach official DKIM/Message-ID)
+        // Authentic Header Payload
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -325,8 +325,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // 500ms to 800ms natural delay between 5-batches
-      const batchDelay = Math.floor(500 + Math.random() * 300);
+      // 3.0s to 5.0s pacing interval to ensure primary inbox delivery
+      const batchDelay = Math.floor(3000 + Math.random() * 2000);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
