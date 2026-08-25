@@ -49,12 +49,12 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (High-Speed 8 Parallel Connections)
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `turbo_inbox_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_smooth_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -67,10 +67,10 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 8, // High-speed 8-channel pool
-      maxMessages: 2000,
-      socketTimeout: 25000,
-      connectionTimeout: 25000
+      maxConnections: 6, // Smooth 6-connection stream pool
+      maxMessages: 1500,
+      socketTimeout: 30000,
+      connectionTimeout: 30000
     });
     poolMap.set(key, transporter);
   }
@@ -219,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   ULTRA-FAST 8-BATCH STREAMING DISPATCH ROUTE (ZERO BLOAT)
+   SMOOTH 6-BATCH PRIMARY INBOX STREAMING DISPATCH ROUTE (-20% SPEED)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -254,7 +254,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 8; // Ultra-Fast 8 Emails Per Batch
+  const BATCH_SIZE = 6; // Stable 6 Emails Per Batch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -264,11 +264,16 @@ app.post('/api/send-stream', async (req, res) => {
 
     const batch = recipients.slice(i, i + BATCH_SIZE);
 
-    const sendPromises = batch.map(async (rawRecipient) => {
+    const sendPromises = batch.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
       try {
+        if (idx > 0) {
+          // Smooth micro-gap inside batch (120ms - 200ms)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(120 + Math.random() * 80)));
+        }
+
         const personalizedSubject = personalizeContent(subject, recipient);
         const personalizedBody = personalizeContent(messageBody, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
@@ -324,9 +329,9 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Fast turbo delay (250ms - 400ms) between 8-batches
-      const turboBatchDelay = Math.floor(250 + Math.random() * 150);
-      await new Promise(resolve => setTimeout(resolve, turboBatchDelay));
+      // Smooth pacing interval (600ms - 900ms) for reliable Inbox delivery
+      const smoothBatchDelay = Math.floor(600 + Math.random() * 300);
+      await new Promise(resolve => setTimeout(resolve, smoothBatchDelay));
     }
   }
 
