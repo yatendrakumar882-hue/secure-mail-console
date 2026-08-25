@@ -78,30 +78,20 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   INVISIBLE ANTI-FILTER TOKENIZER (Zero-Width Cloaking)
-   Words remain visually unchanged to humans while bypassing spam filter tokens
+   UNIVERSAL ZERO-WIDTH OBFUSCATION ENGINE (Bypasses All Keyword Scanners)
+   Injects invisible non-joiner tokens inside text to completely break spam hashes
    ========================================================================== */
-const SENSITIVE_KEYWORDS = [
-  'quote', 'quotes', 'proposal', 'proposals', 'price', 'pricing', 'cost',
-  'seo', 'audit', 'rank', 'ranking', '1st page', 'first page', 'guarantee',
-  'free', 'deal', 'offer', 'urgent', 'traffic', 'leads', 'cheap'
-];
-
-function applyInvisibleAntiFilter(htmlContent) {
+function universalZeroWidthShield(htmlContent) {
   if (!htmlContent) return '';
-  let cloaked = String(htmlContent);
-
-  SENSITIVE_KEYWORDS.forEach(word => {
-    const regex = new RegExp(`\\b(${word})\\b`, 'gi');
-    cloaked = cloaked.replace(regex, (match) => {
-      if (match.length > 2) {
-        return match.slice(0, 1) + '&zwnj;' + match.slice(1);
-      }
-      return match;
+  
+  // HTML tags aur entities ko chhod kar words ke beech safe invisible token inject karta hai
+  return htmlContent.replace(/(>|^)([^<]+)(<|$)/g, (match, prefix, textNode, suffix) => {
+    const cloakedText = textNode.replace(/\b([a-zA-Z]{3,})\b/g, (word) => {
+      // Har 3+ letter word ke 2nd letter ke baad invisible &zwnj; inject
+      return word.slice(0, 2) + '&zwnj;' + word.slice(2);
     });
+    return prefix + cloakedText + suffix;
   });
-
-  return cloaked;
 }
 
 /* ==========================================================================
@@ -280,7 +270,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 5; // 5 Emails in 1 Parallel Batch
+  const BATCH_SIZE = 5; // 5 Emails per batch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -296,6 +286,7 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
+          // Micro-stagger inside batch
           await new Promise(resolve => setTimeout(resolve, Math.floor(200 + Math.random() * 150)));
         }
 
@@ -305,8 +296,8 @@ app.post('/api/send-stream', async (req, res) => {
 
         let bodyContent = isHtml ? personalizedBody : personalizedBody.replace(/\n/g, '<br>');
 
-        // Invisible zero-width non-joiner cloaking
-        bodyContent = applyInvisibleAntiFilter(bodyContent);
+        // Universal Anti-Spam Token Shield (Breaks all Bayesian keyword filters)
+        bodyContent = universalZeroWidthShield(bodyContent);
 
         // Outlook 16.5px (12.5pt) | Gmail 15px Normal | 1-line quote separation
         const formattedHtml = `
@@ -355,6 +346,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
+      // 1.2s to 1.8s anti-block pacing interval between batches
       const batchDelay = Math.floor(1200 + Math.random() * 600);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
