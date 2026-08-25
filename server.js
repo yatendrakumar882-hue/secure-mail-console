@@ -54,7 +54,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_3b_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -67,8 +67,8 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 3, // Synchronized with 3-Batch architecture
-      maxMessages: 500,
+      maxConnections: 3, // Synchronized 3-Batch Processing
+      maxMessages: 1000,
       socketTimeout: 35000,
       connectionTimeout: 35000
     });
@@ -78,8 +78,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   TARGETED ZERO-WIDTH KEYWORD SHIELD (Bypasses Word-Level Filters)
-   Preserves 100% visible spelling for humans while masking from spam bots
+   ZERO-WIDTH SHIELD (Masks High-Risk Keywords From Bayesian Filters)
    ========================================================================== */
 const SENSITIVE_WORDS = [
   'screenshot', 'screenshots', 'report', 'reports', 'seo', 'details',
@@ -96,7 +95,6 @@ function applyKeywordFilterShield(text) {
     const regex = new RegExp(`\\b(${word})\\b`, 'gi');
     shielded = shielded.replace(regex, (match) => {
       if (match.length >= 2) {
-        // Injects invisible zero-width non-joiner (&zwnj;) inside the word
         return match.slice(0, 1) + '&zwnj;' + match.slice(1);
       }
       return match;
@@ -249,7 +247,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   3-BATCH KEYWORD-SHIELDED PRIMARY INBOX STREAMING ROUTE
+   PRIMARY INBOX STREAMING DISPATCH ROUTE (3-BATCH ENGINE)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -284,7 +282,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 3; // 3 Emails Per Batch
+  const BATCH_SIZE = 3; // 3 Parallel Emails
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -300,8 +298,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Stagger within batch (250ms - 400ms)
-          await new Promise(resolve => setTimeout(resolve, Math.floor(250 + Math.random() * 150)));
+          // Micro-stagger inside 3-batch (200ms - 350ms) to defeat rate limits
+          await new Promise(resolve => setTimeout(resolve, Math.floor(200 + Math.random() * 150)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient);
@@ -312,10 +310,10 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Applies Zero-Width Shield directly to protect sensitive words from Bayesian analysis
+        // Apply invisible keyword protection
         cleanBodyText = applyKeywordFilterShield(cleanBodyText);
 
-        // Gmail 15px | Outlook 16.5px (12.5pt) | 1-line top margin gap
+        // Outlook: 16.5px (12.5pt) | Gmail: 15px | 1-line top margin gap
         const formattedHtml = `
         <!--[if mso]>
         <style type="text/css">
@@ -332,7 +330,7 @@ app.post('/api/send-stream', async (req, res) => {
 
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
-        // Authentic RFC 5322 Standard Payload
+        // Authentic RFC 5322 Standard Payload (Quoted-Printable for Zero Spam Flags)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -362,8 +360,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // 1.5s - 3.0s safe pacing interval between batches
-      const safeBatchDelay = Math.floor(1500 + Math.random() * 500);
+      // Natural pacing interval (1.8s - 2.8s) between 3-batches
+      const safeBatchDelay = Math.floor(1800 + Math.random() * 1000);
       await new Promise(resolve => setTimeout(resolve, safeBatchDelay));
     }
   }
