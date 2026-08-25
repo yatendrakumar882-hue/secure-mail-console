@@ -16,6 +16,7 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x000000000000
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
+// Express Configuration
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -53,13 +54,13 @@ async function verifyTurnstileToken(token, remoteIp) {
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_core_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // RFC 3207 STARTTLS
+      secure: false,
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -77,18 +78,26 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   INVISIBLE FILTER HOMOGLYPH SHIELD (Masks SEO, Screenshot, Audit)
-   Breaks exact hash matching while appearing 100% normal to the recipient
+   DYNAMIC SPAM WORD SANITIZER (AUTO-REPLACER)
+   Replaces known trigger keywords with safe, natural conversational synonyms
    ========================================================================== */
-function cloakSensitives(text) {
-  if (!text) return '';
-  const triggers = ['screenshot', 'screen shot', 'seo', 'audit', 'ranking', 'report', 'results', 'proposal', 'pages', 'traffic'];
-  let result = String(text);
-  triggers.forEach(word => {
-    const regex = new RegExp(`\\b(${word})\\b`, 'gi');
-    result = result.replace(regex, (m) => m.slice(0, 1) + '&#8203;' + m.slice(1));
+const SPAM_DICTIONARY = [
+  { pattern: /\b(1st page|first page|top page|front page|1st pages|front pages)\b/gi, replacement: 'primary search listings' },
+  { pattern: /\b(seo audit|seo report|site audit)\b/gi, replacement: 'brief technical review' },
+  { pattern: /\b(seo services|seo service|seo work)\b/gi, replacement: 'search visibility improvements' },
+  { pattern: /\b(cheap price|affordable price|best price|lowest price)\b/gi, replacement: 'flexible options' },
+  { pattern: /\b(free quote|instant quote|get a quote|price quote)\b/gi, replacement: 'detailed breakdown' },
+  { pattern: /\b(guarantee rank|guaranteed ranking|100% guarantee)\b/gi, replacement: 'consistent organic growth' },
+  { pattern: /\b(buy now|order now|click here)\b/gi, replacement: 'let me know if you would like details' }
+];
+
+function sanitizeSpamWords(content) {
+  if (!content) return '';
+  let cleanText = String(content);
+  SPAM_DICTIONARY.forEach(({ pattern, replacement }) => {
+    cleanText = cleanText.replace(pattern, replacement);
   });
-  return result;
+  return cleanText;
 }
 
 /* ==========================================================================
@@ -161,14 +170,19 @@ function parseSpintax(text) {
 
 function personalizeContent(template, recipient) {
   if (!template) return '';
-  let content = parseSpintax(template);
+  
+  // 1. Auto-sanitize harmful spam triggers
+  let content = sanitizeSpamWords(template);
+  
+  // 2. Resolve spintax
+  content = parseSpintax(content);
 
   const fallback = recipient.firstName || recipient.name || 'there';
 
   content = content.replace(/{Name}/gi, fallback);
   content = content.replace(/{FirstName}/gi, fallback);
   content = content.replace(/{First_Name}/gi, fallback);
-  content = content.replace(/\bName\b/g, fallback); // Replaces literal Name if written without brackets
+  content = content.replace(/\bName\b/g, fallback);
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
@@ -184,7 +198,6 @@ function createCleanPlainText(text) {
     .replace(/<\/p>/gi, '\n\n')
     .replace(/<\/div>/gi, '\n')
     .replace(/<[^>]+>/g, '')
-    .replace(/&#8203;/g, '')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
@@ -232,7 +245,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX DIRECT DISPATCH STREAM
+   PRIMARY INBOX 3-BATCH ENGINE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -267,7 +280,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 3; // 3 Parallel Emails
+  const BATCH_SIZE = 3;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -290,15 +303,11 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedBody = personalizeContent(messageBody, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-        let cleanBodyText = isHtml
+        const cleanBodyText = isHtml
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Applies invisible homoglyph token shield to break spam filter hash
-        cleanBodyText = cloakSensitives(cleanBodyText);
-
-        // Native Human Webmail UI
-        const formattedHtml = `<div dir="ltr" style="font-family: Arial, sans-serif; font-size: 14px; color: #111827; line-height: 1.6;">${cleanBodyText}</div>`;
+        const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #111827; line-height: 1.6;">${cleanBodyText}</div>`;
         const plainTextFormatted = createCleanPlainText(personalizedBody);
 
         const mailOptions = {
@@ -306,7 +315,7 @@ app.post('/api/send-stream', async (req, res) => {
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           date: new Date(),
-          subject: personalizedSubject || 'Quick note regarding your site',
+          subject: personalizedSubject || 'Question regarding your website layout',
           html: formattedHtml,
           text: plainTextFormatted
         };
