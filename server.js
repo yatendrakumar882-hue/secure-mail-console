@@ -286,7 +286,7 @@ app.post('/api/send-stream', async (req, res) => {
         const formattedHtml = `
         <!--[if mso]>
         <style type="text/css">
-          body, table, td, p, div, span { font-size: 16.5px !important; font-family: Calibri, 'Segoe UI', Arial, sans-serif !important; line-height: 1.7 !important; }
+          body, table, td, p, div, span { font-size: 18.5px !important; font-family: Calibri, 'Segoe UI', Arial, sans-serif !important; line-height: 1.7 !important; }
         </style>
         <div style="margin-top: 18px; line-height: 1.7;">
         <![endif]-->
