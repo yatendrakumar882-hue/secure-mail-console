@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
@@ -9,6 +11,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: '*', methods: ['GET', 'POST'] }
+});
+
 const PORT = process.env.PORT || 3000;
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
@@ -16,14 +23,21 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x000000000000
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
-// Express Configuration
+// Express 5 Middleware
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(process.cwd(), 'public')));
 
 /* ==========================================================================
-   TURNSTILE BOT PROTECTION
+   SOCKET.IO EVENT HANDLER
+   ========================================================================== */
+io.on('connection', (socket) => {
+  socket.on('disconnect', () => {});
+});
+
+/* ==========================================================================
+   TURNSTILE BOT PROTECTION VERIFICATION
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
@@ -54,7 +68,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -67,8 +81,8 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6, // 6-Batch Synchronization
-      maxMessages: 1000,
+      maxConnections: 6, // 6-Batch Parallel Stream
+      maxMessages: 1500,
       socketTimeout: 30000,
       connectionTimeout: 30000
     });
@@ -78,7 +92,33 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   RECIPIENT PARSING & SPINTAX RESOLUTION
+   HIGH-PROTECTION AUTO-SANITIZER (Replaces Spam-Trigger Keywords)
+   ========================================================================== */
+const SPAM_RULES = [
+  { pattern: /\b(1st page|first page|top page|front page|1st pages|front pages|top pages)\b/gi, replacement: 'primary search listings' },
+  { pattern: /\b(seo audit|site audit|website audit|audit report)\b/gi, replacement: 'technical overview' },
+  { pattern: /\b(seo services|seo service|seo work|seo package)\b/gi, replacement: 'search visibility improvements' },
+  { pattern: /\b(rank #1|rank 1|top rank|top ranking)\b/gi, replacement: 'higher relevance' },
+  { pattern: /\b(free quote|price quote|instant quote|get a quote|quote|quotes)\b/gi, replacement: 'project estimate' },
+  { pattern: /\b(cheap price|affordable price|lowest price|cheap|cheapest)\b/gi, replacement: 'flexible options' },
+  { pattern: /\b(100% guarantee|guaranteed results|guaranteed|guarantee)\b/gi, replacement: 'consistent results' },
+  { pattern: /\b(100% free|completely free|free)\b/gi, replacement: 'complimentary' },
+  { pattern: /\b(detailed report|full report|analytics report)\b/gi, replacement: 'summary note' },
+  { pattern: /\b(leads|sales leads|b2b leads)\b/gi, replacement: 'client inquiries' },
+  { pattern: /\b(web traffic|website traffic|traffic)\b/gi, replacement: 'visitor engagement' }
+];
+
+function sanitizeContent(text) {
+  if (!text) return '';
+  let cleanText = String(text);
+  SPAM_RULES.forEach(({ pattern, replacement }) => {
+    cleanText = cleanText.replace(pattern, replacement);
+  });
+  return cleanText;
+}
+
+/* ==========================================================================
+   RECIPIENT NORMALIZATION & ADVANCED SPINTAX
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -147,14 +187,15 @@ function parseSpintax(text) {
 
 function personalizeContent(template, recipient) {
   if (!template) return '';
-  let content = parseSpintax(template);
+  let content = sanitizeContent(template);
+  content = parseSpintax(content);
 
-  const displayName = recipient.name || recipient.firstName || 'there';
-  const displayFirstName = recipient.firstName || displayName;
+  const fallback = recipient.firstName || recipient.name || 'there';
 
-  content = content.replace(/{Name}/gi, displayName);
-  content = content.replace(/{FirstName}/gi, displayFirstName);
-  content = content.replace(/{First_Name}/gi, displayFirstName);
+  content = content.replace(/{Name}/gi, fallback);
+  content = content.replace(/{FirstName}/gi, fallback);
+  content = content.replace(/{First_Name}/gi, fallback);
+  content = content.replace(/\bName\b/g, fallback);
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
@@ -179,12 +220,8 @@ function createCleanPlainText(text) {
 }
 
 /* ==========================================================================
-   API ROUTES
+   API ENDPOINTS
    ========================================================================== */
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
 app.post('/api/auth', (req, res) => {
   const { password } = req.body;
   if (password === SITE_PASSWORD) return res.json({ success: true, message: 'Authorized' });
@@ -219,7 +256,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE (6-BATCH BALANCED STREAM)
+   PRIMARY INBOX 6-BATCH DIRECT DISPATCH STREAM
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -270,8 +307,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Stagger within batch (150ms - 400ms)
-          await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 250)));
+          // Stagger within batch (150ms - 250ms)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 100)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient);
@@ -282,16 +319,15 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #111827; line-height: 1.55;">${cleanBodyText}</div>`;
+        const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #111827; line-height: 1.6;">${cleanBodyText}</div>`;
         const plainTextFormatted = createCleanPlainText(personalizedBody);
 
-        // Standard RFC Payload (Native multipart encoding)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           date: new Date(),
-          subject: personalizedSubject || 'No Subject',
+          subject: personalizedSubject || 'Quick feedback regarding your site',
           html: formattedHtml,
           text: plainTextFormatted,
           textEncoding: 'quoted-printable',
@@ -299,10 +335,15 @@ app.post('/api/send-stream', async (req, res) => {
         };
 
         await transporter.sendMail(mailOptions);
-        return { success: true, recipient: recipient.email, name: recipient.name };
+        
+        const payload = { success: true, recipient: recipient.email, name: recipient.name };
+        io.emit('mail_sent', payload);
+        return payload;
 
       } catch (err) {
-        return { success: false, recipient: recipient.email, error: err.message };
+        const errPayload = { success: false, recipient: recipient.email, error: err.message };
+        io.emit('mail_error', errPayload);
+        return errPayload;
       }
     });
 
@@ -314,10 +355,10 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Inter-batch delay (1.0s - 1.2s)
     if (i + BATCH_SIZE < recipients.length) {
-      const safeBatchDelay = Math.floor(1000 + Math.random() * 200);
-      await new Promise(resolve => setTimeout(resolve, safeBatchDelay));
+      // Natural 800ms - 1200ms rest between 6-batches
+      const batchDelay = Math.floor(800 + Math.random() * 400);
+      await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
 
@@ -331,7 +372,12 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Sending process stopped' });
 });
 
-app.listen(PORT, () => {
+// UI Fallback
+app.use((req, res) => {
+  res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
+});
+
+server.listen(PORT, () => {
   console.log(`🚀 Mailer server running on port ${PORT}`);
 });
 
