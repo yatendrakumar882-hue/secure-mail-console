@@ -92,33 +92,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   HIGH-PROTECTION AUTO-SANITIZER (Replaces Spam-Trigger Keywords)
-   ========================================================================== */
-const SPAM_RULES = [
-  { pattern: /\b(1st page|first page|top page|front page|1st pages|front pages|top pages)\b/gi, replacement: 'primary search listings' },
-  { pattern: /\b(seo audit|site audit|website audit|audit report)\b/gi, replacement: 'technical overview' },
-  { pattern: /\b(seo services|seo service|seo work|seo package)\b/gi, replacement: 'search visibility improvements' },
-  { pattern: /\b(rank #1|rank 1|top rank|top ranking)\b/gi, replacement: 'higher relevance' },
-  { pattern: /\b(free quote|price quote|instant quote|get a quote|quote|quotes)\b/gi, replacement: 'project estimate' },
-  { pattern: /\b(cheap price|affordable price|lowest price|cheap|cheapest)\b/gi, replacement: 'flexible options' },
-  { pattern: /\b(100% guarantee|guaranteed results|guaranteed|guarantee)\b/gi, replacement: 'consistent results' },
-  { pattern: /\b(100% free|completely free|free)\b/gi, replacement: 'complimentary' },
-  { pattern: /\b(detailed report|full report|analytics report)\b/gi, replacement: 'summary note' },
-  { pattern: /\b(leads|sales leads|b2b leads)\b/gi, replacement: 'client inquiries' },
-  { pattern: /\b(web traffic|website traffic|traffic)\b/gi, replacement: 'visitor engagement' }
-];
-
-function sanitizeContent(text) {
-  if (!text) return '';
-  let cleanText = String(text);
-  SPAM_RULES.forEach(({ pattern, replacement }) => {
-    cleanText = cleanText.replace(pattern, replacement);
-  });
-  return cleanText;
-}
-
-/* ==========================================================================
-   RECIPIENT NORMALIZATION & ADVANCED SPINTAX
+   RECIPIENT NORMALIZATION & SPINTAX RESOLUTION (No Word Changes)
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -187,15 +161,16 @@ function parseSpintax(text) {
 
 function personalizeContent(template, recipient) {
   if (!template) return '';
-  let content = sanitizeContent(template);
-  content = parseSpintax(content);
+  
+  // Resolves spintax without changing any original words
+  let content = parseSpintax(template);
 
-  const fallback = recipient.firstName || recipient.name || 'there';
+  const fallback = recipient.firstName || recipient.name || '';
 
-  content = content.replace(/{Name}/gi, fallback);
-  content = content.replace(/{FirstName}/gi, fallback);
-  content = content.replace(/{First_Name}/gi, fallback);
-  content = content.replace(/\bName\b/g, fallback);
+  // Variable replacements
+  content = content.replace(/{Name}/gi, recipient.name || fallback || 'there');
+  content = content.replace(/{FirstName}/gi, recipient.firstName || fallback || 'there');
+  content = content.replace(/{First_Name}/gi, recipient.firstName || fallback || 'there');
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
@@ -256,7 +231,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 6-BATCH DIRECT DISPATCH STREAM
+   EXACT-TEXT PRIMARY INBOX 6-BATCH DIRECT STREAM
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -307,7 +282,7 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Stagger within batch (150ms - 250ms)
+          // Micro-stagger inside batch (150ms - 250ms)
           await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 100)));
         }
 
@@ -319,15 +294,17 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
+        // Clean typography layout
         const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #111827; line-height: 1.6;">${cleanBodyText}</div>`;
         const plainTextFormatted = createCleanPlainText(personalizedBody);
 
+        // Standard RFC 5322 Native Multipart Payload
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           date: new Date(),
-          subject: personalizedSubject || 'Quick feedback regarding your site',
+          subject: personalizedSubject || 'No Subject',
           html: formattedHtml,
           text: plainTextFormatted,
           textEncoding: 'quoted-printable',
@@ -356,7 +333,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural 800ms - 1200ms rest between 6-batches
+      // 800ms - 1200ms rest between 6-batches
       const batchDelay = Math.floor(800 + Math.random() * 400);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
