@@ -60,14 +60,14 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false,
+      secure: false, // RFC Compliant STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5,
+      maxConnections: 5, // 5 Parallel Streams
       maxMessages: 250,
       socketTimeout: 35000,
       connectionTimeout: 35000
@@ -78,35 +78,31 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   AUTOMATIC SPAM WORD SANITIZER & REPLACEMENT ENGINE
+   INVISIBLE ANTI-FILTER TOKENIZER (Zero-Width Cloaking)
+   Protects original words from Bayesian scanners without altering visual text
    ========================================================================== */
-const SPAM_DICTIONARY = [
-  { trigger: /\b(quote|quotes)\b/gi, safe: ['overview', 'estimate details', 'summary', 'breakdown'] },
-  { trigger: /\b(proposal|proposals)\b/gi, safe: ['notes', 'overview', 'details', 'brief summary'] },
-  { trigger: /\b(1st page|first page|top page)\b/gi, safe: ['top search results', 'primary search ranking', 'online visibility'] },
-  { trigger: /\b(seo|search engine optimization)\b/gi, safe: ['web performance', 'online visibility', 'organic reach'] },
-  { trigger: /\b(free audit|audit report|audit)\b/gi, safe: ['quick overview', 'short review', 'friendly check'] },
-  { trigger: /\b(free|100% free)\b/gi, safe: ['complimentary', 'no-obligation', 'open'] },
-  { trigger: /\b(cheap|lowest price|best price)\b/gi, safe: ['cost-effective', 'budget-friendly', 'valuable'] },
-  { trigger: /\b(guarantee|guaranteed)\b/gi, safe: ['assured', 'targeted', 'consistent'] },
-  { trigger: /\b(urgent|act now|hurry|immediate)\b/gi, safe: ['when convenient', 'at your pace', 'shortly'] },
-  { trigger: /\b(deal|discount|offer|special offer)\b/gi, safe: ['opportunity', 'option', 'discussion'] },
-  { trigger: /\b(click here|link below)\b/gi, safe: ['feel free to review', 'let me know'] }
+const SENSITIVE_KEYWORDS = [
+  'quote', 'quotes', 'proposal', 'proposals', 'price', 'pricing', 'cost',
+  'seo', 'audit', 'rank', 'ranking', '1st page', 'first page', 'guarantee',
+  'free', 'deal', 'offer', 'urgent', 'traffic', 'leads', 'cheap'
 ];
 
-function sanitizeSpamWords(text) {
-  if (!text) return '';
-  let sanitized = String(text);
+function applyInvisibleAntiFilter(htmlContent) {
+  if (!htmlContent) return '';
+  let cloaked = String(htmlContent);
 
-  for (const item of SPAM_DICTIONARY) {
-    if (item.trigger.test(sanitized)) {
-      sanitized = sanitized.replace(item.trigger, () => {
-        const replacement = item.safe[Math.floor(Math.random() * item.safe.length)];
-        return replacement;
-      });
-    }
-  }
-  return sanitized;
+  SENSITIVE_KEYWORDS.forEach(word => {
+    const regex = new RegExp(`\\b(${word})\\b`, 'gi');
+    cloaked = cloaked.replace(regex, (match) => {
+      if (match.length > 2) {
+        // Insert invisible Zero-Width Non-Joiner (zwnj) inside word
+        return match.slice(0, 1) + '&zwnj;' + match.slice(1);
+      }
+      return match;
+    });
+  });
+
+  return cloaked;
 }
 
 /* ==========================================================================
@@ -190,8 +186,7 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  // Auto clean spam words directly during personalization
-  return sanitizeSpamWords(content);
+  return content;
 }
 
 function createCleanPlainText(text) {
@@ -203,6 +198,7 @@ function createCleanPlainText(text) {
     .replace(/<\/p>/gi, '\n\n')
     .replace(/<\/div>/gi, '\n')
     .replace(/<[^>]+>/g, '')
+    .replace(/&zwnj;/g, '')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
@@ -250,7 +246,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 5-BATCH AUTO-SANITIZING DISPATCH STREAM
+   PRIMARY INBOX 5-BATCH DIRECT ENGINE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -285,7 +281,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 5; // 5 Emails Per Batch
+  const BATCH_SIZE = 5; // 5 Parallel Emails Per Batch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -301,7 +297,7 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Staggering within 5-batch to eliminate spam detection
+          // Staggering within the 5 batch to avoid spam detection
           await new Promise(resolve => setTimeout(resolve, Math.floor(200 + Math.random() * 150)));
         }
 
@@ -309,9 +305,12 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedBody = personalizeContent(messageBody, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-        const bodyContent = isHtml ? personalizedBody : personalizedBody.replace(/\n/g, '<br>');
+        let bodyContent = isHtml ? personalizedBody : personalizedBody.replace(/\n/g, '<br>');
 
-        // Universal clean text body (Outlook 16.5px, Webmail 15px with top 1-line space)
+        // Apply Invisible Anti-Filter Cloaking (Preserves exact visible wording)
+        bodyContent = applyInvisibleAntiFilter(bodyContent);
+
+        // Universal clean typography (Outlook 16.5px, Webmail 15px with top 1-line space)
         const formattedHtml = `
         <!--[if mso]>
         <style type="text/css">
@@ -328,7 +327,7 @@ app.post('/api/send-stream', async (req, res) => {
 
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
-        // Authentic DKIM & Native Message-ID
+        // Authentic Header Payload (Allows official DKIM & Native Message-ID)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -358,7 +357,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // 1.2s to 1.8s delay between batches
+      // 1.2s to 1.8s anti-block pacing interval between batches
       const batchDelay = Math.floor(1200 + Math.random() * 600);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
