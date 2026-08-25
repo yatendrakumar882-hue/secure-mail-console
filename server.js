@@ -49,12 +49,12 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
+   GMAIL TLS TRANSPORTER POOL (High-Speed 8 Parallel Connections)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
+  const key = `turbo_inbox_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -67,41 +67,14 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 3, // Synchronized 3-Batch Processing
-      maxMessages: 1000,
-      socketTimeout: 35000,
-      connectionTimeout: 35000
+      maxConnections: 8, // High-speed 8-channel pool
+      maxMessages: 2000,
+      socketTimeout: 25000,
+      connectionTimeout: 25000
     });
     poolMap.set(key, transporter);
   }
   return poolMap.get(key);
-}
-
-/* ==========================================================================
-   ZERO-WIDTH SHIELD (Masks High-Risk Keywords From Bayesian Filters)
-   ========================================================================== */
-const SENSITIVE_WORDS = [
-  'screenshot', 'screenshots', 'report', 'reports', 'seo', 'details',
-  'quote', 'quotes', 'information', 'audit', 'ranking', '1st page',
-  'first page', 'traffic', 'proposal', 'price', 'pricing', 'guarantee',
-  'free', 'deal', 'offer', 'urgent', 'leads', 'cheap', 'cost'
-];
-
-function applyKeywordFilterShield(text) {
-  if (!text) return '';
-  let shielded = String(text);
-
-  SENSITIVE_WORDS.forEach(word => {
-    const regex = new RegExp(`\\b(${word})\\b`, 'gi');
-    shielded = shielded.replace(regex, (match) => {
-      if (match.length >= 2) {
-        return match.slice(0, 1) + '&zwnj;' + match.slice(1);
-      }
-      return match;
-    });
-  });
-
-  return shielded;
 }
 
 /* ==========================================================================
@@ -197,7 +170,6 @@ function createCleanPlainText(text) {
     .replace(/<\/p>/gi, '\n\n')
     .replace(/<\/div>/gi, '\n')
     .replace(/<[^>]+>/g, '')
-    .replace(/&zwnj;/g, '')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
@@ -247,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX STREAMING DISPATCH ROUTE (3-BATCH ENGINE)
+   ULTRA-FAST 8-BATCH STREAMING DISPATCH ROUTE (ZERO BLOAT)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -282,7 +254,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 3; // 3 Parallel Emails
+  const BATCH_SIZE = 8; // Ultra-Fast 8 Emails Per Batch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -292,28 +264,20 @@ app.post('/api/send-stream', async (req, res) => {
 
     const batch = recipients.slice(i, i + BATCH_SIZE);
 
-    const sendPromises = batch.map(async (rawRecipient, idx) => {
+    const sendPromises = batch.map(async (rawRecipient) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
       try {
-        if (idx > 0) {
-          // Micro-stagger inside 3-batch (200ms - 350ms) to defeat rate limits
-          await new Promise(resolve => setTimeout(resolve, Math.floor(200 + Math.random() * 150)));
-        }
-
         const personalizedSubject = personalizeContent(subject, recipient);
         const personalizedBody = personalizeContent(messageBody, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-        let cleanBodyText = isHtml
+        const cleanBodyText = isHtml
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Apply invisible keyword protection
-        cleanBodyText = applyKeywordFilterShield(cleanBodyText);
-
-        // Outlook: 16.5px (12.5pt) | Gmail: 15px | 1-line top margin gap
+        // Gmail 15px | Outlook 16.5px (12.5pt) | 1-line top margin gap
         const formattedHtml = `
         <!--[if mso]>
         <style type="text/css">
@@ -330,7 +294,7 @@ app.post('/api/send-stream', async (req, res) => {
 
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
-        // Authentic RFC 5322 Standard Payload (Quoted-Printable for Zero Spam Flags)
+        // Authentic RFC Standard Payload (Native headers & Pure Quoted-Printable)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -360,9 +324,9 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural pacing interval (1.8s - 2.8s) between 3-batches
-      const safeBatchDelay = Math.floor(1800 + Math.random() * 1000);
-      await new Promise(resolve => setTimeout(resolve, safeBatchDelay));
+      // Fast turbo delay (250ms - 400ms) between 8-batches
+      const turboBatchDelay = Math.floor(250 + Math.random() * 150);
+      await new Promise(resolve => setTimeout(resolve, turboBatchDelay));
     }
   }
 
