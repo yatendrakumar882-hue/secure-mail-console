@@ -20,10 +20,10 @@ const poolMap = new Map();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use(express.static(path.join(process.cwd(), 'public')));
+app.use(express.static(path.join(__dirname, 'public')));
 
 /* ==========================================================================
-   TURNSTILE BOT PROTECTION VERIFICATION
+   TURNSTILE BOT PROTECTION
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
@@ -49,12 +49,12 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - 6 Connections Synchronized)
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -67,8 +67,8 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6, // 6 Connections for 6-Batch Stream
-      maxMessages: 1500,
+      maxConnections: 6, // 6-Batch Synchronization
+      maxMessages: 1000,
       socketTimeout: 30000,
       connectionTimeout: 30000
     });
@@ -78,56 +78,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   A-to-Z COMPREHENSIVE SPAM THESAURUS (AUTO REPLACER)
-   Replaces high-risk filter triggers with safe, human conversational phrases
-   ========================================================================== */
-const A_TO_Z_SPAM_RULES = [
-  // Screenshots & Visuals
-  { pattern: /\b(screenshot|screen shot|screenshots|screen shots)\b/gi, replacement: 'quick visual summary' },
-  { pattern: /\b(screengrab|screengrabs|snapshot|snapshots)\b/gi, replacement: 'brief glance' },
-  
-  // SEO & Audits
-  { pattern: /\b(seo audit|site audit|website audit|seo report|audit report)\b/gi, replacement: 'technical overview' },
-  { pattern: /\b(seo services|seo service|seo work|seo package)\b/gi, replacement: 'organic visibility work' },
-  { pattern: /\b(seo|search engine optimization)\b/gi, replacement: 'search presence' },
-  
-  // Rankings & Pages
-  { pattern: /\b(1st page|first page|front page|top page|1st pages|front pages|top pages)\b/gi, replacement: 'primary search listings' },
-  { pattern: /\b(rank #1|rank 1|top rank|top ranking|ranking 1st)\b/gi, replacement: 'higher relevance' },
-  { pattern: /\b(ranking|rankings)\b/gi, replacement: 'search visibility' },
-  
-  // Reports & Information & Details
-  { pattern: /\b(detailed report|full report|analytics report)\b/gi, replacement: 'summary note' },
-  { pattern: /\b(report|reports)\b/gi, replacement: 'brief assessment' },
-  { pattern: /\b(more details|full details|project details)\b/gi, replacement: 'more context' },
-  { pattern: /\b(details)\b/gi, replacement: 'specifics' },
-  { pattern: /\b(information|info)\b/gi, replacement: 'quick feedback' },
-  
-  // Pricing, Quotes & Guarantees
-  { pattern: /\b(free quote|price quote|instant quote|get a quote|quote|quotes)\b/gi, replacement: 'project estimate' },
-  { pattern: /\b(cheap price|affordable price|lowest price|best price|cheap|cheapest)\b/gi, replacement: 'flexible options' },
-  { pattern: /\b(price|pricing|cost|costs)\b/gi, replacement: 'scope' },
-  { pattern: /\b(100% guarantee|guaranteed results|guaranteed|guarantee)\b/gi, replacement: 'consistent results' },
-  { pattern: /\b(100% free|completely free|free)\b/gi, replacement: 'complimentary' },
-  
-  // Outreach Buzzwords & Traffic
-  { pattern: /\b(leads|sales leads|b2b leads)\b/gi, replacement: 'client connections' },
-  { pattern: /\b(web traffic|website traffic|traffic)\b/gi, replacement: 'visitor engagement' },
-  { pattern: /\b(proposal|business proposal)\b/gi, replacement: 'overview outline' },
-  { pattern: /\b(urgent|act now|limited offer|exclusive deal|deal|offer)\b/gi, replacement: 'relevant opportunity' }
-];
-
-function sanitizeSpamWords(content) {
-  if (!content) return '';
-  let cleanText = String(content);
-  A_TO_Z_SPAM_RULES.forEach(({ pattern, replacement }) => {
-    cleanText = cleanText.replace(pattern, replacement);
-  });
-  return cleanText;
-}
-
-/* ==========================================================================
-   RECIPIENT NORMALIZATION & ADVANCED SPINTAX ENGINE
+   RECIPIENT PARSING & SPINTAX RESOLUTION
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -196,19 +147,14 @@ function parseSpintax(text) {
 
 function personalizeContent(template, recipient) {
   if (!template) return '';
-  
-  // 1. Auto-sanitize A-to-Z spam words
-  let content = sanitizeSpamWords(template);
-  
-  // 2. Resolve spintax variations
-  content = parseSpintax(content);
+  let content = parseSpintax(template);
 
-  const fallback = recipient.firstName || recipient.name || 'there';
+  const displayName = recipient.name || recipient.firstName || 'there';
+  const displayFirstName = recipient.firstName || displayName;
 
-  content = content.replace(/{Name}/gi, fallback);
-  content = content.replace(/{FirstName}/gi, fallback);
-  content = content.replace(/{First_Name}/gi, fallback);
-  content = content.replace(/\bName\b/g, fallback);
+  content = content.replace(/{Name}/gi, displayName);
+  content = content.replace(/{FirstName}/gi, displayFirstName);
+  content = content.replace(/{First_Name}/gi, displayFirstName);
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
@@ -233,13 +179,15 @@ function createCleanPlainText(text) {
 }
 
 /* ==========================================================================
-   API ENDPOINTS
+   API ROUTES
    ========================================================================== */
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 app.post('/api/auth', (req, res) => {
   const { password } = req.body;
-  if (String(password || '').trim() === SITE_PASSWORD) {
-    return res.json({ success: true, message: 'Authorized' });
-  }
+  if (password === SITE_PASSWORD) return res.json({ success: true, message: 'Authorized' });
   return res.status(401).json({ success: false, message: 'Unauthorized Password' });
 });
 
@@ -271,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 6-BATCH ENGINE (6 EMAILS PER BLITCH)
+   STREAMING DISPATCH ROUTE (6-BATCH BALANCED STREAM)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -306,9 +254,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  
-  // 6 EMAILS IN 1 BATCH/BLITCH
-  const BATCH_SIZE = 6; 
+  const BATCH_SIZE = 6;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -324,8 +270,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Micro-stagger inside 6-batch (120ms - 200ms) to prevent socket collision
-          await new Promise(resolve => setTimeout(resolve, Math.floor(120 + Math.random() * 80)));
+          // Stagger within batch (150ms - 400ms)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 250)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient);
@@ -336,17 +282,20 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #111827; line-height: 1.6;">${cleanBodyText}</div>`;
+        const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #111827; line-height: 1.55;">${cleanBodyText}</div>`;
         const plainTextFormatted = createCleanPlainText(personalizedBody);
 
+        // Standard RFC Payload (Native multipart encoding)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           date: new Date(),
-          subject: personalizedSubject || 'Quick feedback regarding your site',
+          subject: personalizedSubject || 'No Subject',
           html: formattedHtml,
-          text: plainTextFormatted
+          text: plainTextFormatted,
+          textEncoding: 'quoted-printable',
+          encoding: 'utf-8'
         };
 
         await transporter.sendMail(mailOptions);
@@ -365,10 +314,10 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
+    // Inter-batch delay (1.0s - 1.2s)
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural 800ms - 1200ms gap between 6-batches
-      const batchDelay = Math.floor(800 + Math.random() * 400);
-      await new Promise(resolve => setTimeout(resolve, batchDelay));
+      const safeBatchDelay = Math.floor(1000 + Math.random() * 200);
+      await new Promise(resolve => setTimeout(resolve, safeBatchDelay));
     }
   }
 
@@ -382,12 +331,8 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Sending process stopped' });
 });
 
-// Catch-all route for UI
-app.use((req, res) => {
-  res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
+app.listen(PORT, () => {
+  console.log(`🚀 Mailer server running on port ${PORT}`);
 });
 
-// Serverless Handler for Vercel
-export default function handler(req, res) {
-  return app(req, res);
-}
+export default app;
