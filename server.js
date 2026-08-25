@@ -20,7 +20,7 @@ const poolMap = new Map();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(process.cwd(), 'public')));
 
 /* ==========================================================================
    TURNSTILE BOT PROTECTION VERIFICATION
@@ -43,7 +43,7 @@ async function verifyTurnstileToken(token, remoteIp) {
     });
     const outcome = await result.json();
     return outcome.success === true;
-  } catch (error) {
+  } catch {
     return false;
   }
 }
@@ -60,17 +60,17 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // STARTTLS
+      secure: false, // Standard RFC STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 4, // Aligned with 4-batch processing
-      maxMessages: 500,
-      socketTimeout: 30000,
-      connectionTimeout: 30000
+      maxConnections: 4, // Aligned with 4-batch stream
+      maxMessages: 250,
+      socketTimeout: 35000,
+      connectionTimeout: 35000
     });
     poolMap.set(key, transporter);
   }
@@ -181,13 +181,11 @@ function createPlainTextFromHtml(html) {
 /* ==========================================================================
    API ROUTES
    ========================================================================== */
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
 app.post('/api/auth', (req, res) => {
   const { password } = req.body;
-  if (password === SITE_PASSWORD) return res.json({ success: true, message: 'Authorized' });
+  if (String(password || '').trim() === SITE_PASSWORD) {
+    return res.json({ success: true, message: 'Authorized' });
+  }
   return res.status(401).json({ success: false, message: 'Unauthorized Password' });
 });
 
@@ -250,11 +248,11 @@ app.post('/api/send-stream', async (req, res) => {
   globalSession.stopRequested = false;
 
   const keepAlivePing = setInterval(() => {
-    res.write(': keep-alive\n\n');
+    try { res.write(': keep-alive\n\n'); } catch {}
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 4; // Exact 4 emails per batch
+  const BATCH_SIZE = 4; // 4 Emails Per Batch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -264,22 +262,36 @@ app.post('/api/send-stream', async (req, res) => {
 
     const batch = recipients.slice(i, i + BATCH_SIZE);
 
-    const sendPromises = batch.map(async (rawRecipient) => {
+    const sendPromises = batch.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
       try {
+        if (idx > 0) {
+          // Staggering within the 4-batch to ensure smooth TLS socket delivery
+          await new Promise(resolve => setTimeout(resolve, Math.floor(180 + Math.random() * 140)));
+        }
+
         const personalizedSubject = personalizeContent(subject, recipient);
         const personalizedBody = personalizeContent(messageBody, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-        // 2-line top gap + 15px font + #0f172a deep dark text
-        let formattedHtml = '';
-        if (isHtml) {
-          formattedHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #0f172a; line-height: 1.65; padding-top: 24px;">${personalizedBody}</div>`;
-        } else {
-          formattedHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #0f172a; line-height: 1.65; padding-top: 24px;">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
-        }
+        const bodyContent = isHtml ? personalizedBody : personalizedBody.replace(/\n/g, '<br>');
+
+        // Outlook 16.5px | Gmail 15px | 1-line top margin gap
+        const formattedHtml = `
+        <!--[if mso]>
+        <style type="text/css">
+          body, table, td, p, div, span { font-size: 16.5px !important; font-family: Calibri, 'Segoe UI', Arial, sans-serif !important; line-height: 1.7 !important; }
+        </style>
+        <div style="margin-top: 18px; line-height: 1.7;">
+        <![endif]-->
+        <div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #0f172a; line-height: 1.65; margin-top: 16px; padding-top: 2px;">
+          ${bodyContent}
+        </div>
+        <!--[if mso]>
+        </div>
+        <![endif]-->`;
 
         const plainTextFormatted = `\n\n${createPlainTextFromHtml(formattedHtml)}`;
 
@@ -287,9 +299,12 @@ app.post('/api/send-stream', async (req, res) => {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
+          date: new Date(),
           subject: personalizedSubject || 'No Subject',
           html: formattedHtml,
-          text: plainTextFormatted
+          text: plainTextFormatted,
+          textEncoding: 'quoted-printable',
+          encoding: 'utf-8'
         };
 
         await transporter.sendMail(mailOptions);
@@ -308,9 +323,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Delay between 4-email batches
     if (i + BATCH_SIZE < recipients.length) {
-      const batchDelay = Math.floor(350 + Math.random() * 50);
+      // 1.0s to 1.5s balanced delay between 4-batches
+      const batchDelay = Math.floor(1000 + Math.random() * 500);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
@@ -325,8 +340,12 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Sending process stopped' });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Mailer server running on port ${PORT}`);
+// Express v5 Catch-All UI Router
+app.use((req, res) => {
+  res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
 
-export default app;
+// Serverless Handler for Vercel
+export default function handler(req, res) {
+  return app(req, res);
+}
