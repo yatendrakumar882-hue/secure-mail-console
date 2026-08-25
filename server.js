@@ -16,7 +16,7 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x000000000000
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
-// Express Configuration
+// Express Middleware
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -54,7 +54,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_clean_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -67,10 +67,10 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 3, // 3 Parallel Channels
-      maxMessages: 1000,
-      socketTimeout: 35000,
-      connectionTimeout: 35000
+      maxConnections: 3, // Conservative pool to prevent rate-limit blocks
+      maxMessages: 500,
+      socketTimeout: 30000,
+      connectionTimeout: 30000
     });
     poolMap.set(key, transporter);
   }
@@ -217,7 +217,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 3-BATCH DIRECT DISPATCH STREAM
+   PRIMARY INBOX 3-BATCH BALANCED DISPATCH STREAM
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -280,10 +280,11 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Natural Human Mail Layout (Clean 14px Arial, 0 tracking tags, 0 hidden characters)
+        // Pure standard native webmail typography
         const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55;">${cleanBodyText}</div>`;
         const plainTextFormatted = createCleanPlainText(personalizedBody);
 
+        // Standard RFC options
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -292,6 +293,8 @@ app.post('/api/send-stream', async (req, res) => {
           subject: personalizedSubject || 'No Subject',
           html: formattedHtml,
           text: plainTextFormatted,
+          textEncoding: 'quoted-printable',
+          encoding: 'utf-8',
           headers: {
             'X-Mailer': 'Apple Mail (2.3654.120.0.1)',
             'X-Priority': '3',
@@ -316,8 +319,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural 1.8s - 2.8s interval between 3-batches
-      const batchDelay = Math.floor(1800 + Math.random() * 1000);
+      // Natural 1.5s - 2.5s pacing interval between batches
+      const batchDelay = Math.floor(1500 + Math.random() * 1000);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
