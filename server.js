@@ -67,31 +67,14 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5, // 5 Parallel Streams
-      maxMessages: 250,
+      maxConnections: 4,
+      maxMessages: 2500,
       socketTimeout: 35000,
       connectionTimeout: 35000
     });
     poolMap.set(key, transporter);
   }
   return poolMap.get(key);
-}
-
-/* ==========================================================================
-   UNIVERSAL ZERO-WIDTH OBFUSCATION ENGINE (Bypasses All Keyword Scanners)
-   Injects invisible non-joiner tokens inside text to completely break spam hashes
-   ========================================================================== */
-function universalZeroWidthShield(htmlContent) {
-  if (!htmlContent) return '';
-  
-  // HTML tags aur entities ko chhod kar words ke beech safe invisible token inject karta hai
-  return htmlContent.replace(/(>|^)([^<]+)(<|$)/g, (match, prefix, textNode, suffix) => {
-    const cloakedText = textNode.replace(/\b([a-zA-Z]{3,})\b/g, (word) => {
-      // Har 3+ letter word ke 2nd letter ke baad invisible &zwnj; inject
-      return word.slice(0, 2) + '&zwnj;' + word.slice(2);
-    });
-    return prefix + cloakedText + suffix;
-  });
 }
 
 /* ==========================================================================
@@ -187,7 +170,6 @@ function createCleanPlainText(text) {
     .replace(/<\/p>/gi, '\n\n')
     .replace(/<\/div>/gi, '\n')
     .replace(/<[^>]+>/g, '')
-    .replace(/&zwnj;/g, '')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
@@ -270,7 +252,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 5; // 5 Emails per batch
+  const BATCH_SIZE = 4; // 4 Emails in 1 Parallel Batch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -294,12 +276,9 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedBody = personalizeContent(messageBody, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-        let bodyContent = isHtml ? personalizedBody : personalizedBody.replace(/\n/g, '<br>');
+        const bodyContent = isHtml ? personalizedBody : personalizedBody.replace(/\n/g, '<br>');
 
-        // Universal Anti-Spam Token Shield (Breaks all Bayesian keyword filters)
-        bodyContent = universalZeroWidthShield(bodyContent);
-
-        // Outlook 16.5px (12.5pt) | Gmail 15px Normal | 1-line quote separation
+        // Natural responsive typography (Outlook 16.5px, Webmail 15px with top 1-line space)
         const formattedHtml = `
         <!--[if mso]>
         <style type="text/css">
@@ -316,7 +295,7 @@ app.post('/api/send-stream', async (req, res) => {
 
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
-        // Authentic DKIM & Native Message-ID Payload
+        // Direct standard RFC email options
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
