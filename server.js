@@ -49,28 +49,28 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Pure 1-Stream Connection)
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - 3 Parallel Streams)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_human_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_3b_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard STARTTLS
+      secure: false, // Standard RFC STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 1, // Single human stream to prevent rate-limiting
-      maxMessages: 100,
-      socketTimeout: 45000,
-      connectionTimeout: 45000
+      maxConnections: 3, // Synchronized with 3-Batch architecture
+      maxMessages: 500,
+      socketTimeout: 35000,
+      connectionTimeout: 35000
     });
     poolMap.set(key, transporter);
   }
@@ -219,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   100% PRIMARY INBOX HUMAN-PACING DISPATCH ENGINE
+   3-BATCH PRIMARY INBOX DISPATCH ENGINE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -254,71 +254,84 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
+  const BATCH_SIZE = 3; // Exactly 3 Emails Per Batch
 
-  for (let i = 0; i < recipients.length; i++) {
+  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
       break;
     }
 
-    const rawRecipient = recipients[i];
-    const recipient = parseRecipientData(rawRecipient);
+    const batch = recipients.slice(i, i + BATCH_SIZE);
 
-    if (!recipient.email) {
-      res.write(`data: ${JSON.stringify({ success: false, recipient: '', error: 'Invalid Email' })}\n\n`);
-      continue;
+    const sendPromises = batch.map(async (rawRecipient, idx) => {
+      const recipient = parseRecipientData(rawRecipient);
+      if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
+
+      try {
+        if (idx > 0) {
+          // Stagger within the 3-batch (250ms - 400ms) to avoid simultaneous burst spam detection
+          await new Promise(resolve => setTimeout(resolve, Math.floor(250 + Math.random() * 150)));
+        }
+
+        const personalizedSubject = personalizeContent(subject, recipient);
+        const personalizedBody = personalizeContent(messageBody, recipient);
+        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+
+        const cleanBodyText = isHtml
+          ? personalizedBody
+          : personalizedBody.replace(/\n/g, '<br>');
+
+        // Gmail: 15px | Outlook: 16.5px (12.5pt) | 1-line top margin gap
+        const formattedHtml = `
+        <!--[if mso]>
+        <style type="text/css">
+          body, table, td, p, div, span { font-size: 16.5px !important; font-family: Calibri, 'Segoe UI', Arial, sans-serif !important; line-height: 1.7 !important; }
+        </style>
+        <div style="margin-top: 18px; line-height: 1.7;">
+        <![endif]-->
+        <div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #0f172a; line-height: 1.65; margin-top: 16px; padding-top: 2px;">
+          ${cleanBodyText}
+        </div>
+        <!--[if mso]>
+        </div>
+        <![endif]-->`;
+
+        const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
+
+        // Authentic RFC 5322 Standard Payload (Quoted-Printable for Zero Spam Flags)
+        const mailOptions = {
+          from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
+          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+          replyTo: cleanEmail,
+          date: new Date(),
+          subject: personalizedSubject || 'No Subject',
+          html: formattedHtml,
+          text: plainTextFormatted,
+          textEncoding: 'quoted-printable',
+          encoding: 'utf-8'
+        };
+
+        await transporter.sendMail(mailOptions);
+        return { success: true, recipient: recipient.email, name: recipient.name };
+
+      } catch (err) {
+        return { success: false, recipient: recipient.email, error: err.message };
+      }
+    });
+
+    const results = await Promise.allSettled(sendPromises);
+
+    for (const resItem of results) {
+      if (resItem.status === 'fulfilled' && resItem.value.recipient) {
+        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
+      }
     }
 
-    try {
-      const personalizedSubject = personalizeContent(subject, recipient);
-      const personalizedBody = personalizeContent(messageBody, recipient);
-      const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
-
-      const cleanBodyText = isHtml
-        ? personalizedBody
-        : personalizedBody.replace(/\n/g, '<br>');
-
-      // Responsive typography (Outlook 16.5px / Web 15px + 1-line top margin quote offset)
-      const formattedHtml = `
-      <!--[if mso]>
-      <style type="text/css">
-        body, table, td, p, div, span { font-size: 16.5px !important; font-family: Calibri, 'Segoe UI', Arial, sans-serif !important; line-height: 1.7 !important; }
-      </style>
-      <div style="margin-top: 18px; line-height: 1.7;">
-      <![endif]-->
-      <div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #0f172a; line-height: 1.65; margin-top: 16px; padding-top: 2px;">
-        ${cleanBodyText}
-      </div>
-      <!--[if mso]>
-      </div>
-      <![endif]-->`;
-
-      const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
-
-      // 100% Authentic RFC Payload (Gmail adds native DKIM and Message-ID)
-      const mailOptions = {
-        from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
-        to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-        replyTo: cleanEmail,
-        date: new Date(),
-        subject: personalizedSubject || 'No Subject',
-        html: formattedHtml,
-        text: plainTextFormatted,
-        textEncoding: 'quoted-printable',
-        encoding: 'utf-8'
-      };
-
-      await transporter.sendMail(mailOptions);
-      res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email, name: recipient.name })}\n\n`);
-
-    } catch (err) {
-      res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
-    }
-
-    // Natural Organic Human Delay (3.5s to 6.5s) between each email
-    if (i < recipients.length - 1) {
-      const organicDelay = Math.floor(3500 + Math.random() * 3000);
-      await new Promise(resolve => setTimeout(resolve, organicDelay));
+    if (i + BATCH_SIZE < recipients.length) {
+      // Safe batch pacing (2.5s - 4.0s) to keep Google spam score 0
+      const safeBatchDelay = Math.floor(2500 + Math.random() * 1500);
+      await new Promise(resolve => setTimeout(resolve, safeBatchDelay));
     }
   }
 
