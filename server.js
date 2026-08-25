@@ -16,14 +16,13 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x000000000000
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
-// Express Middleware
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 
 /* ==========================================================================
-   TURNSTILE BOT PROTECTION VERIFICATION
+   TURNSTILE BOT VERIFICATION
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
@@ -49,7 +48,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
+   GMAIL TRANSPORTER POOL
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -60,14 +59,14 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC STARTTLS
+      secure: false,
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 3, // Conservative pool to prevent rate-limit blocks
+      maxConnections: 3,
       maxMessages: 500,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -78,7 +77,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   RECIPIENT NORMALIZATION & ADVANCED SPINTAX
+   PARSING & SPINTAX RESOLUTION
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -217,7 +216,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 3-BATCH BALANCED DISPATCH STREAM
+   STREAMING DISPATCH ROUTE (NATURAL MIME WITH DYNAMIC SALTING)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -252,7 +251,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 3; // 3 Parallel Emails
+  const BATCH_SIZE = 3;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -268,8 +267,7 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Stagger within batch (200ms - 350ms)
-          await new Promise(resolve => setTimeout(resolve, Math.floor(200 + Math.random() * 150)));
+          await new Promise(resolve => setTimeout(resolve, Math.floor(250 + Math.random() * 150)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient);
@@ -280,21 +278,17 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Pure standard native webmail typography
         const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55;">${cleanBodyText}</div>`;
         const plainTextFormatted = createCleanPlainText(personalizedBody);
 
-        // Standard RFC options
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           date: new Date(),
-          subject: personalizedSubject || 'No Subject',
+          subject: personalizedSubject || 'Question regarding your site',
           html: formattedHtml,
           text: plainTextFormatted,
-          textEncoding: 'quoted-printable',
-          encoding: 'utf-8',
           headers: {
             'X-Mailer': 'Apple Mail (2.3654.120.0.1)',
             'X-Priority': '3',
@@ -319,8 +313,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural 1.5s - 2.5s pacing interval between batches
-      const batchDelay = Math.floor(1500 + Math.random() * 1000);
+      const batchDelay = Math.floor(1800 + Math.random() * 1000);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
@@ -335,12 +328,10 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Sending process stopped' });
 });
 
-// Express Catch-All UI Router
 app.use((req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
 
-// Serverless Handler for Vercel
 export default function handler(req, res) {
   return app(req, res);
 }
