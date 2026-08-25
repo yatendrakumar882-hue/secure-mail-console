@@ -67,8 +67,8 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 4, // Aligned with 4-batch stream
-      maxMessages: 250,
+      maxConnections: 6, // Aligned with 6-batch stream
+      maxMessages: 2500,
       socketTimeout: 35000,
       connectionTimeout: 35000
     });
@@ -252,7 +252,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 4; // 4 Emails Per Batch
+  const BATCH_SIZE = 6; // 6 Emails Per Batch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -324,7 +324,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // 1.0s to 1.5s balanced delay between 4-batches
+      // 1.0s to 1.5s balanced delay between 6-batches
       const batchDelay = Math.floor(1000 + Math.random() * 500);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
