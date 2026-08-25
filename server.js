@@ -22,7 +22,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 
 /* ==========================================================================
-   TURNSTILE BOT VERIFICATION
+   TURNSTILE BOT PROTECTION VERIFICATION
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
@@ -48,18 +48,18 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TRANSPORTER POOL
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_core_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false,
+      secure: false, // RFC 3207 STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -77,7 +77,22 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   PARSING & SPINTAX RESOLUTION
+   INVISIBLE FILTER HOMOGLYPH SHIELD (Masks SEO, Screenshot, Audit)
+   Breaks exact hash matching while appearing 100% normal to the recipient
+   ========================================================================== */
+function cloakSensitives(text) {
+  if (!text) return '';
+  const triggers = ['screenshot', 'screen shot', 'seo', 'audit', 'ranking', 'report', 'results', 'proposal', 'pages', 'traffic'];
+  let result = String(text);
+  triggers.forEach(word => {
+    const regex = new RegExp(`\\b(${word})\\b`, 'gi');
+    result = result.replace(regex, (m) => m.slice(0, 1) + '&#8203;' + m.slice(1));
+  });
+  return result;
+}
+
+/* ==========================================================================
+   RECIPIENT NORMALIZATION & ADVANCED SPINTAX
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -148,12 +163,12 @@ function personalizeContent(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
 
-  const displayName = recipient.name || recipient.firstName || 'there';
-  const displayFirstName = recipient.firstName || displayName;
+  const fallback = recipient.firstName || recipient.name || 'there';
 
-  content = content.replace(/{Name}/gi, displayName);
-  content = content.replace(/{FirstName}/gi, displayFirstName);
-  content = content.replace(/{First_Name}/gi, displayFirstName);
+  content = content.replace(/{Name}/gi, fallback);
+  content = content.replace(/{FirstName}/gi, fallback);
+  content = content.replace(/{First_Name}/gi, fallback);
+  content = content.replace(/\bName\b/g, fallback); // Replaces literal Name if written without brackets
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
@@ -169,6 +184,7 @@ function createCleanPlainText(text) {
     .replace(/<\/p>/gi, '\n\n')
     .replace(/<\/div>/gi, '\n')
     .replace(/<[^>]+>/g, '')
+    .replace(/&#8203;/g, '')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
@@ -216,7 +232,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE (NATURAL MIME WITH DYNAMIC SALTING)
+   PRIMARY INBOX DIRECT DISPATCH STREAM
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -251,7 +267,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 3;
+  const BATCH_SIZE = 3; // 3 Parallel Emails
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -274,11 +290,15 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedBody = personalizeContent(messageBody, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-        const cleanBodyText = isHtml
+        let cleanBodyText = isHtml
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55;">${cleanBodyText}</div>`;
+        // Applies invisible homoglyph token shield to break spam filter hash
+        cleanBodyText = cloakSensitives(cleanBodyText);
+
+        // Native Human Webmail UI
+        const formattedHtml = `<div dir="ltr" style="font-family: Arial, sans-serif; font-size: 14px; color: #111827; line-height: 1.6;">${cleanBodyText}</div>`;
         const plainTextFormatted = createCleanPlainText(personalizedBody);
 
         const mailOptions = {
@@ -286,14 +306,9 @@ app.post('/api/send-stream', async (req, res) => {
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           date: new Date(),
-          subject: personalizedSubject || 'Question regarding your site',
+          subject: personalizedSubject || 'Quick note regarding your site',
           html: formattedHtml,
-          text: plainTextFormatted,
-          headers: {
-            'X-Mailer': 'Apple Mail (2.3654.120.0.1)',
-            'X-Priority': '3',
-            'Importance': 'Normal'
-          }
+          text: plainTextFormatted
         };
 
         await transporter.sendMail(mailOptions);
