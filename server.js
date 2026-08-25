@@ -60,15 +60,15 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false,
+      secure: false, // Standard RFC STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5,
-      maxMessages: 500,
+      maxConnections: 5, // Batch-aligned connections
+      maxMessages: 10000,
       socketTimeout: 30000,
       connectionTimeout: 30000
     });
@@ -78,30 +78,56 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   DYNAMIC SPAM WORD SANITIZER (AUTO-REPLACER)
-   Replaces known trigger keywords with safe, natural conversational synonyms
+   A-to-Z COMPREHENSIVE SPAM THESAURUS (AUTO REPLACER)
+   Replaces high-risk filter triggers with safe, human conversational phrases
    ========================================================================== */
-const SPAM_DICTIONARY = [
-  { pattern: /\b(1st page|first page|top page|front page|1st pages|front pages)\b/gi, replacement: 'primary search listings' },
-  { pattern: /\b(seo audit|seo report|site audit)\b/gi, replacement: 'brief technical review' },
-  { pattern: /\b(seo services|seo service|seo work)\b/gi, replacement: 'search visibility improvements' },
-  { pattern: /\b(cheap price|affordable price|best price|lowest price)\b/gi, replacement: 'flexible options' },
-  { pattern: /\b(free quote|instant quote|get a quote|price quote)\b/gi, replacement: 'detailed breakdown' },
-  { pattern: /\b(guarantee rank|guaranteed ranking|100% guarantee)\b/gi, replacement: 'consistent organic growth' },
-  { pattern: /\b(buy now|order now|click here)\b/gi, replacement: 'let me know if you would like details' }
+const A_TO_Z_SPAM_RULES = [
+  // Screenshots & Visuals
+  { pattern: /\b(screenshot|screen shot|screenshots|screen shots)\b/gi, replacement: 'quick visual summary' },
+  { pattern: /\b(screengrab|screengrabs|snapshot|snapshots)\b/gi, replacement: 'brief glance' },
+  
+  // SEO & Audits
+  { pattern: /\b(seo audit|site audit|website audit|seo report|audit report)\b/gi, replacement: 'technical overview' },
+  { pattern: /\b(seo services|seo service|seo work|seo package)\b/gi, replacement: 'organic visibility work' },
+  { pattern: /\b(seo|search engine optimization)\b/gi, replacement: 'search presence' },
+  
+  // Rankings & Pages
+  { pattern: /\b(1st page|first page|front page|top page|1st pages|front pages|top pages)\b/gi, replacement: 'primary search listings' },
+  { pattern: /\b(rank #1|rank 1|top rank|top ranking|ranking 1st)\b/gi, replacement: 'higher relevance' },
+  { pattern: /\b(ranking|rankings)\b/gi, replacement: 'search visibility' },
+  
+  // Reports & Information & Details
+  { pattern: /\b(detailed report|full report|analytics report)\b/gi, replacement: 'summary note' },
+  { pattern: /\b(report|reports)\b/gi, replacement: 'brief assessment' },
+  { pattern: /\b(more details|full details|project details)\b/gi, replacement: 'more context' },
+  { pattern: /\b(details)\b/gi, replacement: 'specifics' },
+  { pattern: /\b(information|info)\b/gi, replacement: 'quick feedback' },
+  
+  // Pricing, Quotes & Guarantees
+  { pattern: /\b(free quote|price quote|instant quote|get a quote|quote|quotes)\b/gi, replacement: 'project estimate' },
+  { pattern: /\b(cheap price|affordable price|lowest price|best price|cheap|cheapest)\b/gi, replacement: 'flexible options' },
+  { pattern: /\b(price|pricing|cost|costs)\b/gi, replacement: 'scope' },
+  { pattern: /\b(100% guarantee|guaranteed results|guaranteed|guarantee)\b/gi, replacement: 'consistent results' },
+  { pattern: /\b(100% free|completely free|free)\b/gi, replacement: 'complimentary' },
+  
+  // Outreach Buzzwords & Traffic
+  { pattern: /\b(leads|sales leads|b2b leads)\b/gi, replacement: 'client connections' },
+  { pattern: /\b(web traffic|website traffic|traffic)\b/gi, replacement: 'visitor engagement' },
+  { pattern: /\b(proposal|business proposal)\b/gi, replacement: 'overview outline' },
+  { pattern: /\b(urgent|act now|limited offer|exclusive deal|deal|offer)\b/gi, replacement: 'relevant opportunity' }
 ];
 
 function sanitizeSpamWords(content) {
   if (!content) return '';
   let cleanText = String(content);
-  SPAM_DICTIONARY.forEach(({ pattern, replacement }) => {
+  A_TO_Z_SPAM_RULES.forEach(({ pattern, replacement }) => {
     cleanText = cleanText.replace(pattern, replacement);
   });
   return cleanText;
 }
 
 /* ==========================================================================
-   RECIPIENT NORMALIZATION & ADVANCED SPINTAX
+   RECIPIENT NORMALIZATION & ADVANCED SPINTAX ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -171,10 +197,10 @@ function parseSpintax(text) {
 function personalizeContent(template, recipient) {
   if (!template) return '';
   
-  // 1. Auto-sanitize harmful spam triggers
+  // 1. Auto-sanitize A to Z spam words
   let content = sanitizeSpamWords(template);
   
-  // 2. Resolve spintax
+  // 2. Resolve spintax variations
   content = parseSpintax(content);
 
   const fallback = recipient.firstName || recipient.name || 'there';
@@ -245,7 +271,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 5-BATCH ENGINE
+   PRIMARY INBOX 3-BATCH ENGINE (A-to-Z AUTO CLEANSED)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -280,7 +306,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 5;
+  const BATCH_SIZE = 5; // Line: Batch size control
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -296,6 +322,7 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
+          // Intra-batch micro stagger (250ms - 400ms)
           await new Promise(resolve => setTimeout(resolve, Math.floor(250 + Math.random() * 150)));
         }
 
@@ -315,7 +342,7 @@ app.post('/api/send-stream', async (req, res) => {
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           date: new Date(),
-          subject: personalizedSubject || 'Question regarding your website layout',
+          subject: personalizedSubject || 'Quick feedback regarding your site',
           html: formattedHtml,
           text: plainTextFormatted
         };
@@ -337,6 +364,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
+      // Natural inter-batch delay (1.8s - 2.8s)
       const batchDelay = Math.floor(1800 + Math.random() * 1000);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
@@ -352,10 +380,12 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Sending process stopped' });
 });
 
+// Catch-all route for UI
 app.use((req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
 
+// Serverless Handler for Vercel
 export default function handler(req, res) {
   return app(req, res);
 }
