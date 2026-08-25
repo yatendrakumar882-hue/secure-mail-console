@@ -16,7 +16,6 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x000000000000
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
-// Express Configuration
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -54,21 +53,21 @@ async function verifyTurnstileToken(token, remoteIp) {
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_clean_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC STARTTLS
+      secure: false,
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5,
-      maxMessages: 1500,
+      maxConnections: 3,
+      maxMessages: 500,
       socketTimeout: 30000,
       connectionTimeout: 30000
     });
@@ -78,34 +77,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   ZERO-WIDTH SHIELD (Masks SEO, Screenshot, Quote from Spam Scanners)
-   ========================================================================== */
-const TARGET_KEYWORDS = [
-  'screenshot', 'screenshots', 'screen shot', 'screen shots', '1st page', 
-  '1st pages', 'front page', 'front pages', 'top page', 'first page', 
-  'quote', 'quotes', 'seo', 'audit', 'report', 'details', 'pricing', 'proposal'
-];
-
-function applyKeywordFilterShield(text) {
-  if (!text) return '';
-  let shielded = String(text);
-
-  TARGET_KEYWORDS.forEach(keyword => {
-    const escaped = keyword.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-    const regex = new RegExp(`\\b(${escaped})\\b`, 'gi');
-    shielded = shielded.replace(regex, (match) => {
-      if (match.length >= 2) {
-        return match.slice(0, 1) + '&zwnj;' + match.slice(1);
-      }
-      return match;
-    });
-  });
-
-  return shielded;
-}
-
-/* ==========================================================================
-   RECIPIENT NORMALIZATION & ADVANCED SPINTAX ENGINE
+   RECIPIENT PARSING & SPINTAX
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -197,7 +169,6 @@ function createCleanPlainText(text) {
     .replace(/<\/p>/gi, '\n\n')
     .replace(/<\/div>/gi, '\n')
     .replace(/<[^>]+>/g, '')
-    .replace(/&zwnj;/g, '')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
@@ -245,7 +216,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 5-BATCH DIRECT DISPATCH STREAM
+   PRIMARY INBOX CLEAN STREAMING (NO ZERO-WIDTH, NO BLOAT)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -280,7 +251,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 5; // 5 Emails Per Batch
+  const BATCH_SIZE = 3;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -296,39 +267,21 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Stagger within batch (120ms - 200ms)
-          await new Promise(resolve => setTimeout(resolve, Math.floor(120 + Math.random() * 80)));
+          await new Promise(resolve => setTimeout(resolve, Math.floor(300 + Math.random() * 200)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient);
         const personalizedBody = personalizeContent(messageBody, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-        let cleanBodyText = isHtml
+        const cleanBodyText = isHtml
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Applies Zero-Width shield on keywords like screenshot, 1st page, etc.
-        cleanBodyText = applyKeywordFilterShield(cleanBodyText);
+        // Pure standard native webmail layout (Clean text, no hidden flags)
+        const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #222222; line-height: 1.5;">${cleanBodyText}</div>`;
+        const plainTextFormatted = createCleanPlainText(personalizedBody);
 
-        // Outlook 16.5px | Gmail 15px | 1-line top margin gap
-        const formattedHtml = `
-        <!--[if mso]>
-        <style type="text/css">
-          body, table, td, p, div, span { font-size: 16.5px !important; font-family: Calibri, 'Segoe UI', Arial, sans-serif !important; line-height: 1.7 !important; }
-        </style>
-        <div style="margin-top: 18px; line-height: 1.7;">
-        <![endif]-->
-        <div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #0f172a; line-height: 1.65; margin-top: 16px; padding-top: 2px;">
-          ${cleanBodyText}
-        </div>
-        <!--[if mso]>
-        </div>
-        <![endif]-->`;
-
-        const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
-
-        // Authentic RFC Standard Payload
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -336,9 +289,7 @@ app.post('/api/send-stream', async (req, res) => {
           date: new Date(),
           subject: personalizedSubject || 'No Subject',
           html: formattedHtml,
-          text: plainTextFormatted,
-          textEncoding: 'quoted-printable',
-          encoding: 'utf-8'
+          text: plainTextFormatted
         };
 
         await transporter.sendMail(mailOptions);
@@ -358,9 +309,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural 600ms - 900ms delay between 5-batches
-      const smoothBatchDelay = Math.floor(600 + Math.random() * 300);
-      await new Promise(resolve => setTimeout(resolve, smoothBatchDelay));
+      const batchDelay = Math.floor(2000 + Math.random() * 1000);
+      await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
 
@@ -374,12 +324,10 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Sending process stopped' });
 });
 
-// Express Catch-All UI Router
 app.use((req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
 
-// Serverless Handler for Vercel
 export default function handler(req, res) {
   return app(req, res);
 }
