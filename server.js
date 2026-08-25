@@ -60,14 +60,14 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard STARTTLS
+      secure: false, // Standard RFC STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5,
+      maxConnections: 5, // 5 Parallel Streams
       maxMessages: 250,
       socketTimeout: 35000,
       connectionTimeout: 35000
@@ -217,7 +217,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 5-BATCH SAFE ENGINE (OPTIMAL CALM PACING)
+   PRIMARY INBOX 5-BATCH DIRECT DISPATCH STREAM
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -252,7 +252,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 5; // 5 Parallel Emails
+  const BATCH_SIZE = 5; // 5 Parallel Emails Per Batch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -268,7 +268,7 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Controlled micro-stagger inside batch (Prevents Spam Filter Trigger)
+          // Staggering within the 5 batch to avoid burst spam flagging
           await new Promise(resolve => setTimeout(resolve, Math.floor(200 + Math.random() * 150)));
         }
 
@@ -278,7 +278,7 @@ app.post('/api/send-stream', async (req, res) => {
 
         const bodyContent = isHtml ? personalizedBody : personalizedBody.replace(/\n/g, '<br>');
 
-        // Outlook 16.5px, Webmail 15px with clean 1-line top gap
+        // Outlook 16.5px (12.5pt) | Webmail 15px Normal | Clean 1-line Quote Offset
         const formattedHtml = `
         <!--[if mso]>
         <style type="text/css">
@@ -295,6 +295,7 @@ app.post('/api/send-stream', async (req, res) => {
 
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
+        // Authentic Header Payload (Allows official DKIM & Native Message-ID)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -324,7 +325,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Balanced anti-block delay (1.2s to 1.8s)
+      // 1.2s to 1.8s anti-block pacing interval between batches
       const batchDelay = Math.floor(1200 + Math.random() * 600);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
