@@ -3,6 +3,7 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -53,13 +54,13 @@ async function verifyTurnstileToken(token, remoteIp) {
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_clean_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_rfc_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false,
+      secure: false, // RFC 3207 STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -67,7 +68,7 @@ function getPort587Transporter(email, appPassword) {
       },
       pool: true,
       maxConnections: 3,
-      maxMessages: 500,
+      maxMessages: 1000,
       socketTimeout: 30000,
       connectionTimeout: 30000
     });
@@ -77,7 +78,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   RECIPIENT PARSING & SPINTAX
+   RECIPIENT NORMALIZATION & ADVANCED SPINTAX
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -216,7 +217,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX CLEAN STREAMING (NO ZERO-WIDTH, NO BLOAT)
+   PRIMARY INBOX 3-BATCH ENGINE (DESKTOP CLIENT EMULATION)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -251,7 +252,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 3;
+  const BATCH_SIZE = 3; // Guaranteed 3 Parallel Streams
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -267,7 +268,7 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(300 + Math.random() * 200)));
+          await new Promise(resolve => setTimeout(resolve, Math.floor(250 + Math.random() * 150)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient);
@@ -278,10 +279,11 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Pure standard native webmail layout (Clean text, no hidden flags)
-        const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #222222; line-height: 1.5;">${cleanBodyText}</div>`;
+        // Natural Webmail Layout (Pure standard HTML, Zero Tracking, Zero Invisible characters)
+        const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55;">${cleanBodyText}</div>`;
         const plainTextFormatted = createCleanPlainText(personalizedBody);
 
+        // Native Client Identity Simulation (Bypasses Google automated mailer classification)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -289,7 +291,12 @@ app.post('/api/send-stream', async (req, res) => {
           date: new Date(),
           subject: personalizedSubject || 'No Subject',
           html: formattedHtml,
-          text: plainTextFormatted
+          text: plainTextFormatted,
+          headers: {
+            'X-Mailer': 'Apple Mail (2.3654.120.0.1)',
+            'X-Priority': '3',
+            'Importance': 'Normal'
+          }
         };
 
         await transporter.sendMail(mailOptions);
@@ -309,7 +316,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      const batchDelay = Math.floor(2000 + Math.random() * 1000);
+      const batchDelay = Math.floor(1800 + Math.random() * 800);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
