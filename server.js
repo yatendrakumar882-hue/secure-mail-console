@@ -324,9 +324,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Human delay between 2-email batches (3.2s to 5.0s)
+    // Human delay between 2-email batches (2.0s to 2.5s)
     if (i + BATCH_SIZE < recipients.length) {
-      const safeBatchDelay = Math.floor(3200 + Math.random() * 1800);
+      const safeBatchDelay = Math.floor(2000 + Math.random() * 1500);
       await new Promise(resolve => setTimeout(resolve, safeBatchDelay));
     }
   }
