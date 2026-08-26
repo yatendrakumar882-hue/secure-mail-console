@@ -54,54 +54,27 @@ async function verifyTurnstileToken(token, remoteIp) {
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_core_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC STARTTLS
+      secure: false, // RFC Compliant STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5, // Synchronized 5-Batch Processing
-      maxMessages: 10000,
-      socketTimeout: 35000,
-      connectionTimeout: 35000
+      maxConnections: 5, // 5-batch sync
+      maxMessages: 50000,
+      socketTimeout: 30000,
+      connectionTimeout: 30000
     });
     poolMap.set(key, transporter);
   }
   return poolMap.get(key);
-}
-
-/* ==========================================================================
-   ZERO-WIDTH SHIELD (Masks High-Risk Keywords From Bayesian Filters)
-   ========================================================================== */
-const SENSITIVE_WORDS = [
-  'screenshot', 'screenshots', 'report', 'reports', 'seo', 'details',
-  'quote', 'quotes', 'information', 'audit', 'ranking', '1st page',
-  'first page', 'traffic', 'proposal', 'price', 'pricing', 'guarantee',
-  'free', 'deal', 'offer', 'urgent', 'leads', 'cheap', 'cost'
-];
-
-function applyKeywordFilterShield(text) {
-  if (!text) return '';
-  let shielded = String(text);
-
-  SENSITIVE_WORDS.forEach(word => {
-    const regex = new RegExp(`\\b(${word})\\b`, 'gi');
-    shielded = shielded.replace(regex, (match) => {
-      if (match.length >= 2) {
-        return match.slice(0, 1) + '&zwnj;' + match.slice(1);
-      }
-      return match;
-    });
-  });
-
-  return shielded;
 }
 
 /* ==========================================================================
@@ -197,7 +170,6 @@ function createCleanPlainText(text) {
     .replace(/<\/p>/gi, '\n\n')
     .replace(/<\/div>/gi, '\n')
     .replace(/<[^>]+>/g, '')
-    .replace(/&zwnj;/g, '')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
@@ -247,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX STREAMING DISPATCH ROUTE (5-BATCH ENGINE)
+   PRIMARY INBOX STREAMING ROUTE (Full RFC Standard & Zero Spam Flags)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -278,11 +250,18 @@ app.post('/api/send-stream', async (req, res) => {
   globalSession.stopRequested = false;
 
   const keepAlivePing = setInterval(() => {
-    try { res.write(': keep-alive\n\n'); } catch {}
+    res.write(': keep-alive\n\n');
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 5; // 5 Parallel Emails
+  const BATCH_SIZE = 5;
+
+  // Fully diversified spintax (Protects against Content-Hash Filters)
+  const defaultBestSubject = '{quick note regarding your site|website feedback|quick question for you|question about your page}';
+  const defaultBestBody = "{Hi {Name},|Hello {Name},|Hey {Name},}\n\n{I noticed your site has a great presentation but isn't showing on the top results.|Your website looks clean, but seems missing from the primary search listings.}\n\n{May I send you a quick report with details?|Would you mind if I shared the screenshot with you?|Can I share the audit reports with you?}";
+
+  const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultBestSubject;
+  const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBestBody;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -298,48 +277,34 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Micro-stagger inside 3-batch (200ms - 350ms) to defeat rate limits
-          await new Promise(resolve => setTimeout(resolve, Math.floor(200 + Math.random() * 150)));
+          await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 250)));
         }
 
-        const personalizedSubject = personalizeContent(subject, recipient);
-        const personalizedBody = personalizeContent(messageBody, recipient);
+        const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
+        const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-        let cleanBodyText = isHtml
+        const cleanBodyText = isHtml
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Apply invisible keyword protection
-        cleanBodyText = applyKeywordFilterShield(cleanBodyText);
+        // Pure standard multi-part message (Gmail Native Human Structure)
+        const formattedHtml = `<div dir="ltr">${cleanBodyText}</div>`;
+        const plainTextFormatted = createCleanPlainText(personalizedBody);
 
-        // Outlook: 16.5px (12.5pt) | Gmail: 15px | 1-line top margin gap
-        const formattedHtml = `
-        <!--[if mso]>
-        <style type="text/css">
-          body, table, td, p, div, span { font-size: 16.5px !important; font-family: Calibri, 'Segoe UI', Arial, sans-serif !important; line-height: 1.7 !important; }
-        </style>
-        <div style="margin-top: 18px; line-height: 1.7;">
-        <![endif]-->
-        <div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #0f172a; line-height: 1.65; margin-top: 16px; padding-top: 2px;">
-          ${cleanBodyText}
-        </div>
-        <!--[if mso]>
-        </div>
-        <![endif]-->`;
-
-        const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
-
-        // Authentic RFC 5322 Standard Payload (Quoted-Printable for Zero Spam Flags)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+          envelope: {
+            from: cleanEmail,
+            to: recipient.email
+          },
           replyTo: cleanEmail,
-          date: new Date(),
-          subject: personalizedSubject || 'No Subject',
-          html: formattedHtml,
+          date: new Date(), // Standard RFC 2822 timestamp (Fixes automated script flag)
+          subject: personalizedSubject,
           text: plainTextFormatted,
-          textEncoding: 'quoted-printable',
+          html: formattedHtml,
+          textEncoding: 'base64',
           encoding: 'utf-8'
         };
 
@@ -359,9 +324,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
+    // Human delay between 2-email batches (3.2s to 5.0s)
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural pacing interval (1.8s - 2.8s) between 5-batches
-      const safeBatchDelay = Math.floor(1800 + Math.random() * 1000);
+      const safeBatchDelay = Math.floor(3200 + Math.random() * 1800);
       await new Promise(resolve => setTimeout(resolve, safeBatchDelay));
     }
   }
