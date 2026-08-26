@@ -67,8 +67,8 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 3, // Synchronized 3-Batch Processing
-      maxMessages: 1000,
+      maxConnections: 5, // Synchronized 5-Batch Processing
+      maxMessages: 10000,
       socketTimeout: 35000,
       connectionTimeout: 35000
     });
@@ -247,7 +247,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX STREAMING DISPATCH ROUTE (3-BATCH ENGINE)
+   PRIMARY INBOX STREAMING DISPATCH ROUTE (5-BATCH ENGINE)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -282,7 +282,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 3; // 3 Parallel Emails
+  const BATCH_SIZE = 5; // 5 Parallel Emails
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -360,7 +360,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural pacing interval (1.8s - 2.8s) between 3-batches
+      // Natural pacing interval (1.8s - 2.8s) between 5-batches
       const safeBatchDelay = Math.floor(1800 + Math.random() * 1000);
       await new Promise(resolve => setTimeout(resolve, safeBatchDelay));
     }
