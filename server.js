@@ -5,7 +5,6 @@ import { Server } from 'socket.io';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -24,6 +23,7 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x000000000000
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
+// Express Configuration
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -33,6 +33,9 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {});
 });
 
+/* ==========================================================================
+   TURNSTILE BOT PROTECTION VERIFICATION
+   ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
     return true;
@@ -51,12 +54,14 @@ async function verifyTurnstileToken(token, remoteIp) {
     });
     const outcome = await result.json();
     return outcome.success === true;
-  } catch {
+  } catch (error) {
     return false;
   }
 }
 
-// 🛡️ High-Performance Gmail Native Transporter
+/* ==========================================================================
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - 4-Socket Synchronization)
+   ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
@@ -66,26 +71,26 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // STARTTLS
+      secure: false, // Standard RFC 3207 STARTTLS
+      requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 8,
-      maxMessages: Infinity,
+      maxConnections: 4, // 4-Socket Parallel Stream
+      maxMessages: 5000,
       socketTimeout: 30000,
-      connectionTimeout: 30000,
-      tls: {
-        rejectUnauthorized: false,
-        minVersion: 'TLSv1.2'
-      }
+      connectionTimeout: 30000
     });
     poolMap.set(key, transporter);
   }
   return poolMap.get(key);
 }
 
+/* ==========================================================================
+   RECIPIENT NORMALIZATION & ADVANCED SPINTAX
+   ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
   let rawName = '';
@@ -151,27 +156,9 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
-// 🛡️ Clean Broken Symbols, Quotes & Cold-Email Outlines
-function cleanTemplateArtifacts(text) {
-  if (!text) return '';
-  let clean = text;
-
-  // Strip broken code blocks, triple quotes & odd formatting
-  clean = clean.replace(/['"`]{2,}/g, '');
-  clean = clean.replace(/^['"`]+|['"`]+$/g, '');
-  clean = clean.replace(/screen\s*:\s*['"]?shots/gi, 'screenshots');
-  clean = clean.replace(/screen\s*:\s*shots/gi, 'screenshots');
-  clean = clean.replace(/\s+([.,?!;:])/g, '$1');
-  clean = clean.replace(/\.{2,}/g, '.');
-  clean = clean.replace(/\s{2,}/g, ' ');
-
-  return clean.trim();
-}
-
-// 🛡️ Transform High-Risk Spam Words into Natural 1-on-1 Language
 function cleanSpamWords(content) {
   if (!content) return '';
-  let clean = cleanTemplateArtifacts(content);
+  let clean = content;
 
   const spamReplacements = [
     { regex: /\b(?:front\s*pages|1st\s*pages|top\s*pages|first\s*pages)\b/gi, rep: 'search results' },
@@ -192,24 +179,7 @@ function cleanSpamWords(content) {
     clean = clean.replace(item.regex, item.rep);
   }
 
-  clean = clean.replace(/!{2,}/g, '!');
-  clean = clean.replace(/\?{2,}/g, '?');
-
-  return clean;
-}
-
-// 🛡️ Invisible Zero-Width Mutator (Makes every email 100% unique for Gmail AI)
-function applyMicroVariation(text) {
-  if (!text) return '';
-  const zeroChars = ['\u200B', '\u200C', '\u200D', '\uFEFF'];
-  const words = text.split(' ');
-  if (words.length > 2) {
-    const randomIndex = Math.floor(Math.random() * (words.length - 1)) + 1;
-    const randomChar = zeroChars[Math.floor(Math.random() * zeroChars.length)];
-    words[randomIndex] = words[randomIndex] + randomChar;
-    return words.join(' ');
-  }
-  return text;
+  return clean.trim();
 }
 
 function personalizeContent(template, recipient) {
@@ -225,17 +195,29 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  return applyMicroVariation(content);
+  return content;
 }
 
-// 🛡️ Native Gmail Webmail Message-ID Structure
-function generateGoogleMessageId(senderEmail) {
-  const domain = senderEmail.includes('@') ? senderEmail.split('@')[1] : 'mail.gmail.com';
-  const hexPart = crypto.randomBytes(16).toString('hex').toLowerCase();
-  const time = Date.now().toString(36);
-  return `<CAG=${hexPart.substring(0, 16)}_${time}@${domain}>`;
+function createCleanPlainText(text) {
+  if (!text) return '';
+  return text
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*[\/]?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\n\s*\n/g, '\n\n')
+    .trim();
 }
 
+/* ==========================================================================
+   API ROUTES
+   ========================================================================== */
 app.post('/api/auth', (req, res) => {
   const { password } = req.body;
   if (password === SITE_PASSWORD) return res.json({ success: true, message: 'Authorized' });
@@ -269,6 +251,9 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
+/* ==========================================================================
+   PRIMARY INBOX 4-BATCH (BLITCH) ENGINE
+   ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -280,16 +265,14 @@ app.post('/api/send-stream', async (req, res) => {
 
   if (!email || !appPassword || !Array.isArray(recipients) || recipients.length === 0) {
     res.write(`data: ${JSON.stringify({ success: false, error: 'Invalid Request Data' })}\n\n`);
-    res.end();
-    return;
+    return res.end();
   }
 
   if (cfToken) {
     const isHuman = await verifyTurnstileToken(cfToken, clientIp);
     if (!isHuman) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Turnstile Verification Failed' })}\n\n`);
-      res.end();
-      return;
+      return res.end();
     }
   }
 
@@ -302,7 +285,9 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 6;
+  
+  // 1 BLITCH = EXACTLY 4 EMAILS
+  const BATCH_SIZE = 4;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -318,44 +303,33 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(80 + Math.random() * 50)));
+          // Intra-batch micro stagger (150ms - 300ms)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 150)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient) || `Regarding ${recipient.domain || 'your website'}`;
         const personalizedBody = personalizeContent(messageBody, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-        const plainTextBody = isHtml
-          ? personalizedBody.replace(/<br\s*[\/]?>/gi, '\n').replace(/<[^>]+>/g, '').trim()
-          : personalizedBody.trim();
-
         const cleanBodyText = isHtml
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Pure standard native webmail formatting (Natural HTML layout)
-        const formattedHtml = `<div dir="ltr">${cleanBodyText}</div>`;
-        const customMessageId = generateGoogleMessageId(cleanEmail);
+        // Pure standard native webmail formatting with clean 1-line top margin gap
+        const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 16px; padding-top: 2px;">${cleanBodyText}</div>`;
+        const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
-        // 🌟 100% Primary Inbox RFC Compliant Structure
+        // RFC 5322 Compliant Structure: Google SMTP generates the authentic DKIM signature
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
-          subject: personalizedSubject,
-          text: plainTextBody,
-          html: formattedHtml,
-          messageId: customMessageId,
           date: new Date(),
-          envelope: {
-            from: cleanEmail,
-            to: recipient.email
-          },
-          headers: {
-            'MIME-Version': '1.0',
-            'X-Priority': '3',
-            'Importance': 'Normal'
-          }
+          subject: personalizedSubject,
+          html: formattedHtml,
+          text: plainTextFormatted,
+          textEncoding: 'quoted-printable',
+          encoding: 'utf-8'
         };
 
         await transporter.sendMail(mailOptions);
@@ -380,7 +354,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      const batchDelay = Math.floor(550 + Math.random() * 200);
+      // Natural 2.0s - 3.5s rest between 4-batches
+      const batchDelay = Math.floor(2000 + Math.random() * 1500);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
@@ -400,7 +375,7 @@ app.use((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`🚀 Mailer server running on port ${PORT}`);
+  console.log(`🚀 Mailer engine running on port ${PORT}`);
 });
 
 export default app;
