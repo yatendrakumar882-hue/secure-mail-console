@@ -55,7 +55,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_core_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -68,10 +68,10 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 2, // 2-Batch Stream Alignment
+      maxConnections: 2, // 2-Socket Sync
       maxMessages: 50000,
-      socketTimeout: 30000,
-      connectionTimeout: 30000
+      socketTimeout: 35000,
+      connectionTimeout: 35000
     });
     poolMap.set(key, transporter);
   }
@@ -220,7 +220,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 2-BATCH (BLITCH) ENGINE
+   PRIMARY INBOX 2-BATCH STREAMING (NATURAL SLOW PACING)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -254,7 +254,7 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getPort587Transporter(email, appPassword);
   
-  // EXACTLY 2 EMAILS PER BLITCH
+  // EXACTLY 2 EMAILS PER BATCH (BLITCH)
   const BATCH_SIZE = 2;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
@@ -271,8 +271,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Stagger between 2 emails (150ms - 250ms)
-          await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 100)));
+          // Intra-batch typing jitter (400ms - 750ms)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(400 + Math.random() * 350)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient);
@@ -283,11 +283,11 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Pure Webmail Layout with 1-Line Top Gap
+        // Gmail Native Layout with 1-Line Top Gap
         const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #111827; line-height: 1.6; margin-top: 16px; padding-top: 2px;">${cleanBodyText}</div>`;
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
-        // Authentic Message-ID
+        // Authentic Message-ID Emulation
         const randomHex = crypto.randomBytes(12).toString('hex');
         const customMessageId = `<${randomHex}.${Date.now()}@mail.gmail.com>`;
 
@@ -297,7 +297,7 @@ app.post('/api/send-stream', async (req, res) => {
           replyTo: cleanEmail,
           date: new Date(),
           messageId: customMessageId,
-          subject: personalizedSubject || 'Quick feedback regarding your site',
+          subject: personalizedSubject || 'Quick update regarding your website',
           html: formattedHtml,
           text: plainTextFormatted,
           textEncoding: 'quoted-printable',
@@ -321,8 +321,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural 1.5s - 2.2s gap between 2-email batches
-      const safeBatchDelay = Math.floor(1500 + Math.random() * 700);
+      // Natural 5.0s - 8.0s human rest interval between 2-email batches
+      const safeBatchDelay = Math.floor(5000 + Math.random() * 3000);
       await new Promise(resolve => setTimeout(resolve, safeBatchDelay));
     }
   }
@@ -338,7 +338,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Mailer engine running on port ${PORT}`);
+  console.log(`🚀 Mailer server running on port ${PORT}`);
 });
 
 export default app;
