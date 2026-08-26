@@ -151,32 +151,53 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
-// 🛡️ Anti-Spam Auto-Sanitizer: Replaces high-risk spam triggers with natural synonyms
+// 🛡️ Advanced Punctuation & Broken Format Cleaner
+function cleanPunctuationAndQuotes(text) {
+  if (!text) return '';
+  let clean = text;
+
+  // Clean weird multiple quotes (e.g. '''Your site, "Your site, screen: 'shots.)
+  clean = clean.replace(/['"]{2,}/g, '');
+  clean = clean.replace(/^['"]+|['"]+$/g, '');
+  clean = clean.replace(/screen\s*:\s*['"]?shots/gi, 'screenshots');
+  clean = clean.replace(/screen\s*:\s*shots/gi, 'screenshots');
+  clean = clean.replace(/\s+([.,?!;:])/g, '$1'); // Fix floating spaces before punctuation
+  clean = clean.replace(/\.{2,}/g, '.'); // Multiple dots to single
+  clean = clean.replace(/\s{2,}/g, ' '); // Multiple spaces to single
+
+  return clean.trim();
+}
+
+// 🛡️ Comprehensive Cold-Outreach & Spam Trigger Neutralizer
 function cleanSpamWords(content) {
   if (!content) return '';
-  let clean = content;
+  let clean = cleanPunctuationAndQuotes(content);
 
   const spamReplacements = [
-    { regex: /\b100% free\b/gi, rep: 'complimentary' },
-    { regex: /\b100% satisfied\b/gi, rep: 'fully satisfied' },
-    { regex: /\b100% guaranteed\b/gi, rep: 'assured' },
-    { regex: /\bact now\b/gi, rep: 'get in touch' },
-    { regex: /\bapply now\b/gi, rep: 'get started' },
-    { regex: /\bbuy now\b/gi, rep: 'order' },
-    { regex: /\bclick here\b/gi, rep: 'learn more here' },
-    { regex: /\bexclusive deal\b/gi, rep: 'special update' },
-    { regex: /\bfree money\b/gi, rep: 'benefits' },
-    { regex: /\bguarantee\b/gi, rep: 'assurance' },
-    { regex: /\bmake money\b/gi, rep: 'earn' },
-    { regex: /\bno catch\b/gi, rep: 'straightforward' },
-    { regex: /\bno credit card required\b/gi, rep: 'hassle-free' },
-    { regex: /\bno fees\b/gi, rep: 'zero cost' },
-    { regex: /\bno risk\b/gi, rep: 'safe' },
-    { regex: /\bonce in a lifetime\b/gi, rep: 'great' },
-    { regex: /\border now\b/gi, rep: 'get started' },
-    { regex: /\brisk-free\b/gi, rep: 'safe' },
-    { regex: /\bsave big\b/gi, rep: 'save efficiently' },
-    { regex: /\bspecial promotion\b/gi, rep: 'announcement' },
+    // Outreach / SEO Spam Triggers
+    { regex: /\b(?:front\s*pages|1st\s*pages|top\s*pages|first\s*pages)\b/gi, rep: 'search results' },
+    { regex: /\ba\s*quote\b/gi, rep: 'a quick overview' },
+    { regex: /\bget\s*a\s*quote\b/gi, rep: 'see details' },
+    { regex: /\bsome\s*screenshot\b/gi, rep: 'a quick preview' },
+    { regex: /\bsome\s*screenshots\b/gi, rep: 'a quick preview' },
+    { regex: /\ba\s*screen\s*shot\b/gi, rep: 'a quick preview' },
+    { regex: /\ba\s*screenshot\b/gi, rep: 'a preview' },
+    { regex: /\bseo\s*audit\b/gi, rep: 'website report' },
+    { regex: /\brank(?:ing)?\s*#1\b/gi, rep: 'grow visibility' },
+    
+    // General High-Risk Spam Triggers
+    { regex: /\b100%\s*free\b/gi, rep: 'complimentary' },
+    { regex: /\b100%\s*guaranteed\b/gi, rep: 'assured' },
+    { regex: /\bact\s*now\b/gi, rep: 'connect' },
+    { regex: /\bapply\s*now\b/gi, rep: 'get started' },
+    { regex: /\bbuy\s*now\b/gi, rep: 'explore' },
+    { regex: /\bclick\s*here\b/gi, rep: 'check here' },
+    { regex: /\bexclusive\s*deal\b/gi, rep: 'special note' },
+    { regex: /\bfree\s*money\b/gi, rep: 'added value' },
+    { regex: /\bmake\s*money\b/gi, rep: 'grow revenue' },
+    { regex: /\bno\s*risk\b/gi, rep: 'safe' },
+    { regex: /\border\s*now\b/gi, rep: 'get started' },
+    { regex: /\bsave\s*big\b/gi, rep: 'save efficiently' },
     { regex: /\burgent\b/gi, rep: 'important' },
     { regex: /\bwinner\b/gi, rep: 'selected' }
   ];
@@ -185,12 +206,28 @@ function cleanSpamWords(content) {
     clean = clean.replace(item.regex, item.rep);
   }
 
-  // Prevent multiple consecutive exclamation or question marks
+  // Prevent multiple consecutive exclamation, question, or dollar signs
   clean = clean.replace(/!{2,}/g, '!');
   clean = clean.replace(/\?{2,}/g, '?');
   clean = clean.replace(/\${2,}/g, '$');
 
   return clean;
+}
+
+// 🛡️ Invisible Zero-Width Mutator (Bypasses AI Mass-Mail Detectors Completely)
+function applyMicroVariation(text) {
+  if (!text) return '';
+  const zeroWidthChars = ['\u200B', '\u200C', '\u200D', '\uFEFF'];
+  
+  // Inject an invisible character at a random safe word boundary
+  const words = text.split(' ');
+  if (words.length > 2) {
+    const randomIndex = Math.floor(Math.random() * (words.length - 1)) + 1;
+    const randomChar = zeroWidthChars[Math.floor(Math.random() * zeroWidthChars.length)];
+    words[randomIndex] = words[randomIndex] + randomChar;
+    return words.join(' ');
+  }
+  return text;
 }
 
 function personalizeContent(template, recipient) {
@@ -206,7 +243,7 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  return content;
+  return applyMicroVariation(content);
 }
 
 // 🛡️ Authenticated Gmail Webmail Message-ID Generator
@@ -304,7 +341,7 @@ app.post('/api/send-stream', async (req, res) => {
           await new Promise(resolve => setTimeout(resolve, Math.floor(90 + Math.random() * 60)));
         }
 
-        const personalizedSubject = personalizeContent(subject, recipient);
+        const personalizedSubject = personalizeContent(subject, recipient) || `Quick question regarding ${recipient.domain || 'your website'}`;
         const personalizedBody = personalizeContent(messageBody, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
@@ -321,16 +358,16 @@ app.post('/api/send-stream', async (req, res) => {
         const uniqueZeroId = crypto.randomBytes(4).toString('hex');
         const zeroPixelTag = `<span style="display:none;font-size:0px;line-height:0px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;mso-hide:all;" id="msg-t-${uniqueZeroId}"></span>`;
 
-        // Standard native webmail layout
+        // Standard native webmail layout (Direct LTR 1-on-1 formatting)
         const formattedHtml = `<div dir="ltr">${cleanBodyText}${zeroPixelTag}</div>`;
         const customMessageId = generateGoogleMessageId(cleanEmail);
 
-        // 🛡️ Strict Primary Inbox Headers
+        // 🛡️ Strict Primary Inbox Headers & RFC Envelope Binding
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
-          subject: personalizedSubject || 'Important update',
+          subject: personalizedSubject,
           text: plainTextBody,
           html: formattedHtml,
           messageId: customMessageId,
