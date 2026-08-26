@@ -3,7 +3,6 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -271,7 +270,7 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Stagger inside 2-email batch (300ms - 550ms)
+          // Stagger inside 8-email batch (300ms - 550ms)
           await new Promise(resolve => setTimeout(resolve, Math.floor(300 + Math.random() * 250)));
         }
 
@@ -287,21 +286,21 @@ app.post('/api/send-stream', async (req, res) => {
         const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #111827; line-height: 1.6; margin-top: 16px; padding-top: 2px;">${cleanBodyText}</div>`;
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
-        // Authentic Google Webmail Message-ID emulation
-        const randomHex = crypto.randomBytes(12).toString('hex');
-        const customMessageId = `<${randomHex}.${Date.now()}@mail.gmail.com>`;
-
+        // RFC 5322 Compliant Options: Google SMTP handles the authentic DKIM Message-ID
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           date: new Date(),
-          messageId: customMessageId,
           subject: personalizedSubject || 'Quick feedback regarding your site',
           html: formattedHtml,
           text: plainTextFormatted,
           textEncoding: 'quoted-printable',
-          encoding: 'utf-8'
+          encoding: 'utf-8',
+          headers: {
+            'X-Priority': '3',
+            'Importance': 'Normal'
+          }
         };
 
         await transporter.sendMail(mailOptions);
@@ -321,7 +320,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural 3.5s - 5.5s rest between 2-email batches
+      // Natural 3.5s - 5.5s rest between 8-batches
       const safeBatchDelay = Math.floor(3500 + Math.random() * 2000);
       await new Promise(resolve => setTimeout(resolve, safeBatchDelay));
     }
