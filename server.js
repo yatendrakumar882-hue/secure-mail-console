@@ -3,7 +3,6 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -69,7 +68,7 @@ function getPort587Transporter(email, appPassword) {
       },
       pool: true,
       maxConnections: 8, // 8-Batch Parallel Stream
-      maxMessages: 9685,
+      maxMessages: 50000,
       socketTimeout: 35000,
       connectionTimeout: 35000
     });
@@ -253,7 +252,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 8; // 8-Batch Parallel Stream
+  const BATCH_SIZE = 8;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -269,7 +268,7 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Intra-batch micro-stagger (300ms - 550ms)
+          // Stagger inside batch (300ms - 550ms)
           await new Promise(resolve => setTimeout(resolve, Math.floor(300 + Math.random() * 250)));
         }
 
@@ -281,27 +280,18 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Invisible Cryptographic Micro-Salt (Breaks content-hash spam filter completely)
-        const invisibleSalt = `<span style="display:none;font-size:0;max-height:0;line-height:0;opacity:0;mso-hide:all;">${crypto.randomBytes(8).toString('hex')}</span>`;
-
-        // Gmail Native UI Typography with clean 1-line top margin gap
-        const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #111827; line-height: 1.6; margin-top: 16px; padding-top: 2px;">${cleanBodyText}${invisibleSalt}</div>`;
-        const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
+        // Natural HTML envelope (Zero hidden tags, zero spam triggers)
+        const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #222222; line-height: 1.5; margin-top: 16px;">${cleanBodyText}</div>`;
+        const plainTextFormatted = createCleanPlainText(personalizedBody);
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           date: new Date(),
-          subject: personalizedSubject || 'Quick feedback regarding your site',
+          subject: personalizedSubject || 'Hello',
           html: formattedHtml,
-          text: plainTextFormatted,
-          textEncoding: 'quoted-printable',
-          encoding: 'utf-8',
-          headers: {
-            'X-Priority': '3',
-            'Importance': 'Normal'
-          }
+          text: plainTextFormatted
         };
 
         await transporter.sendMail(mailOptions);
