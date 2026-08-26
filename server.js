@@ -56,7 +56,7 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-// Optimized SMTP Transporter with connection pooling & secure TLS
+// 🛡️ High-Performance SMTP Transporter with optimized Keep-Alive & TLS
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
@@ -72,13 +72,13 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6,
+      maxConnections: 8,
       maxMessages: Infinity,
-      socketTimeout: 30000,
-      connectionTimeout: 30000,
+      socketTimeout: 35000,
+      connectionTimeout: 35000,
       tls: {
-        ciphers: 'SSLv3',
-        rejectUnauthorized: false
+        rejectUnauthorized: false,
+        minVersion: 'TLSv1.2'
       }
     });
     poolMap.set(key, transporter);
@@ -151,9 +151,52 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
+// 🛡️ Anti-Spam Auto-Sanitizer: Replaces high-risk spam triggers with natural synonyms
+function cleanSpamWords(content) {
+  if (!content) return '';
+  let clean = content;
+
+  const spamReplacements = [
+    { regex: /\b100% free\b/gi, rep: 'complimentary' },
+    { regex: /\b100% satisfied\b/gi, rep: 'fully satisfied' },
+    { regex: /\b100% guaranteed\b/gi, rep: 'assured' },
+    { regex: /\bact now\b/gi, rep: 'get in touch' },
+    { regex: /\bapply now\b/gi, rep: 'get started' },
+    { regex: /\bbuy now\b/gi, rep: 'order' },
+    { regex: /\bclick here\b/gi, rep: 'learn more here' },
+    { regex: /\bexclusive deal\b/gi, rep: 'special update' },
+    { regex: /\bfree money\b/gi, rep: 'benefits' },
+    { regex: /\bguarantee\b/gi, rep: 'assurance' },
+    { regex: /\bmake money\b/gi, rep: 'earn' },
+    { regex: /\bno catch\b/gi, rep: 'straightforward' },
+    { regex: /\bno credit card required\b/gi, rep: 'hassle-free' },
+    { regex: /\bno fees\b/gi, rep: 'zero cost' },
+    { regex: /\bno risk\b/gi, rep: 'safe' },
+    { regex: /\bonce in a lifetime\b/gi, rep: 'great' },
+    { regex: /\border now\b/gi, rep: 'get started' },
+    { regex: /\brisk-free\b/gi, rep: 'safe' },
+    { regex: /\bsave big\b/gi, rep: 'save efficiently' },
+    { regex: /\bspecial promotion\b/gi, rep: 'announcement' },
+    { regex: /\burgent\b/gi, rep: 'important' },
+    { regex: /\bwinner\b/gi, rep: 'selected' }
+  ];
+
+  for (const item of spamReplacements) {
+    clean = clean.replace(item.regex, item.rep);
+  }
+
+  // Prevent multiple consecutive exclamation or question marks
+  clean = clean.replace(/!{2,}/g, '!');
+  clean = clean.replace(/\?{2,}/g, '?');
+  clean = clean.replace(/\${2,}/g, '$');
+
+  return clean;
+}
+
 function personalizeContent(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
+  content = cleanSpamWords(content);
 
   const fallback = recipient.firstName || recipient.name || '';
 
@@ -166,12 +209,13 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// Generate legitimate RFC-compliant Message-ID (Mimics standard Google Webmail)
+// 🛡️ Authenticated Gmail Webmail Message-ID Generator
 function generateGoogleMessageId(senderEmail) {
   const domain = senderEmail.includes('@') ? senderEmail.split('@')[1] : 'mail.gmail.com';
-  const randString = crypto.randomBytes(16).toString('hex');
-  const timestamp = Date.now().toString(36);
-  return `<CA${randString.substring(0, 18)}_${timestamp}@${domain}>`;
+  const prefix = crypto.randomBytes(12).toString('hex').toLowerCase();
+  const suffix = crypto.randomBytes(8).toString('hex').toLowerCase();
+  const time = Date.now().toString(36);
+  return `<CAG${prefix}_${time}_${suffix}@${domain}>`;
 }
 
 app.post('/api/auth', (req, res) => {
@@ -256,13 +300,15 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(120 + Math.random() * 80)));
+          // Micro-natural human jitter (keeps speed fast & stops burst triggers)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(90 + Math.random() * 60)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient);
         const personalizedBody = personalizeContent(messageBody, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
+        // Strip HTML safely for true 1-to-1 multipart plain text representation
         const plainTextBody = isHtml
           ? personalizedBody.replace(/<br\s*[\/]?>/gi, '\n').replace(/<[^>]+>/g, '').trim()
           : personalizedBody.trim();
@@ -271,11 +317,15 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Pure standard native webmail formatting (Natural HTML layout)
-        const formattedHtml = `<div dir="ltr">${cleanBodyText}</div>`;
+        // 🛡️ Invisible zero-pixel micro fingerprinting (Ensures each mail is unique to bypass mass-mail spam filters)
+        const uniqueZeroId = crypto.randomBytes(4).toString('hex');
+        const zeroPixelTag = `<span style="display:none;font-size:0px;line-height:0px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;mso-hide:all;" id="msg-t-${uniqueZeroId}"></span>`;
+
+        // Standard native webmail layout
+        const formattedHtml = `<div dir="ltr">${cleanBodyText}${zeroPixelTag}</div>`;
         const customMessageId = generateGoogleMessageId(cleanEmail);
 
-        // Strict Primary Inbox Delivery Headers & Envelope Configuration
+        // 🛡️ Strict Primary Inbox Headers
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -290,10 +340,12 @@ app.post('/api/send-stream', async (req, res) => {
             to: recipient.email
           },
           headers: {
-            'X-Mailer': 'Gmail / Webmail Client',
+            'X-Mailer': 'Gmail / Google Mail 2.0',
             'MIME-Version': '1.0',
-            'X-Priority': '3', // Normal Priority (Bypasses spam filters)
-            'Importance': 'Normal'
+            'X-Priority': '3',
+            'Importance': 'Normal',
+            'X-Auto-Response-Suppress': 'OOF, AutoReply',
+            'Precedence': 'personal'
           }
         };
 
@@ -319,7 +371,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      const batchDelay = Math.floor(700 + Math.random() * 300);
+      const batchDelay = Math.floor(600 + Math.random() * 250);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
