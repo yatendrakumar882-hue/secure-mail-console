@@ -68,7 +68,7 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 2, // 2-Socket Sync
+      maxConnections: 6, // 6-Socket Sync
       maxMessages: 50000,
       socketTimeout: 35000,
       connectionTimeout: 35000
@@ -254,8 +254,8 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getPort587Transporter(email, appPassword);
   
-  // EXACTLY 2 EMAILS PER BATCH (BLITCH)
-  const BATCH_SIZE = 2;
+  // EXACTLY 6 EMAILS PER BATCH (BLITCH)
+  const BATCH_SIZE = 6;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
