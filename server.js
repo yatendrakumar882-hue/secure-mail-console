@@ -54,7 +54,7 @@ async function verifyTurnstileToken(token, remoteIp) {
     });
     const outcome = await result.json();
     return outcome.success === true;
-  } catch (error) {
+  } catch {
     return false;
   }
 }
@@ -71,7 +71,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS
+      secure: false, // Standard RFC STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -156,42 +156,15 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
-function cleanSpamWords(content) {
-  if (!content) return '';
-  let clean = content;
-
-  const spamReplacements = [
-    { regex: /\b(?:front\s*pages|1st\s*pages|top\s*pages|first\s*pages)\b/gi, rep: 'search results' },
-    { regex: /\ba\s*quote\b/gi, rep: 'some brief details' },
-    { regex: /\bget\s*a\s*quote\b/gi, rep: 'see more details' },
-    { regex: /\bsome\s*screenshot\b/gi, rep: 'a quick preview' },
-    { regex: /\bsome\s*screenshots\b/gi, rep: 'a quick preview' },
-    { regex: /\ba\s*screen\s*shot\b/gi, rep: 'a quick preview' },
-    { regex: /\ba\s*screenshot\b/gi, rep: 'a preview' },
-    { regex: /\b100%\s*free\b/gi, rep: 'complimentary' },
-    { regex: /\b100%\s*guaranteed\b/gi, rep: 'assured' },
-    { regex: /\bclick\s*here\b/gi, rep: 'take a look here' },
-    { regex: /\bmake\s*money\b/gi, rep: 'grow results' },
-    { regex: /\burgent\b/gi, rep: 'important' }
-  ];
-
-  for (const item of spamReplacements) {
-    clean = clean.replace(item.regex, item.rep);
-  }
-
-  return clean.trim();
-}
-
 function personalizeContent(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
-  content = cleanSpamWords(content);
 
-  const fallback = recipient.firstName || recipient.name || '';
+  const fallback = recipient.firstName || recipient.name || 'there';
 
-  content = content.replace(/{Name}/gi, recipient.name || fallback || 'there');
-  content = content.replace(/{FirstName}/gi, recipient.firstName || fallback || 'there');
-  content = content.replace(/{First_Name}/gi, recipient.firstName || fallback || 'there');
+  content = content.replace(/{Name}/gi, recipient.name || fallback);
+  content = content.replace(/{FirstName}/gi, recipient.firstName || fallback);
+  content = content.replace(/{First_Name}/gi, recipient.firstName || fallback);
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
@@ -315,11 +288,11 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Pure standard native webmail formatting with clean 1-line top margin gap
+        // Gmail Native Webmail Editor Layout with clean 1-line top margin gap
         const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 16px; padding-top: 2px;">${cleanBodyText}</div>`;
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
-        // RFC 5322 Compliant Structure: Google SMTP generates the authentic DKIM signature
+        // Authentic RFC 5322 Payload (Native Google SMTP Handshake)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
