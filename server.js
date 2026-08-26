@@ -66,7 +66,7 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5, // EXACT 3-Socket Connection Pool
+      maxConnections: 8, // EXACT 3-Socket Connection Pool
       maxMessages: 50000,
       socketTimeout: 35000,
       connectionTimeout: 35000
@@ -199,7 +199,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 5-BATCH (BLITCH) ENGINE
+   PRIMARY INBOX 8-BATCH (BLITCH) ENGINE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -232,7 +232,7 @@ app.post('/api/send-stream', async (req, res) => {
   const transporter = getPort587Transporter(email, appPassword);
   
   // EXACTLY 5 EMAILS PER BLITCH
-  const BATCH_SIZE = 5;
+  const BATCH_SIZE = 8;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
