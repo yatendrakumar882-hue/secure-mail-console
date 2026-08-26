@@ -16,15 +16,11 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x000000000000
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
-// Express Configuration
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(process.cwd(), 'public')));
 
-/* ==========================================================================
-   TURNSTILE BOT PROTECTION
-   ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
     return true;
@@ -47,9 +43,6 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-/* ==========================================================================
-   PORT 587 STARTTLS TRANSPORTER (2-Socket Pacing)
-   ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
@@ -59,14 +52,14 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard STARTTLS
+      secure: false,
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 2, // 2-Parallel Connection Limit
+      maxConnections: 2,
       maxMessages: 50000,
       socketTimeout: 35000,
       connectionTimeout: 35000
@@ -169,9 +162,7 @@ function createCleanPlainText(text) {
     .trim();
 }
 
-/* ==========================================================================
-   ROUTES
-   ========================================================================== */
+// API Routes
 app.post('/api/auth', (req, res) => {
   if (req.body.password === SITE_PASSWORD) return res.json({ success: true });
   return res.status(401).json({ success: false, message: 'Unauthorized Password' });
@@ -224,7 +215,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 3000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 2; // Strict 2-Email Pace
+  const BATCH_SIZE = 2;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -251,7 +242,6 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Gmail Native Human UI Formatting (1-line top margin gap)
         const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 16px; padding-top: 2px;">${cleanBodyText}</div>`;
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
@@ -296,12 +286,11 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true });
 });
 
-// UI Fallback
+// UI Fallback Route
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
 
-// Local dev support only (Vercel uses module export)
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }
