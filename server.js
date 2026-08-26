@@ -11,7 +11,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y###';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const globalSession = { stopRequested: false };
@@ -50,26 +50,26 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - 2 Synchronized Sockets)
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - 8-Socket Sync)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_core_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC STARTTLS
+      secure: false, // Standard RFC 3207 STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6, // 6-Socket Sync
-      maxMessages: 50000,
+      maxConnections: 8, // Line: 8-Socket Parallel Stream
+      maxMessages: 9685,
       socketTimeout: 35000,
       connectionTimeout: 35000
     });
@@ -220,7 +220,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 2-BATCH STREAMING (NATURAL SLOW PACING)
+   PRIMARY INBOX 8-BATCH (BLITCH) ENGINE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -254,8 +254,8 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getPort587Transporter(email, appPassword);
   
-  // EXACTLY 6 EMAILS PER BATCH (BLITCH)
-  const BATCH_SIZE = 6;
+  // 1 BLITCH = EXACTLY 8 EMAILS
+  const BATCH_SIZE = 8;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -271,8 +271,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Intra-batch typing jitter (400ms - 750ms)
-          await new Promise(resolve => setTimeout(resolve, Math.floor(400 + Math.random() * 350)));
+          // Stagger inside 2-email batch (300ms - 550ms)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(300 + Math.random() * 250)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient);
@@ -283,11 +283,11 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Gmail Native Layout with 1-Line Top Gap
+        // Gmail Native Human UI Formatting with 1-line top margin gap
         const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #111827; line-height: 1.6; margin-top: 16px; padding-top: 2px;">${cleanBodyText}</div>`;
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
-        // Authentic Message-ID Emulation
+        // Authentic Google Webmail Message-ID emulation
         const randomHex = crypto.randomBytes(12).toString('hex');
         const customMessageId = `<${randomHex}.${Date.now()}@mail.gmail.com>`;
 
@@ -297,7 +297,7 @@ app.post('/api/send-stream', async (req, res) => {
           replyTo: cleanEmail,
           date: new Date(),
           messageId: customMessageId,
-          subject: personalizedSubject || 'Quick update regarding your website',
+          subject: personalizedSubject || 'Quick feedback regarding your site',
           html: formattedHtml,
           text: plainTextFormatted,
           textEncoding: 'quoted-printable',
@@ -321,8 +321,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural 5.0s - 8.0s human rest interval between 2-email batches
-      const safeBatchDelay = Math.floor(5000 + Math.random() * 3000);
+      // Natural 3.5s - 5.5s rest between 2-email batches
+      const safeBatchDelay = Math.floor(3500 + Math.random() * 2000);
       await new Promise(resolve => setTimeout(resolve, safeBatchDelay));
     }
   }
@@ -338,7 +338,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Mailer server running on port ${PORT}`);
+  console.log(`🚀 Mailer engine running on port ${PORT}`);
 });
 
 export default app;
