@@ -12,17 +12,17 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 
-// Mock Turnstile secret for local dev if needed
-const TURNSTILE_SECRET = '1x0000000000000000000000000000000AA';
-
-// Site password from environment variable (hidden from GitHub via .env + .gitignore)
-const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
+const PORT = process.env.PORT || 3000;
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'changeme';
+const TURNSTILE_SECRET = process.env.TURNSTILE_SECRET || '1x0000000000000000000000000000000AA';
 
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
-const activeSessions = {};
+const poolMap = new Map();
+let globalStop = false;
 
 /* ---------------- PASSWORD AUTH ---------------- */
 
@@ -35,134 +35,164 @@ app.post("/api/auth", (req, res) => {
 
   if (password === SITE_PASSWORD) {
     return res.json({ success: true, message: "Access granted" });
-  } else {
-    return res.status(401).json({ success: false, message: "Incorrect password" });
   }
+
+  return res.status(401).json({ success: false, message: "Incorrect password" });
 });
 
-/* ---------------- SMTP TRANSPORTER ---------------- */
+/* ---------------- SMTP TRANSPORTER POOL ---------------- */
 
-function createTransporter(email, appPassword) {
-  return nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 587,
-    secure: false,
+function getTransporter(email, appPassword) {
+  const cleanEmail = email.toLowerCase().trim();
+  const cleanPass = appPassword.replace(/\s+/g, '').trim();
+  const key = `${cleanEmail}_${cleanPass}`;
 
-    auth: {
-      user: email,
-      pass: appPassword
-    },
-
-    tls: {
-      rejectUnauthorized: false
-    },
-
-    family: 4,
-
-    pool: true,
-    maxConnections: 20,
-    maxMessages: 100
-  });
+  if (!poolMap.has(key)) {
+    const transporter = nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: 587,
+      secure: false, // RFC standard STARTTLS
+      requireTLS: true,
+      auth: {
+        user: cleanEmail,
+        pass: cleanPass
+      },
+      pool: true,
+      maxConnections: 10,
+      maxMessages: 10000,
+      socketTimeout: 30000,
+      connectionTimeout: 30000
+    });
+    poolMap.set(key, transporter);
+  }
+  return poolMap.get(key);
 }
 
 /* ---------------- VERIFY SMTP ---------------- */
 
 app.post("/api/verify", async (req, res) => {
+  const { email, appPassword } = req.body;
 
-  const { email, appPassword, cfToken } = req.body;
-
-  if (!email || !appPassword || !cfToken) {
+  if (!email || !appPassword) {
     return res.status(400).json({
       success: false,
-      message: "Email, App Password, and Spam Check required"
+      message: "Email and App Password required"
     });
   }
 
   try {
-    const transporter = createTransporter(email, appPassword);
+    const transporter = getTransporter(email, appPassword);
     await transporter.verify();
 
-    res.json({
+    return res.json({
       success: true,
       message: "SMTP verified successfully"
     });
-
   } catch (error) {
-    console.error("SMTP Verify Error:", error);
-    res.status(401).json({
+    console.error("SMTP Verify Error:", error.message);
+    return res.status(401).json({
       success: false,
-      message: error.message
+      message: error.message || "SMTP Authentication failed"
     });
   }
 });
 
-/* ---------------- SEND BATCH ---------------- */
+/* ---------------- SEND BATCH (ALL EMAILS SEND) ---------------- */
 
 app.post("/api/send-batch", async (req, res) => {
+  const { email, appPassword, senderName, subject, messageBody, recipients } = req.body;
 
-  const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
-
-  if (!email || !appPassword || !recipients?.length) {
+  if (!email || !appPassword || !Array.isArray(recipients) || recipients.length === 0) {
     return res.status(400).json({
       success: false,
-      message: "Missing required fields"
+      message: "Missing required fields or recipients list is empty"
     });
   }
 
-  if (recipients.length > 10) {
+  if (globalStop) {
     return res.status(400).json({
-        success: false,
-        message: "Batch too large. Max 10."
+      success: false,
+      message: "Process currently stopped"
     });
   }
 
-  const transporter = createTransporter(email, appPassword);
+  const cleanEmail = email.toLowerCase().trim();
+  const cleanSenderName = (senderName || "").replace(/["\r\n]/g, "").trim();
+  const transporter = getTransporter(email, appPassword);
+
+  const isHtml = /<[a-z][\s\S]*>/i.test(messageBody || "");
+  const formattedHtml = isHtml 
+    ? messageBody 
+    : `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #222; line-height: 1.5; margin-top: 16px;">${(messageBody || "").replace(/\n/g, "<br>")}</div>`;
+  
+  const plainText = (messageBody || "").replace(/<[^>]+>/g, "").trim();
+
+  // Send all recipients in parallel without restricting batch limit
+  const results = await Promise.allSettled(
+    recipients.map(async (recipient) => {
+      const targetEmail = typeof recipient === 'object' ? (recipient.email || recipient.recipient) : String(recipient);
+      const cleanTarget = (targetEmail || "").trim();
+
+      if (!cleanTarget) {
+        return { success: false, recipient: cleanTarget, error: "Invalid Email" };
+      }
+
+      try {
+        await transporter.sendMail({
+          from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
+          to: cleanTarget,
+          replyTo: cleanEmail,
+          date: new Date(),
+          subject: subject || "No Subject",
+          text: plainText,
+          html: formattedHtml,
+          textEncoding: 'quoted-printable',
+          encoding: 'utf-8'
+        });
+
+        return { success: true, recipient: cleanTarget };
+      } catch (error) {
+        console.error("Email send failed for:", cleanTarget, error.message);
+        return { success: false, recipient: cleanTarget, error: error.message };
+      }
+    })
+  );
+
   let sent = 0;
   let failed = 0;
+  const details = [];
 
-  // Send all emails in parallel for maximum speed
-  const results = await Promise.allSettled(recipients.map(recipient =>
-      transporter.sendMail({
-          from: `"${senderName}" <${email}>`,
-          to: recipient,
-          subject: subject,
-          text: messageBody,
-          html: `<p>${messageBody}</p>`
-      }).then(() => ({ success: true, recipient }))
-      .catch(error => {
-          console.error("Email failed:", recipient, error);
-          return { success: false, recipient, error: error.message };
-      })
-  ));
-
-  for (const result of results) {
-      if (result.status === 'fulfilled' && result.value.success) sent++;
-      else failed++;
+  for (const r of results) {
+    if (r.status === "fulfilled" && r.value.success) {
+      sent++;
+      details.push(r.value);
+    } else {
+      failed++;
+      details.push(r.status === "fulfilled" ? r.value : { success: false, error: r.reason?.message });
+    }
   }
 
-  res.json({
-      success: true,
-      results: { sent, failed }
+  return res.json({
+    success: true,
+    results: { sent, failed, details }
   });
 });
 
 /* ---------------- STOP PROCESS ---------------- */
 
 app.post("/api/stop", (req, res) => {
-  activeSessions['global_stop'] = true;
-  res.json({ success: true, message: "Stopping future batches." });
+  globalStop = true;
+  res.json({ success: true, message: "Process stopped." });
 
-  // reset after a few seconds so next send works
-  setTimeout(() => { activeSessions['global_stop'] = false; }, 5000);
+  setTimeout(() => {
+    globalStop = false;
+  }, 4000);
 });
-
-// Legacy send function removed (now fully managed by REST batching)
-// Socket connection removed
 
 /* ---------------- START SERVER ---------------- */
 
-const PORT = process.env.PORT || 3000;
-
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
+
+export default app;
