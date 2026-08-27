@@ -48,7 +48,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - 5-Socket Sync)
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - 8-Socket Sync)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -66,7 +66,7 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 8, // EXACT 3-Socket Connection Pool
+      maxConnections: 8, // Line: 8-Socket Parallel Stream
       maxMessages: 50000,
       socketTimeout: 35000,
       connectionTimeout: 35000
@@ -77,7 +77,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   RECIPIENT NORMALIZATION & SPINTAX
+   RECIPIENT NORMALIZATION & ADVANCED SPINTAX
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -140,15 +140,48 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
+/* ==========================================================================
+   AI-LEVEL SPAM WORD NEUTRALIZER (Cleans All Templates to Primary Format)
+   ========================================================================== */
+function neutralizeSpamTriggers(content) {
+  if (!content) return '';
+  let clean = content;
+
+  // Converts trigger words into natural 1-on-1 human phrasing
+  const spamMatrix = [
+    { regex: /\b(?:front\s*page|1st\s*page|top\s*pages|first\s*pages)\b/gi, rep: 'search visibility' },
+    { regex: /\bget\s*a\s*quote\b/gi, rep: 'see brief details' },
+    { regex: /\ba\s*quote\b/gi, rep: 'brief pricing details' },
+    { regex: /\b(?:some\s*screenshots|some\s*screenshot|screen\s*:\s*shots)\b/gi, rep: 'a quick preview' },
+    { regex: /\b100%\s*free\b/gi, rep: 'complimentary' },
+    { regex: /\b100%\s*guaranteed\b/gi, rep: 'assured' },
+    { regex: /\bclick\s*here\b/gi, rep: 'take a look here' },
+    { regex: /\bmake\s*money\b/gi, rep: 'increase revenue' },
+    { regex: /\burgent\b/gi, rep: 'important note' }
+  ];
+
+  for (const item of spamMatrix) {
+    clean = clean.replace(item.regex, item.rep);
+  }
+
+  clean = clean.replace(/!{2,}/g, '!');
+  clean = clean.replace(/\?{2,}/g, '?');
+  clean = clean.replace(/\.{2,}/g, '.');
+
+  return clean.trim();
+}
+
 function personalizeContent(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
+  content = neutralizeSpamTriggers(content);
 
   const fallback = recipient.firstName || recipient.name || 'there';
 
   content = content.replace(/{Name}/gi, recipient.name || fallback);
   content = content.replace(/{FirstName}/gi, recipient.firstName || fallback);
   content = content.replace(/{First_Name}/gi, recipient.firstName || fallback);
+  content = content.replace(/\bName\b/g, fallback);
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
@@ -199,7 +232,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 8-BATCH (BLITCH) ENGINE
+   PRIMARY INBOX 8-BATCH STREAMING ENGINE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -231,7 +264,7 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getPort587Transporter(email, appPassword);
   
-  // EXACTLY 5 EMAILS PER BLITCH
+  // EXACTLY 8 EMAILS PER BLITCH
   const BATCH_SIZE = 8;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
@@ -252,7 +285,7 @@ app.post('/api/send-stream', async (req, res) => {
           await new Promise(r => setTimeout(r, Math.floor(250 + Math.random() * 200)));
         }
 
-        const personalizedSubject = personalizeContent(subject, recipient) || 'Regarding your project';
+        const personalizedSubject = personalizeContent(subject, recipient) || `Regarding ${recipient.domain || 'your website'}`;
         const personalizedBody = personalizeContent(messageBody, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
@@ -260,7 +293,7 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Native Webmail format with 1-line top margin gap
+        // Pure standard native webmail layout with 1-line top margin gap
         const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 16px; padding-top: 2px;">${cleanBodyText}</div>`;
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
@@ -291,7 +324,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural 3.5s - 5.5s safe rest between 3-email batches
+      // Natural 3.5s - 5.5s safe rest between 8-email batches
       const safeDelay = Math.floor(3500 + Math.random() * 2000);
       await new Promise(r => setTimeout(r, safeDelay));
     }
