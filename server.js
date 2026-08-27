@@ -89,7 +89,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   RECIPIENT NORMALIZATION & ADVANCED SPINTAX ENGINE
+   RECIPIENT NORMALIZATION & ADVANCED SPINTAX
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -153,6 +153,36 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
+/* ==========================================================================
+   INVISIBLE KEYWORD CAMOUFLAGE (BYPASSES SPAM FILTERS FOR ALL SENSITIVE WORDS)
+   ========================================================================== */
+function camouflageSpamKeywords(text) {
+  if (!text) return '';
+  
+  // Specific targeted keywords
+  const triggerWords = [
+    'error', 'page', 'site', 'website', 'quote', 'sereenshot', 'screenshot',
+    'information', 'google', 'frist', 'first', 'send', 'email', 'ranking',
+    'seo', 'glitch', 'bug', 'problem', 'details', 'audit', 'report'
+  ];
+
+  let obfuscated = text;
+  
+  for (const word of triggerWords) {
+    const regex = new RegExp(`\\b(${word})\\b`, 'gi');
+    obfuscated = obfuscated.replace(regex, (match) => {
+      if (match.length > 2) {
+        // Injects invisible zero-width non-joiner (\u200C) in the middle of the word
+        const mid = Math.floor(match.length / 2);
+        return match.slice(0, mid) + '\u200C' + match.slice(mid);
+      }
+      return match;
+    });
+  }
+
+  return obfuscated;
+}
+
 function generateDynamicRef() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
@@ -170,6 +200,9 @@ function personalizeContent(template, recipient, refNo) {
   content = content.replace(/{Domain}/gi, recipient.domain);
   content = content.replace(/{Ref_No}/gi, refNo);
   content = content.replace(/{Reference}/gi, refNo);
+
+  // Apply non-intrusive keyword protection
+  content = camouflageSpamKeywords(content);
 
   return content;
 }
@@ -228,7 +261,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 6-BATCH STREAMING ROUTE (FIXED & FULLY OPTIMIZED)
+   PRIMARY INBOX 6-BATCH STREAMING ROUTE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -264,6 +297,8 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
+  
+  // 6 EMAILS PER BATCH (EXACT SPEED)
   const BATCH_SIZE = 6;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
@@ -293,11 +328,11 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // 1-on-1 Clean Desktop formatting (1-Line Natural Top Gap, Zero Artificial Wrapper)
+        // Pure standard native webmail format
         const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 16px;">${cleanBodyText}</div>`;
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
-        // RFC-5322 Compliant Webmail Handshake
+        // RFC-5322 Standard Desktop Email Payload
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -353,7 +388,7 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
 
-// Start Server locally; Export for Vercel
+// Server Initialization
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   server.listen(PORT, () => {
     console.log(`🚀 Mailer server running on port ${PORT}`);
