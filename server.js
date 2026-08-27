@@ -5,6 +5,7 @@ import { Server } from 'socket.io';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -71,7 +72,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard STARTTLS
+      secure: false, // Standard RFC 3207 STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -153,17 +154,23 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
-function personalizeContent(template, recipient) {
+function generateNaturalRef() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+function personalizeContent(template, recipient, refNo) {
   if (!template) return '';
   let content = parseSpintax(template);
 
-  const fallback = recipient.firstName || recipient.name || '';
+  const fallback = recipient.firstName || recipient.name || 'there';
 
-  content = content.replace(/{Name}/gi, recipient.name || fallback || 'there');
-  content = content.replace(/{FirstName}/gi, recipient.firstName || fallback || 'there');
-  content = content.replace(/{First_Name}/gi, recipient.firstName || fallback || 'there');
+  content = content.replace(/{Name}/gi, recipient.name || fallback);
+  content = content.replace(/{FirstName}/gi, recipient.firstName || fallback);
+  content = content.replace(/{First_Name}/gi, recipient.firstName || fallback);
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
+  content = content.replace(/{Ref_No}/gi, refNo);
+  content = content.replace(/{Reference}/gi, refNo);
 
   return content;
 }
@@ -222,7 +229,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 6-BATCH STREAMING ROUTE
+   PRIMARY INBOX 6-BATCH STREAMING ENGINE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -258,6 +265,8 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
+  
+  // EXACTLY 6 EMAILS PER BATCH (SAME BLITCH SPEED)
   const BATCH_SIZE = 6;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
@@ -278,24 +287,26 @@ app.post('/api/send-stream', async (req, res) => {
           await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 100)));
         }
 
-        const personalizedSubject = personalizeContent(subject, recipient);
-        const personalizedBody = personalizeContent(messageBody, recipient);
-        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+        const refNo = generateNaturalRef();
+        const personalizedSubject = personalizeContent(subject, recipient, refNo) || 'Quick question';
+        let personalizedBody = personalizeContent(messageBody, recipient, refNo);
 
+        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
         const cleanBodyText = isHtml
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // 1-on-1 Clean Webmail UI formatting
-        const formattedHtml = `<div dir="ltr">${cleanBodyText}</div>`;
-        const plainTextFormatted = createCleanPlainText(personalizedBody);
+        // Pure Desktop Webmail Canvas (1-Line Natural Top Gap)
+        const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 16px;">${cleanBodyText}</div>`;
+        const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
+        // RFC-5322 Standard Handshake (Authentic Webmail Fingerprint)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           date: new Date(),
-          subject: personalizedSubject || 'Hello',
+          subject: personalizedSubject,
           html: formattedHtml,
           text: plainTextFormatted,
           textEncoding: 'quoted-printable',
