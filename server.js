@@ -335,8 +335,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural 600ms - 800ms batch rest delay
-      const batchDelay = Math.floor(600 + Math.random() * 200);
+      // Natural 800ms - 1200ms batch rest delay
+      const batchDelay = Math.floor(800 + Math.random() * 400);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
