@@ -3,7 +3,6 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -60,7 +59,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard STARTTLS
+      secure: false, // RFC 3207 STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -141,7 +140,6 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
-// Generates unique numeric ref IDs like 849201, 712948
 function generateRefNo() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
@@ -207,7 +205,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 4-BATCH ENGINE (WITH DYNAMIC REF-NO)
+   PRIMARY INBOX 4-BATCH SEND STREAM
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -264,7 +262,6 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedSubject = personalizeContent(subject, recipient, refNo) || `Feedback [Ref: #${refNo}]`;
         let personalizedBody = personalizeContent(messageBody, recipient, refNo);
 
-        // Auto append clean discreet reference note if not already written in template
         if (!messageBody.toLowerCase().includes('{ref_no}') && !messageBody.toLowerCase().includes('{reference}')) {
           personalizedBody += `\n\nRef: #${refNo}`;
         }
@@ -274,11 +271,9 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Pure standard native webmail layout with clean 1-line top margin gap
         const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 16px; padding-top: 2px;">${cleanBodyText}</div>`;
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
-        // Authentic RFC 5322 standard handshake (Google DKIM Auto-Sign)
         await transporter.sendMail({
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -305,7 +300,6 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural 1.2s - 2.0s rest between 4-batches
       const fastBatchDelay = Math.floor(1200 + Math.random() * 800);
       await new Promise(r => setTimeout(r, fastBatchDelay));
     }
@@ -321,11 +315,12 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true });
 });
 
-// UI Fallback
+// UI Fallback (Serves public folder index.html)
 app.get('/', (req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
 
+// Local dev support only
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }
