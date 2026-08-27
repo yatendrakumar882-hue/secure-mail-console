@@ -49,28 +49,28 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - 6 Socket Sync)
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - 2-Socket Sync)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_genuine_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS
+      secure: false, // Standard RFC STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6, // 6 Parallel Sockets
+      maxConnections: 2, // Strict 2 Connections
       maxMessages: 50000,
-      socketTimeout: 30000,
-      connectionTimeout: 30000
+      socketTimeout: 35000,
+      connectionTimeout: 35000
     });
     poolMap.set(key, transporter);
   }
@@ -221,7 +221,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX STREAMING ENGINE (6-BATCH STREAM)
+   PRIMARY INBOX STREAMING ENGINE (EXACT 2-BATCH SPEED)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -254,12 +254,12 @@ app.post('/api/send-stream', async (req, res) => {
 
   const keepAlivePing = setInterval(() => {
     try { res.write(': keep-alive\n\n'); } catch {}
-  }, 4000);
+  }, 3000);
 
   const transporter = getPort587Transporter(email, appPassword);
   
-  // 6 EMAILS PER BATCH (BLITCH)
-  const BATCH_SIZE = 6;
+  // 1 BLITCH = EXACTLY 2 EMAILS
+  const BATCH_SIZE = 2;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -275,8 +275,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Intra-batch stagger (50ms - 150ms)
-          await new Promise(resolve => setTimeout(resolve, Math.floor(50 + Math.random() * 100)));
+          // Intra-batch micro human stagger (120ms - 250ms)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(120 + Math.random() * 130)));
         }
 
         const refNo = generateNaturalRef();
@@ -322,8 +322,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural 1.2s - 2.0s rest between batches
-      const batchDelay = Math.floor(1200 + Math.random() * 800);
+      // Natural 2-batch rest delay (2.0s - 3.2s)
+      const batchDelay = Math.floor(2000 + Math.random() * 1200);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
