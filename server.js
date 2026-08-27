@@ -48,28 +48,28 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - 8-Socket Sync)
+   FAST & CLEAN GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
+  const key = `fast_inbox_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC STARTTLS
+      secure: false, // Standard RFC 3207 STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 8, // 8-Batch Parallel Stream
+      maxConnections: 4, // 4 Parallel Sockets
       maxMessages: 50000,
-      socketTimeout: 35000,
-      connectionTimeout: 35000
+      socketTimeout: 30000,
+      connectionTimeout: 30000
     });
     poolMap.set(key, transporter);
   }
@@ -77,7 +77,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   RECIPIENT NORMALIZATION & SPINTAX (NO WORD MODIFICATIONS)
+   RECIPIENT NORMALIZATION & EXACT SPINTAX
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -140,7 +140,6 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
-// 100% Exact text personalization without altering user vocabulary
 function personalizeContent(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
@@ -200,7 +199,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 8-BATCH STREAMING ENGINE
+   FAST 4-BATCH PRIMARY INBOX STREAMING ENGINE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -232,8 +231,8 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getPort587Transporter(email, appPassword);
   
-  // 1 BLITCH = EXACTLY 8 EMAILS
-  const BATCH_SIZE = 8;
+  // EXACTLY 4 EMAILS PER BLITCH (FAST & CLEAN)
+  const BATCH_SIZE = 4;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -249,8 +248,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Intra-batch stagger (250ms - 450ms)
-          await new Promise(r => setTimeout(r, Math.floor(250 + Math.random() * 200)));
+          // Fast micro-stagger (80ms - 150ms)
+          await new Promise(r => setTimeout(r, Math.floor(80 + Math.random() * 70)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient) || `Regarding ${recipient.domain || 'your website'}`;
@@ -292,9 +291,9 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural 3.5s - 5.5s safe rest between 8-batches
-      const safeDelay = Math.floor(3500 + Math.random() * 2000);
-      await new Promise(r => setTimeout(r, safeDelay));
+      // Clean fast rest between 4-batches (1.2s - 2.0s)
+      const fastBatchDelay = Math.floor(1200 + Math.random() * 800);
+      await new Promise(r => setTimeout(r, fastBatchDelay));
     }
   }
 
