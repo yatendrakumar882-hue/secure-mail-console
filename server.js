@@ -49,7 +49,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - Single Socket Stream)
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - Single Dedicated Stream)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -60,14 +60,14 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC STARTTLS
+      secure: false, // Standard STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 1, // Single connection for clean 1-by-1 flow
+      maxConnections: 1, // Single socket for 1-by-1 flow
       maxMessages: 50000,
       socketTimeout: 35000,
       connectionTimeout: 35000
@@ -145,29 +145,6 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
-/* ==========================================================================
-   AI SPAM-TRIGGER NEUTRALIZER (Safe Conversion to Human Inbox Words)
-   ========================================================================== */
-function sanitizeTriggerWords(text) {
-  if (!text) return '';
-  let clean = text;
-
-  // Converts flagged sales/spam words to natural 1-on-1 inquiry phrasing
-  const wordMap = [
-    { regex: /\b(?:top\s*pages|early\s*page|1st\s*page|first\s*page)\b/gi, rep: 'main search results' },
-    { regex: /\b(?:sent\s*the\s*quote|send\s*the\s*quote|share\s*a\s*quote|email\s*you\s*a\s*quote|a\s*quote)\b/gi, rep: 'a brief overview with details' },
-    { regex: /\b(?:quote|quotation)\b/gi, rep: 'overview' },
-    { regex: /\b(?:reports|a\s*reports)\b/gi, rep: 'a quick breakdown' },
-    { regex: /\bnot\s*listed\s*on\s*the\s*1st\s*page\b/gi, rep: 'missing from top search rankings' }
-  ];
-
-  for (const item of wordMap) {
-    clean = clean.replace(item.regex, item.rep);
-  }
-
-  return clean;
-}
-
 function generateNaturalRef() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
@@ -175,7 +152,6 @@ function generateNaturalRef() {
 function personalizeContent(template, recipient, refNo) {
   if (!template) return '';
   let content = parseSpintax(template);
-  content = sanitizeTriggerWords(content);
 
   const displayName = recipient.name || recipient.firstName || 'there';
   const displayFirstName = recipient.firstName || displayName;
@@ -245,7 +221,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PURE 1-BY-1 INBOX STREAMING ENGINE (1 BLITCH = 1 EMAIL)
+   PURE 1-BY-1 INBOX STREAMING ROUTE (ZERO LINKS • CLEAN HUMAN TEMPLATE)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -282,7 +258,7 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getPort587Transporter(email, appPassword);
   
-  // 1 BLITCH = EXACTLY 1 EMAIL (MAXIMUM INBOX REPUTATION)
+  // EXACTLY 1 EMAIL PER BATCH (BLITCH = 1)
   const BATCH_SIZE = 1;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
@@ -301,7 +277,7 @@ app.post('/api/send-stream', async (req, res) => {
 
     try {
       const refNo = generateNaturalRef();
-      const personalizedSubject = personalizeContent(subject, recipient, refNo) || 'Quick question regarding your website';
+      const personalizedSubject = personalizeContent(subject, recipient, refNo) || 'Quick question';
       let personalizedBody = personalizeContent(messageBody, recipient, refNo);
 
       const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
@@ -309,23 +285,11 @@ app.post('/api/send-stream', async (req, res) => {
         ? personalizedBody
         : personalizedBody.replace(/\n/g, '<br>');
 
-      // Highest Inbox-Rate Natural 1-on-1 Opt-Out Footnote (4-Line Gap)
-      const naturalOptOutHtml = `
-        <div style="margin-top: 52px; padding-top: 18px; font-size: 11px; color: #777777; line-height: 1.4;">
-          PS: If you prefer not to hear from me, feel free to let me know with a simple reply and I will respect that.
-        </div>
-      `;
+      // Pure desktop layout without any links or footnotes (Top 16px natural margin)
+      const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 16px;">${cleanBodyText}</div>`;
+      const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
-      const formattedHtml = `
-        <div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 16px;">
-          ${cleanBodyText}
-          ${naturalOptOutHtml}
-        </div>
-      `;
-
-      const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}\n\n\n\nPS: If you prefer not to hear from me, feel free to let me know with a simple reply and I will respect that.`;
-
-      // RFC 5322 Standard Human Email Handshake
+      // Pure 1-on-1 RFC 5322 Standard Handshake (Zero synthetic headers/links)
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
         to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -346,8 +310,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + 1 < recipients.length) {
-      // Natural human single-send pacing (1.8s - 3.2s)
-      const humanDelay = Math.floor(1800 + Math.random() * 1400);
+      // Natural human single-send pacing (1.8s - 3.0s)
+      const humanDelay = Math.floor(1800 + Math.random() * 1200);
       await new Promise(resolve => setTimeout(resolve, humanDelay));
     }
   }
@@ -362,7 +326,7 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Sending process stopped' });
 });
 
-// UI Fallback
+// UI Fallback (Serves public folder index.html)
 app.get('*', (req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
