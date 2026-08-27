@@ -221,7 +221,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX STREAMING ENGINE (2-BATCH + ONE-CLICK UNSUBSCRIBE)
+   PRIMARY INBOX STREAMING ENGINE (2-BATCH + 4-LINE GAP UNSUBSCRIBE)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -258,7 +258,7 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getPort587Transporter(email, appPassword);
   
-  // EXACTLY 2 EMAILS PER BATCH (BLITCH)
+  // 1 BLITCH = EXACTLY 2 EMAILS
   const BATCH_SIZE = 2;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
@@ -275,7 +275,7 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Intra-batch micro human stagger (120ms - 250ms)
+          // Intra-batch stagger
           await new Promise(resolve => setTimeout(resolve, Math.floor(120 + Math.random() * 130)));
         }
 
@@ -288,11 +288,23 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Clean Desktop layout with top margin gap
-        const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 16px; padding-top: 2px;">${cleanBodyText}</div>`;
-        const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
+        // 4-5 Line Gap (padding-top: 55px) with complete clean Unsubscribe Link
+        const unsubscribeHtml = `
+          <div style="margin-top: 48px; padding-top: 20px; font-size: 11px; color: #888888; border-top: 1px solid #f0f0f0;">
+            If you do not wish to receive further emails, you can <a href="mailto:${cleanEmail}?subject=Unsubscribe%20${recipient.email}" style="color: #666666; text-decoration: underline;">unsubscribe here</a>.
+          </div>
+        `;
 
-        // RFC-8058 One-Click Unsubscribe Compliant Payload
+        const formattedHtml = `
+          <div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 16px;">
+            ${cleanBodyText}
+            ${unsubscribeHtml}
+          </div>
+        `;
+
+        const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}\n\n\n\n---\nUnsubscribe: mailto:${cleanEmail}?subject=Unsubscribe%20${recipient.email}`;
+
+        // 1-on-1 Clean RFC 5322 Payload (NO List-Unsubscribe Header to avoid Promotions Tab)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -302,11 +314,7 @@ app.post('/api/send-stream', async (req, res) => {
           text: plainTextFormatted,
           html: formattedHtml,
           textEncoding: 'quoted-printable',
-          encoding: 'utf-8',
-          headers: {
-            'List-Unsubscribe': `<mailto:${cleanEmail}?subject=Unsubscribe>`,
-            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'
-          }
+          encoding: 'utf-8'
         };
 
         await transporter.sendMail(mailOptions);
@@ -326,7 +334,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural 2-batch rest delay (2.0s - 3.2s)
+      // Natural human rest delay
       const batchDelay = Math.floor(2000 + Math.random() * 1200);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
