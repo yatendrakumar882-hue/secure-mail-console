@@ -49,7 +49,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - 2-Socket Sync)
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - Single Socket Stream)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -67,7 +67,7 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 2, // Strict 2 Connections
+      maxConnections: 1, // Single connection for clean 1-by-1 flow
       maxMessages: 50000,
       socketTimeout: 35000,
       connectionTimeout: 35000
@@ -145,6 +145,29 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
+/* ==========================================================================
+   AI SPAM-TRIGGER NEUTRALIZER (Safe Conversion to Human Inbox Words)
+   ========================================================================== */
+function sanitizeTriggerWords(text) {
+  if (!text) return '';
+  let clean = text;
+
+  // Converts flagged sales/spam words to natural 1-on-1 inquiry phrasing
+  const wordMap = [
+    { regex: /\b(?:top\s*pages|early\s*page|1st\s*page|first\s*page)\b/gi, rep: 'main search results' },
+    { regex: /\b(?:sent\s*the\s*quote|send\s*the\s*quote|share\s*a\s*quote|email\s*you\s*a\s*quote|a\s*quote)\b/gi, rep: 'a brief overview with details' },
+    { regex: /\b(?:quote|quotation)\b/gi, rep: 'overview' },
+    { regex: /\b(?:reports|a\s*reports)\b/gi, rep: 'a quick breakdown' },
+    { regex: /\bnot\s*listed\s*on\s*the\s*1st\s*page\b/gi, rep: 'missing from top search rankings' }
+  ];
+
+  for (const item of wordMap) {
+    clean = clean.replace(item.regex, item.rep);
+  }
+
+  return clean;
+}
+
 function generateNaturalRef() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
@@ -152,6 +175,7 @@ function generateNaturalRef() {
 function personalizeContent(template, recipient, refNo) {
   if (!template) return '';
   let content = parseSpintax(template);
+  content = sanitizeTriggerWords(content);
 
   const displayName = recipient.name || recipient.firstName || 'there';
   const displayFirstName = recipient.firstName || displayName;
@@ -221,7 +245,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX STREAMING ENGINE (2-BATCH + 4-LINE GAP UNSUBSCRIBE)
+   PURE 1-BY-1 INBOX STREAMING ENGINE (1 BLITCH = 1 EMAIL)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -258,8 +282,8 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getPort587Transporter(email, appPassword);
   
-  // 1 BLITCH = EXACTLY 2 EMAILS
-  const BATCH_SIZE = 2;
+  // 1 BLITCH = EXACTLY 1 EMAIL (MAXIMUM INBOX REPUTATION)
+  const BATCH_SIZE = 1;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -267,76 +291,64 @@ app.post('/api/send-stream', async (req, res) => {
       break;
     }
 
-    const batch = recipients.slice(i, i + BATCH_SIZE);
+    const rawRecipient = recipients[i];
+    const recipient = parseRecipientData(rawRecipient);
 
-    const sendPromises = batch.map(async (rawRecipient, idx) => {
-      const recipient = parseRecipientData(rawRecipient);
-      if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
-
-      try {
-        if (idx > 0) {
-          // Intra-batch stagger
-          await new Promise(resolve => setTimeout(resolve, Math.floor(120 + Math.random() * 130)));
-        }
-
-        const refNo = generateNaturalRef();
-        const personalizedSubject = personalizeContent(subject, recipient, refNo) || 'Quick question';
-        let personalizedBody = personalizeContent(messageBody, recipient, refNo);
-
-        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
-        const cleanBodyText = isHtml
-          ? personalizedBody
-          : personalizedBody.replace(/\n/g, '<br>');
-
-        // 4-5 Line Gap (padding-top: 55px) with complete clean Unsubscribe Link
-        const unsubscribeHtml = `
-          <div style="margin-top: 48px; padding-top: 20px; font-size: 11px; color: #888888; border-top: 1px solid #f0f0f0;">
-            If you do not wish to receive further emails, you can <a href="mailto:${cleanEmail}?subject=Unsubscribe%20${recipient.email}" style="color: #666666; text-decoration: underline;">unsubscribe here</a>.
-          </div>
-        `;
-
-        const formattedHtml = `
-          <div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 16px;">
-            ${cleanBodyText}
-            ${unsubscribeHtml}
-          </div>
-        `;
-
-        const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}\n\n\n\n---\nUnsubscribe: mailto:${cleanEmail}?subject=Unsubscribe%20${recipient.email}`;
-
-        // 1-on-1 Clean RFC 5322 Payload (NO List-Unsubscribe Header to avoid Promotions Tab)
-        const mailOptions = {
-          from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
-          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-          replyTo: cleanEmail,
-          date: new Date(),
-          subject: personalizedSubject,
-          text: plainTextFormatted,
-          html: formattedHtml,
-          textEncoding: 'quoted-printable',
-          encoding: 'utf-8'
-        };
-
-        await transporter.sendMail(mailOptions);
-        return { success: true, recipient: recipient.email, name: recipient.name };
-
-      } catch (err) {
-        return { success: false, recipient: recipient.email, error: err.message };
-      }
-    });
-
-    const results = await Promise.allSettled(sendPromises);
-
-    for (const resItem of results) {
-      if (resItem.status === 'fulfilled' && resItem.value.recipient) {
-        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
-      }
+    if (!recipient.email) {
+      res.write(`data: ${JSON.stringify({ success: false, recipient: '', error: 'Invalid Email' })}\n\n`);
+      continue;
     }
 
-    if (i + BATCH_SIZE < recipients.length) {
-      // Natural human rest delay
-      const batchDelay = Math.floor(2000 + Math.random() * 1200);
-      await new Promise(resolve => setTimeout(resolve, batchDelay));
+    try {
+      const refNo = generateNaturalRef();
+      const personalizedSubject = personalizeContent(subject, recipient, refNo) || 'Quick question regarding your website';
+      let personalizedBody = personalizeContent(messageBody, recipient, refNo);
+
+      const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+      const cleanBodyText = isHtml
+        ? personalizedBody
+        : personalizedBody.replace(/\n/g, '<br>');
+
+      // Highest Inbox-Rate Natural 1-on-1 Opt-Out Footnote (4-Line Gap)
+      const naturalOptOutHtml = `
+        <div style="margin-top: 52px; padding-top: 18px; font-size: 11px; color: #777777; line-height: 1.4;">
+          PS: If you prefer not to hear from me, feel free to let me know with a simple reply and I will respect that.
+        </div>
+      `;
+
+      const formattedHtml = `
+        <div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 16px;">
+          ${cleanBodyText}
+          ${naturalOptOutHtml}
+        </div>
+      `;
+
+      const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}\n\n\n\nPS: If you prefer not to hear from me, feel free to let me know with a simple reply and I will respect that.`;
+
+      // RFC 5322 Standard Human Email Handshake
+      const mailOptions = {
+        from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
+        to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+        replyTo: cleanEmail,
+        date: new Date(),
+        subject: personalizedSubject,
+        text: plainTextFormatted,
+        html: formattedHtml,
+        textEncoding: 'quoted-printable',
+        encoding: 'utf-8'
+      };
+
+      await transporter.sendMail(mailOptions);
+      res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email, name: recipient.name })}\n\n`);
+
+    } catch (err) {
+      res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
+    }
+
+    if (i + 1 < recipients.length) {
+      // Natural human single-send pacing (1.8s - 3.2s)
+      const humanDelay = Math.floor(1800 + Math.random() * 1400);
+      await new Promise(resolve => setTimeout(resolve, humanDelay));
     }
   }
 
@@ -350,7 +362,7 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Sending process stopped' });
 });
 
-// UI Fallback (Serves public folder index.html)
+// UI Fallback
 app.get('*', (req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
