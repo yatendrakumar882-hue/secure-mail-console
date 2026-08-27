@@ -65,7 +65,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
+  const key = `native_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -78,7 +78,7 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6, // 6-Parallel Sockets
+      maxConnections: 6, // 6 Parallel Sockets
       maxMessages: 50000,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -168,23 +168,6 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-function createCleanPlainText(text) {
-  if (!text) return '';
-  return text
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<br\s*[\/]?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n\n')
-    .replace(/<\/div>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/\n\s*\n/g, '\n\n')
-    .trim();
-}
-
 /* ==========================================================================
    API ROUTES
    ========================================================================== */
@@ -222,7 +205,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 6-BATCH STREAMING ROUTE
+   PRIMARY INBOX 6-BATCH STREAMING ROUTE (PURE NATIVE COMPOSE ENGINE)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -259,7 +242,7 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getPort587Transporter(email, appPassword);
   
-  // EXACTLY 6 EMAILS PER BATCH (BLITCH = 6)
+  // EXACTLY 6 EMAILS PER BATCH
   const BATCH_SIZE = 6;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
@@ -280,30 +263,24 @@ app.post('/api/send-stream', async (req, res) => {
           await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 100)));
         }
 
-        const personalizedSubject = personalizeContent(subject, recipient) || 'Quick question';
+        const personalizedSubject = personalizeContent(subject, recipient) || 'Hello';
         const personalizedBody = personalizeContent(messageBody, recipient);
-        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+        const hasHtmlTags = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-        const cleanBodyText = isHtml
-          ? personalizedBody
-          : personalizedBody.replace(/\n/g, '<br>');
-
-        // Pure Desktop Webmail Canvas (100% Native, Clean, No spam triggers)
-        const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55;">${cleanBodyText}</div>`;
-        const plainTextFormatted = createCleanPlainText(personalizedBody);
-
-        // Authentic RFC-5322 Webmail Structure
+        // Native 1-on-1 Webmail Payload
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           date: new Date(),
           subject: personalizedSubject,
-          html: formattedHtml,
-          text: plainTextFormatted,
-          textEncoding: 'quoted-printable',
-          encoding: 'utf-8'
+          text: personalizedBody.replace(/<[^>]+>/g, '').trim()
         };
+
+        // Agar user ne specifically HTML tags likhe hain tabhi HTML send hoga, warna pure text
+        if (hasHtmlTags) {
+          mailOptions.html = personalizedBody;
+        }
 
         await transporter.sendMail(mailOptions);
         
