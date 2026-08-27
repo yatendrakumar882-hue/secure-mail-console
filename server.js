@@ -5,7 +5,6 @@ import { Server } from 'socket.io';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -72,7 +71,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS
+      secure: false, // Standard RFC STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -90,7 +89,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   RECIPIENT NORMALIZATION & ADVANCED SPINTAX
+   RECIPIENT NORMALIZATION & ADVANCED SPINTAX ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -154,7 +153,7 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
-function generateNaturalRef() {
+function generateDynamicRef() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
@@ -229,7 +228,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 6-BATCH STREAMING ENGINE
+   PRIMARY INBOX 6-BATCH STREAMING ROUTE (FIXED & FULLY OPTIMIZED)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -265,8 +264,6 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  
-  // EXACTLY 6 EMAILS PER BATCH (SAME BLITCH SPEED)
   const BATCH_SIZE = 6;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
@@ -287,20 +284,20 @@ app.post('/api/send-stream', async (req, res) => {
           await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 100)));
         }
 
-        const refNo = generateNaturalRef();
-        const personalizedSubject = personalizeContent(subject, recipient, refNo) || 'Quick question';
-        let personalizedBody = personalizeContent(messageBody, recipient, refNo);
-
+        const refNo = generateDynamicRef();
+        const personalizedSubject = personalizeContent(subject, recipient, refNo) || 'Hello';
+        const personalizedBody = personalizeContent(messageBody, recipient, refNo);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+
         const cleanBodyText = isHtml
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Pure Desktop Webmail Canvas (1-Line Natural Top Gap)
+        // 1-on-1 Clean Desktop formatting (1-Line Natural Top Gap, Zero Artificial Wrapper)
         const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 16px;">${cleanBodyText}</div>`;
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
-        // RFC-5322 Standard Handshake (Authentic Webmail Fingerprint)
+        // RFC-5322 Compliant Webmail Handshake
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
