@@ -221,7 +221,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX STREAMING ENGINE (EXACT 2-BATCH SPEED)
+   PRIMARY INBOX STREAMING ENGINE (2-BATCH + ONE-CLICK UNSUBSCRIBE)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -258,7 +258,7 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getPort587Transporter(email, appPassword);
   
-  // 1 BLITCH = EXACTLY 2 EMAILS
+  // EXACTLY 2 EMAILS PER BATCH (BLITCH)
   const BATCH_SIZE = 2;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
@@ -288,11 +288,11 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Pure Desktop Webmail Human Typography with Clean 1-Line Top Margin
+        // Clean Desktop layout with top margin gap
         const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 16px; padding-top: 2px;">${cleanBodyText}</div>`;
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
-        // Authentic RFC-5322 Standard Handshake (Google DKIM Auto-Signed)
+        // RFC-8058 One-Click Unsubscribe Compliant Payload
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -302,7 +302,11 @@ app.post('/api/send-stream', async (req, res) => {
           text: plainTextFormatted,
           html: formattedHtml,
           textEncoding: 'quoted-printable',
-          encoding: 'utf-8'
+          encoding: 'utf-8',
+          headers: {
+            'List-Unsubscribe': `<mailto:${cleanEmail}?subject=Unsubscribe>`,
+            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'
+          }
         };
 
         await transporter.sendMail(mailOptions);
