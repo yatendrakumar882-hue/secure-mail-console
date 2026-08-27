@@ -3,6 +3,7 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -48,25 +49,25 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   FAST & CLEAN GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - 4-Socket Sync)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `fast_inbox_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS
+      secure: false, // Standard STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 4, // 4 Parallel Sockets
+      maxConnections: 4, // 4-Parallel Connection Limit
       maxMessages: 50000,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -77,7 +78,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   RECIPIENT NORMALIZATION & EXACT SPINTAX
+   RECIPIENT NORMALIZATION & ADVANCED SPINTAX
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -140,7 +141,12 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
-function personalizeContent(template, recipient) {
+// Generates unique numeric ref IDs like 849201, 712948
+function generateRefNo() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+function personalizeContent(template, recipient, refNo) {
   if (!template) return '';
   let content = parseSpintax(template);
 
@@ -151,6 +157,8 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{First_Name}/gi, recipient.firstName || fallback);
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
+  content = content.replace(/{Ref_No}/gi, refNo);
+  content = content.replace(/{Reference}/gi, refNo);
 
   return content;
 }
@@ -199,7 +207,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   FAST 4-BATCH PRIMARY INBOX STREAMING ENGINE
+   PRIMARY INBOX 4-BATCH ENGINE (WITH DYNAMIC REF-NO)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -231,7 +239,7 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getPort587Transporter(email, appPassword);
   
-  // EXACTLY 4 EMAILS PER BLITCH (FAST & CLEAN)
+  // EXACTLY 4 EMAILS PER BLITCH
   const BATCH_SIZE = 4;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
@@ -248,19 +256,25 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Fast micro-stagger (80ms - 150ms)
+          // Intra-batch stagger (80ms - 150ms)
           await new Promise(r => setTimeout(r, Math.floor(80 + Math.random() * 70)));
         }
 
-        const personalizedSubject = personalizeContent(subject, recipient) || `Regarding ${recipient.domain || 'your website'}`;
-        const personalizedBody = personalizeContent(messageBody, recipient);
-        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+        const refNo = generateRefNo();
+        const personalizedSubject = personalizeContent(subject, recipient, refNo) || `Feedback [Ref: #${refNo}]`;
+        let personalizedBody = personalizeContent(messageBody, recipient, refNo);
 
+        // Auto append clean discreet reference note if not already written in template
+        if (!messageBody.toLowerCase().includes('{ref_no}') && !messageBody.toLowerCase().includes('{reference}')) {
+          personalizedBody += `\n\nRef: #${refNo}`;
+        }
+
+        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
         const cleanBodyText = isHtml
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Pure standard native webmail layout with 1-line top margin gap
+        // Pure standard native webmail layout with clean 1-line top margin gap
         const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 16px; padding-top: 2px;">${cleanBodyText}</div>`;
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
@@ -291,7 +305,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Clean fast rest between 4-batches (1.2s - 2.0s)
+      // Natural 1.2s - 2.0s rest between 4-batches
       const fastBatchDelay = Math.floor(1200 + Math.random() * 800);
       await new Promise(r => setTimeout(r, fastBatchDelay));
     }
