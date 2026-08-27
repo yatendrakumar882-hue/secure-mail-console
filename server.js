@@ -49,25 +49,25 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - 6 Sockets)
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS - 6 Socket Sync)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_genuine_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC STARTTLS
+      secure: false, // Standard RFC 3207 STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6, // 6 Parallel Sockets for 6-Batch
+      maxConnections: 6, // 6 Parallel Sockets
       maxMessages: 50000,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -145,7 +145,11 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
-function personalizeContent(template, recipient) {
+function generateNaturalRef() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+function personalizeContent(template, recipient, refNo) {
   if (!template) return '';
   let content = parseSpintax(template);
 
@@ -157,6 +161,8 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{First_Name}/gi, displayFirstName);
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
+  content = content.replace(/{Ref_No}/gi, refNo);
+  content = content.replace(/{Reference}/gi, refNo);
 
   return content;
 }
@@ -215,7 +221,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX STREAMING ROUTE (6-Batch Engine | 1.2s - 2.0s Delay)
+   PRIMARY INBOX STREAMING ENGINE (6-BATCH STREAM)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -252,7 +258,7 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getPort587Transporter(email, appPassword);
   
-  // Strict 6 Emails Per Batch
+  // 6 EMAILS PER BATCH (BLITCH)
   const BATCH_SIZE = 6;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
@@ -269,23 +275,24 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Intra-batch micro-stagger
+          // Intra-batch stagger (50ms - 150ms)
           await new Promise(resolve => setTimeout(resolve, Math.floor(50 + Math.random() * 100)));
         }
 
-        const personalizedSubject = personalizeContent(subject, recipient) || 'Quick question';
-        const personalizedBody = personalizeContent(messageBody, recipient);
-        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+        const refNo = generateNaturalRef();
+        const personalizedSubject = personalizeContent(subject, recipient, refNo) || 'Quick question';
+        let personalizedBody = personalizeContent(messageBody, recipient, refNo);
 
+        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
         const cleanBodyText = isHtml
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // 1-on-1 Clean Desktop formatting with top margin
+        // Pure Desktop Webmail Human Typography with Clean 1-Line Top Margin
         const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 16px; padding-top: 2px;">${cleanBodyText}</div>`;
         const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
-        // Authentic RFC 5322 Standard MIME (No Bulk/Marketing Flags)
+        // Authentic RFC-5322 Standard Handshake (Google DKIM Auto-Signed)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -315,6 +322,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
+      // Natural 1.2s - 2.0s rest between batches
       const batchDelay = Math.floor(1200 + Math.random() * 800);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
