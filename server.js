@@ -71,14 +71,14 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS
+      secure: false, // Standard STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6, // 6 Parallel Sockets
+      maxConnections: 6,
       maxMessages: 50000,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -89,7 +89,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   RECIPIENT NORMALIZATION & ADVANCED SPINTAX ENGINE
+   RECIPIENT NORMALIZATION & ADVANCED SPINTAX
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -157,15 +157,32 @@ function personalizeContent(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
 
-  const fallback = recipient.firstName || recipient.name || 'there';
+  const fallback = recipient.firstName || recipient.name || '';
 
-  content = content.replace(/{Name}/gi, recipient.name || fallback);
-  content = content.replace(/{FirstName}/gi, recipient.firstName || fallback);
-  content = content.replace(/{First_Name}/gi, recipient.firstName || fallback);
+  content = content.replace(/{Name}/gi, recipient.name || fallback || 'there');
+  content = content.replace(/{FirstName}/gi, recipient.firstName || fallback || 'there');
+  content = content.replace(/{First_Name}/gi, recipient.firstName || fallback || 'there');
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
   return content;
+}
+
+function createCleanPlainText(text) {
+  if (!text) return '';
+  return text
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*[\/]?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\n\s*\n/g, '\n\n')
+    .trim();
 }
 
 /* ==========================================================================
@@ -205,7 +222,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 6-BATCH STREAMING ROUTE (PURE NATIVE COMPOSE ENGINE)
+   PRIMARY INBOX 6-BATCH STREAMING ROUTE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -241,8 +258,6 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  
-  // EXACTLY 6 EMAILS PER BATCH
   const BATCH_SIZE = 6;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
@@ -263,24 +278,29 @@ app.post('/api/send-stream', async (req, res) => {
           await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 100)));
         }
 
-        const personalizedSubject = personalizeContent(subject, recipient) || 'Hello';
+        const personalizedSubject = personalizeContent(subject, recipient);
         const personalizedBody = personalizeContent(messageBody, recipient);
-        const hasHtmlTags = /<[a-z][\s\S]*>/i.test(personalizedBody);
+        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-        // Native 1-on-1 Webmail Payload
+        const cleanBodyText = isHtml
+          ? personalizedBody
+          : personalizedBody.replace(/\n/g, '<br>');
+
+        // 1-Line Natural Top Gap (margin-top: 14px) Webmail Format
+        const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${cleanBodyText}</div>`;
+        const plainTextFormatted = `\n${createCleanPlainText(personalizedBody)}`;
+
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           date: new Date(),
-          subject: personalizedSubject,
-          text: personalizedBody.replace(/<[^>]+>/g, '').trim()
+          subject: personalizedSubject || 'Hello',
+          html: formattedHtml,
+          text: plainTextFormatted,
+          textEncoding: 'quoted-printable',
+          encoding: 'utf-8'
         };
-
-        // Agar user ne specifically HTML tags likhe hain tabhi HTML send hoga, warna pure text
-        if (hasHtmlTags) {
-          mailOptions.html = personalizedBody;
-        }
 
         await transporter.sendMail(mailOptions);
         
