@@ -20,7 +20,7 @@ const poolMap = new Map();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(process.cwd(), 'public')));
 
 /* ==========================================================================
    TURNSTILE BOT PROTECTION VERIFICATION
@@ -43,7 +43,7 @@ async function verifyTurnstileToken(token, remoteIp) {
     });
     const outcome = await result.json();
     return outcome.success === true;
-  } catch (error) {
+  } catch {
     return false;
   }
 }
@@ -181,10 +181,6 @@ function createCleanPlainText(text) {
 /* ==========================================================================
    API ROUTES
    ========================================================================== */
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
 app.post('/api/auth', (req, res) => {
   const { password } = req.body;
   if (password === SITE_PASSWORD) return res.json({ success: true, message: 'Authorized' });
@@ -219,13 +215,14 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX STREAMING ROUTE (6-Batch Engine | 1.2s - 2.0s Delay)
+   PRIMARY INBOX STREAMING ROUTE (Exact Speed: 6-Batch | 1.2s - 2.0s Delay)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
 
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -255,7 +252,7 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getPort587Transporter(email, appPassword);
   
-  // Strict 6 Emails Per Batch
+  // EXACTLY 6 EMAILS PER BATCH (BLITCH)
   const BATCH_SIZE = 6;
 
   const defaultBestSubject = '{quick note regarding your site|website feedback|quick question for you|question about your page}';
@@ -278,7 +275,7 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Micro-stagger inside batch to bypass sudden burst detection
+          // Intra-batch micro stagger (50ms - 150ms)
           await new Promise(resolve => setTimeout(resolve, Math.floor(50 + Math.random() * 100)));
         }
 
@@ -290,26 +287,21 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        const formattedHtml = `<div dir="ltr" style="font-family: Arial, sans-serif; font-size: 14px; color: #222222; line-height: 1.6;">${cleanBodyText}</div>`;
-        const plainTextFormatted = createCleanPlainText(personalizedBody);
+        // Pure standard native webmail formatting with 1-line top margin gap
+        const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 16px; padding-top: 2px;">${cleanBodyText}</div>`;
+        const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
 
+        // Authentic RFC 5322 Standard Handshake (Google DKIM Auto-Signed)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-          envelope: {
-            from: cleanEmail,
-            to: recipient.email
-          },
           replyTo: cleanEmail,
           date: new Date(),
           subject: personalizedSubject,
           text: plainTextFormatted,
           html: formattedHtml,
-          textEncoding: 'base64',
-          encoding: 'utf-8',
-          headers: {
-            'List-Unsubscribe': `<mailto:${cleanEmail}?subject=unsubscribe>`
-          }
+          textEncoding: 'quoted-printable',
+          encoding: 'utf-8'
         };
 
         await transporter.sendMail(mailOptions);
@@ -328,7 +320,7 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Delay set strictly between 1.2 seconds (1200ms) and 2.0 seconds (2000ms)
+    // Exact delay between 1.2s (1200ms) and 2.0s (2000ms)
     if (i + BATCH_SIZE < recipients.length) {
       const batchDelay = Math.floor(1200 + Math.random() * 800);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
@@ -345,8 +337,15 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Sending process stopped' });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Mailer server running on port ${PORT}`);
+// Serve frontend UI on all routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
+
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`🚀 Mailer server running on port ${PORT}`);
+  });
+}
 
 export default app;
