@@ -231,8 +231,8 @@ app.post('/api/send-stream', async (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
 
-    const formattedHtml = `<div dir="ltr" style="margin-top: 14px; padding-top: 2px;">${cleanBodyText}</div>`;
-    const plainTextFormatted = `\n${createCleanPlainText(personalizedBody)}`;
+  const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
 
   if (!email || !appPassword || !Array.isArray(recipients) || recipients.length === 0) {
     res.write(`data: ${JSON.stringify({ success: false, error: 'Invalid Request Data' })}\n\n`);
@@ -286,9 +286,9 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // 1-on-1 Clean Webmail UI formatting
-        const formattedHtml = `<div dir="ltr">${cleanBodyText}</div>`;
-        const plainTextFormatted = createCleanPlainText(personalizedBody);
+        // 1-Line Natural Top Gap (margin-top: 14px) Webmail Format
+        const formattedHtml = `<div dir="ltr" style="margin-top: 14px; padding-top: 2px;">${cleanBodyText}</div>`;
+        const plainTextFormatted = `\n${createCleanPlainText(personalizedBody)}`;
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
