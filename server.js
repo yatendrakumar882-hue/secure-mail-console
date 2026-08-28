@@ -231,8 +231,8 @@ app.post('/api/send-stream', async (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
 
-const formattedHtml = `<div dir="ltr" style="margin-top: 14px; padding-top: 2px;">${cleanBodyText}</div>`;
-const plainTextFormatted = `\n${createCleanPlainText(personalizedBody)}`;
+    const formattedHtml = `<div dir="ltr" style="margin-top: 14px; padding-top: 2px;">${cleanBodyText}</div>`;
+    const plainTextFormatted = `\n${createCleanPlainText(personalizedBody)}`;
 
   if (!email || !appPassword || !Array.isArray(recipients) || recipients.length === 0) {
     res.write(`data: ${JSON.stringify({ success: false, error: 'Invalid Request Data' })}\n\n`);
