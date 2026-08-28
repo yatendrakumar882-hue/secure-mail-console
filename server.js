@@ -286,8 +286,8 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // 1-Line Natural Top Gap (margin-top: 14px) Webmail Format
-        const formattedHtml = `<div dir="ltr" style="margin-top: 14px; padding-top: 2px;">${cleanBodyText}</div>`;
+        // Standard Outlook & Gmail Native Typography (Calibri/Arial 11pt, #000000, 14px top gap)
+        const formattedHtml = `<div dir="ltr" style="font-family: Calibri, Arial, Helvetica, sans-serif; font-size: 11pt; color: #000000; line-height: 1.45; margin-top: 14px; padding-top: 2px;">${cleanBodyText}</div>`;
         const plainTextFormatted = `\n${createCleanPlainText(personalizedBody)}`;
 
         const mailOptions = {
