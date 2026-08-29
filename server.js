@@ -17,7 +17,7 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
-const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##Y';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const globalSession = { stopRequested: false };
@@ -65,7 +65,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `direct_inbox_${cleanEmail}_${cleanPass}`;
+  const key = `native_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -78,10 +78,10 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 2, // Matched with 2-socket batch
+      maxConnections: 6,
       maxMessages: 50000,
-      socketTimeout: 35000,
-      connectionTimeout: 35000
+      socketTimeout: 30000,
+      connectionTimeout: 30000
     });
     poolMap.set(key, transporter);
   }
@@ -153,27 +153,19 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
-function cleanLeadingArtifacts(text) {
-  if (!text) return '';
-  let sanitized = String(text).trim();
-  // Aggressive leading noise jaise '! ' ko standard human format deta hai
-  sanitized = sanitized.replace(/^[\s!?,.-]+/g, '').trim();
-  return sanitized;
-}
-
 function personalizeContent(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
 
-  const fallback = recipient.firstName || recipient.name || 'there';
+  const fallback = recipient.firstName || recipient.name || '';
 
-  content = content.replace(/{Name}/gi, recipient.name || fallback);
-  content = content.replace(/{FirstName}/gi, recipient.firstName || fallback);
-  content = content.replace(/{First_Name}/gi, recipient.firstName || fallback);
+  content = content.replace(/{Name}/gi, recipient.name || fallback || 'there');
+  content = content.replace(/{FirstName}/gi, recipient.firstName || fallback || 'there');
+  content = content.replace(/{First_Name}/gi, recipient.firstName || fallback || 'there');
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  return cleanLeadingArtifacts(content);
+  return content;
 }
 
 function createCleanPlainText(text) {
@@ -230,7 +222,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 2-BATCH STREAMING ROUTE (1 BLITCH = 2 EMAILS)
+   PRIMARY INBOX 6-BATCH STREAMING ROUTE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -263,12 +255,10 @@ app.post('/api/send-stream', async (req, res) => {
 
   const keepAlivePing = setInterval(() => {
     try { res.write(': keep-alive\n\n'); } catch {}
-  }, 3000);
+  }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  
-  // EXACTLY 2 EMAILS PER BATCH (1 BLITCH = 2 EMAILS)
-  const BATCH_SIZE = 2;
+  const BATCH_SIZE = 6;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -284,30 +274,29 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Intra-batch stagger (250ms - 350ms)
-          await new Promise(resolve => setTimeout(resolve, Math.floor(250 + Math.random() * 100)));
+          // Intra-batch stagger (150ms - 250ms)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 100)));
         }
 
-        const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
+        const personalizedSubject = personalizeContent(subject, recipient);
         const personalizedBody = personalizeContent(messageBody, recipient);
-        const hasHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-        const cleanRawText = createCleanPlainText(personalizedBody);
-        
-        // 1-Line Natural Top Gap Plain Text (No Spam Engine Penalty)
-        const plainTextFormatted = `\n${cleanRawText}`;
+        const cleanBodyText = isHtml
+          ? personalizedBody
+          : personalizedBody.replace(/\n/g, '<br>');
 
-        // 1-on-1 Direct Webmail Clean HTML (Standard 14px Font, 1-Line Top Margin)
-        const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
+        // Outlook +3% Enhanced Typography (11.33pt / 15.1px, clean black, 1-line top margin)
+        const formattedHtml = `<div dir="ltr" style="font-family: Calibri, Arial, Helvetica, sans-serif; font-size: 11.33pt; color: #000000; line-height: 1.48; margin-top: 14px; padding-top: 2px;">${cleanBodyText}</div>`;
+        const plainTextFormatted = `\n${createCleanPlainText(personalizedBody)}`;
 
-        // Pure RFC-5322 Standard Desktop Payload
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           date: new Date(),
-          subject: personalizedSubject,
-          html: cleanHtmlFormatted,
+          subject: personalizedSubject || 'Hello',
+          html: formattedHtml,
           text: plainTextFormatted,
           textEncoding: 'quoted-printable',
           encoding: 'utf-8'
@@ -335,8 +324,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural 1200ms - 1800ms batch rest delay
-      const batchDelay = Math.floor(1200 + Math.random() * 600);
+      // Natural 800ms - 1200ms batch rest delay
+      const batchDelay = Math.floor(800 + Math.random() * 400);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
