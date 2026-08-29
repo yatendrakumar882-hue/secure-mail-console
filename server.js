@@ -24,6 +24,33 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x000000000000
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
+// 12-Hour Rate Limiting Engine (25 mails per account)
+const accountLimitMap = new Map();
+const MAX_MAILS_PER_ACCOUNT = 25;
+const WINDOW_DURATION_MS = 12 * 60 * 60 * 1000; // 12 Hours
+
+function checkAndIncrementLimit(email) {
+  const cleanEmail = email.toLowerCase().trim();
+  const now = Date.now();
+
+  let record = accountLimitMap.get(cleanEmail);
+  if (!record || (now - record.startTime > WINDOW_DURATION_MS)) {
+    record = { count: 0, startTime: now };
+    accountLimitMap.set(cleanEmail, record);
+  }
+
+  if (record.count >= MAX_MAILS_PER_ACCOUNT) {
+    const remainingMinutes = Math.ceil((WINDOW_DURATION_MS - (now - record.startTime)) / 60000);
+    return {
+      allowed: false,
+      message: `Limit Full: 12-hour quota reached for ${cleanEmail} (25/25 mails). Try again in ${remainingMinutes}m.`
+    };
+  }
+
+  record.count += 1;
+  return { allowed: true, remaining: MAX_MAILS_PER_ACCOUNT - record.count };
+}
+
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -66,14 +93,14 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS
+      secure: false,
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6,
+      maxConnections: 2,
       maxMessages: 50000,
       socketTimeout: 35000,
       connectionTimeout: 35000
@@ -248,7 +275,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 3000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 6;
+  const BATCH_SIZE = 2; // 1 Blitch = 2 Emails
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -262,6 +289,14 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
+      // 12-Hour 25-Email Quota Check
+      const quota = checkAndIncrementLimit(cleanEmail);
+      if (!quota.allowed) {
+        const limitPayload = { success: false, recipient: recipient.email, error: quota.message, isLimitFull: true };
+        io.emit('mail_error', limitPayload);
+        return limitPayload;
+      }
+
       try {
         if (idx > 0) {
           await new Promise(resolve => setTimeout(resolve, Math.floor(250 + Math.random() * 100)));
@@ -269,7 +304,7 @@ app.post('/api/send-stream', async (req, res) => {
 
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
         const personalizedBody = personalizeContent(messageBody, recipient);
-        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+        const hasHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
         const cleanRawText = createCleanPlainText(personalizedBody);
         const plainTextFormatted = `\n${cleanRawText}`;
