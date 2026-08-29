@@ -71,17 +71,17 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard STARTTLS
+      secure: false, // Standard RFC STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5,
+      maxConnections: 2,
       maxMessages: 50000,
-      socketTimeout: 35000,
-      connectionTimeout: 35000
+      socketTimeout: 30000,
+      connectionTimeout: 30000
     });
     poolMap.set(key, transporter);
   }
@@ -222,7 +222,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX STREAMING ENGINE (4-BATCH • HUMAN PACING)
+   PRIMARY INBOX STREAMING ROUTE (1 BLITCH = 2 EMAILS)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -259,8 +259,8 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getPort587Transporter(email, appPassword);
   
-  // Safe & Steady Speed: 4 Emails per Batch
-  const BATCH_SIZE = 4;
+  // EXACTLY 2 EMAILS PER BATCH (1 BLITCH = 2 EMAILS)
+  const BATCH_SIZE = 2;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -276,8 +276,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Smooth human intra-batch stagger (250ms - 450ms)
-          await new Promise(resolve => setTimeout(resolve, Math.floor(250 + Math.random() * 200)));
+          // Intra-batch stagger (250ms - 350ms)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(250 + Math.random() * 100)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick question';
@@ -288,11 +288,11 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Normal Standard Human Typography (14px clean font, 1-Line top margin)
-        const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #222222; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${cleanBodyText}</div>`;
+        // Pure Desktop Webmail Format with 1-Line Top Gap
+        const formattedHtml = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${cleanBodyText}</div>`;
         const plainTextFormatted = `\n${createCleanPlainText(personalizedBody)}`;
 
-        // Authentic 1-on-1 RFC-5322 Standard Handshake
+        // Authentic RFC-5322 Standard Handshake
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -327,8 +327,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural human resting delay between batches (1.5s - 2.5s)
-      const batchDelay = Math.floor(1500 + Math.random() * 1000);
+      // Natural 1200ms - 1800ms batch rest delay
+      const batchDelay = Math.floor(1200 + Math.random() * 600);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
