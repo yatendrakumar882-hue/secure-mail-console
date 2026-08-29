@@ -3,7 +3,10 @@
   "builds": [
     {
       "src": "server.js",
-      "use": "@vercel/node"
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": ["public/**"]
+      }
     }
   ],
   "routes": [
@@ -14,6 +17,9 @@
     {
       "src": "/socket.io/(.*)",
       "dest": "server.js"
+    },
+    {
+      "handle": "filesystem"
     },
     {
       "src": "/(.*)",
