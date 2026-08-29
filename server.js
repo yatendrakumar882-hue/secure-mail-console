@@ -78,7 +78,7 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6, // Dedicated to 6-batch pipeline
+      maxConnections: 6,
       maxMessages: 50000,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -153,6 +153,14 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
+function cleanSpamSignature(text) {
+  if (!text) return '';
+  let sanitized = String(text).trim();
+  // Aggressive leading punctuation jaise '! ' ko natural human standard par clean karta hai
+  sanitized = sanitized.replace(/^[\s!?,.-]+/g, '').trim();
+  return sanitized;
+}
+
 function personalizeContent(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
@@ -165,7 +173,7 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  return content;
+  return cleanSpamSignature(content);
 }
 
 function createCleanPlainText(text) {
@@ -288,11 +296,11 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Dual-Engine Typography (Outlook MSO Support + Standard Webmail 14px with 1-Line Top Gap)
+        // Dual-Engine Human Typography (Outlook: Calibri 11.5pt | Webmail: 14px, 1-Line Top Gap)
         const formattedHtml = `<!--[if mso]><style type="text/css">body, table, td, div, p { font-family: Calibri, Arial, sans-serif !important; font-size: 11.5pt !important; line-height: 1.45 !important; color: #000000 !important; }</style><![endif]--><div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${cleanBodyText}</div>`;
         const plainTextFormatted = `\n${createCleanPlainText(personalizedBody)}`;
 
-        // Authentic RFC-5322 Standard Handshake
+        // Authentic 1-on-1 RFC-5322 Standard Handshake
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
