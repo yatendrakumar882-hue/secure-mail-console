@@ -66,7 +66,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false,
+      secure: false, // Standard RFC 3207 STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -74,9 +74,9 @@ function getPort587Transporter(email, appPassword) {
       },
       pool: true,
       maxConnections: 6,
-      maxMessages: 700000,
-      socketTimeout: 350000,
-      connectionTimeout: 350000
+      maxMessages: 50000,
+      socketTimeout: 35000,
+      connectionTimeout: 35000
     });
     poolMap.set(key, transporter);
   }
@@ -269,7 +269,7 @@ app.post('/api/send-stream', async (req, res) => {
 
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
         const personalizedBody = personalizeContent(messageBody, recipient);
-        const hasHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
         const cleanRawText = createCleanPlainText(personalizedBody);
         const plainTextFormatted = `\n${cleanRawText}`;
