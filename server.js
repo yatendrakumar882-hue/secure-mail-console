@@ -17,7 +17,7 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
-const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y###';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const globalSession = { stopRequested: false };
@@ -71,15 +71,15 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // RFC 3207 Standard STARTTLS
+      secure: false, // Standard RFC 3207 STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6, // Matched with 6-batch processing
-      maxMessages: 1200,
+      maxConnections: 6, // Dedicated to 6-batch pipeline
+      maxMessages: 50000,
       socketTimeout: 30000,
       connectionTimeout: 30000
     });
@@ -276,8 +276,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Intra-batch stagger (250ms - 350ms)
-          await new Promise(resolve => setTimeout(resolve, Math.floor(250 + Math.random() * 100)));
+          // Intra-batch stagger (150ms - 250ms)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 100)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick question';
@@ -289,10 +289,10 @@ app.post('/api/send-stream', async (req, res) => {
           : personalizedBody.replace(/\n/g, '<br>');
 
         // Dual-Engine Typography (Outlook MSO Support + Standard Webmail 14px with 1-Line Top Gap)
-        const formattedHtml = `<!--[if mso]><style type="text/css">body, table, td, div, p { font-family: Calibri, Arial, sans-serif !important; font-size: 11pt !important; line-height: 1.4 !important; color: #000000 !important; }</style><![endif]--><div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${cleanBodyText}</div>`;
+        const formattedHtml = `<!--[if mso]><style type="text/css">body, table, td, div, p { font-family: Calibri, Arial, sans-serif !important; font-size: 11.5pt !important; line-height: 1.45 !important; color: #000000 !important; }</style><![endif]--><div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${cleanBodyText}</div>`;
         const plainTextFormatted = `\n${createCleanPlainText(personalizedBody)}`;
 
-        // Authentic RFC-5322 Standard MIME Handshake
+        // Authentic RFC-5322 Standard Handshake
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -327,8 +327,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural 1200ms - 1800ms batch rest delay
-      const batchDelay = Math.floor(1200 + Math.random() * 600);
+      // Natural 900ms - 1400ms batch rest delay
+      const batchDelay = Math.floor(900 + Math.random() * 500);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
