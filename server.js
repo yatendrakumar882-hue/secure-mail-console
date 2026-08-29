@@ -100,7 +100,7 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 2,
+      maxConnections: 6,
       maxMessages: 50000,
       socketTimeout: 35000,
       connectionTimeout: 35000
@@ -241,6 +241,9 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
+/* ==========================================================================
+   PRIMARY INBOX 6-BATCH STREAMING ROUTE (1 BLITCH = 6 EMAILS + SAFE DELAYS)
+   ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -275,7 +278,9 @@ app.post('/api/send-stream', async (req, res) => {
   }, 3000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 2; // 1 Blitch = 2 Emails
+  
+  // 6 EMAILS PER BATCH (1 BLITCH = 6 EMAILS)
+  const BATCH_SIZE = 6;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -289,7 +294,7 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      // 12-Hour 25-Email Quota Check
+      // 12-Hour Quota Check (25 mails max)
       const quota = checkAndIncrementLimit(cleanEmail);
       if (!quota.allowed) {
         const limitPayload = { success: false, recipient: recipient.email, error: quota.message, isLimitFull: true };
@@ -299,7 +304,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(250 + Math.random() * 100)));
+          // Dynamic Stagger Delay for every email inside batch (350ms - 550ms)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(350 + Math.random() * 200)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
@@ -344,7 +350,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      const batchDelay = Math.floor(1200 + Math.random() * 600);
+      // Resting Delay between 6-email batches (1500ms - 2200ms)
+      const batchDelay = Math.floor(1500 + Math.random() * 700);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
