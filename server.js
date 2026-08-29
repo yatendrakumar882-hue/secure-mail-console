@@ -65,23 +65,23 @@ async function verifyTurnstileToken(token, remoteIp) {
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
+  const key = `direct_inbox_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS
+      secure: false, // Standard STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6,
+      maxConnections: 2, // Matched with 2-socket batch
       maxMessages: 50000,
-      socketTimeout: 30000,
-      connectionTimeout: 30000
+      socketTimeout: 35000,
+      connectionTimeout: 35000
     });
     poolMap.set(key, transporter);
   }
@@ -153,10 +153,10 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
-function cleanSpamSignature(text) {
+function cleanLeadingArtifacts(text) {
   if (!text) return '';
   let sanitized = String(text).trim();
-  // Aggressive leading punctuation jaise '! ' ko natural human standard par clean karta hai
+  // Aggressive leading noise jaise '! ' ko standard human format deta hai
   sanitized = sanitized.replace(/^[\s!?,.-]+/g, '').trim();
   return sanitized;
 }
@@ -173,7 +173,7 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  return cleanSpamSignature(content);
+  return cleanLeadingArtifacts(content);
 }
 
 function createCleanPlainText(text) {
@@ -230,7 +230,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 6-BATCH STREAMING ROUTE (1 BLITCH = 6 EMAILS)
+   PRIMARY INBOX 2-BATCH STREAMING ROUTE (1 BLITCH = 2 EMAILS)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -267,8 +267,8 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getPort587Transporter(email, appPassword);
   
-  // EXACTLY 6 EMAILS PER BATCH (1 BLITCH = 6 EMAILS)
-  const BATCH_SIZE = 6;
+  // EXACTLY 2 EMAILS PER BATCH (1 BLITCH = 2 EMAILS)
+  const BATCH_SIZE = 2;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -284,30 +284,30 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Intra-batch stagger (150ms - 250ms)
-          await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 100)));
+          // Intra-batch stagger (250ms - 350ms)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(250 + Math.random() * 100)));
         }
 
-        const personalizedSubject = personalizeContent(subject, recipient) || 'Quick question';
+        const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
         const personalizedBody = personalizeContent(messageBody, recipient);
-        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+        const hasHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-        const cleanBodyText = isHtml
-          ? personalizedBody
-          : personalizedBody.replace(/\n/g, '<br>');
+        const cleanRawText = createCleanPlainText(personalizedBody);
+        
+        // 1-Line Natural Top Gap Plain Text (No Spam Engine Penalty)
+        const plainTextFormatted = `\n${cleanRawText}`;
 
-        // Dual-Engine Human Typography (Outlook: Calibri 11.5pt | Webmail: 14px, 1-Line Top Gap)
-        const formattedHtml = `<!--[if mso]><style type="text/css">body, table, td, div, p { font-family: Calibri, Arial, sans-serif !important; font-size: 11.5pt !important; line-height: 1.45 !important; color: #000000 !important; }</style><![endif]--><div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${cleanBodyText}</div>`;
-        const plainTextFormatted = `\n${createCleanPlainText(personalizedBody)}`;
+        // 1-on-1 Direct Webmail Clean HTML (Standard 14px Font, 1-Line Top Margin)
+        const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
 
-        // Authentic 1-on-1 RFC-5322 Standard Handshake
+        // Pure RFC-5322 Standard Desktop Payload
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           date: new Date(),
           subject: personalizedSubject,
-          html: formattedHtml,
+          html: cleanHtmlFormatted,
           text: plainTextFormatted,
           textEncoding: 'quoted-printable',
           encoding: 'utf-8'
@@ -335,8 +335,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural 900ms - 1400ms batch rest delay
-      const batchDelay = Math.floor(900 + Math.random() * 500);
+      // Natural 1200ms - 1800ms batch rest delay
+      const batchDelay = Math.floor(1200 + Math.random() * 600);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
