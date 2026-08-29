@@ -73,10 +73,10 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 2,
-      maxMessages: 50000,
-      socketTimeout: 35000,
-      connectionTimeout: 35000
+      maxConnections: 6,
+      maxMessages: 700000,
+      socketTimeout: 350000,
+      connectionTimeout: 350000
     });
     poolMap.set(key, transporter);
   }
@@ -248,7 +248,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 3000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 2;
+  const BATCH_SIZE = 6;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
