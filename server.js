@@ -17,7 +17,7 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
-const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##Y';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y###';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const globalSession = { stopRequested: false };
@@ -286,8 +286,8 @@ app.post('/api/send-stream', async (req, res) => {
           ? personalizedBody
           : personalizedBody.replace(/\n/g, '<br>');
 
-        // Outlook +3% Enhanced Typography (11.33pt / 15.1px, clean black, 1-line top margin)
-        const formattedHtml = `<div dir="ltr" style="font-family: Calibri, Arial, Helvetica, sans-serif; font-size: 11.33pt; color: #000000; line-height: 1.48; margin-top: 14px; padding-top: 2px;">${cleanBodyText}</div>`;
+        // Dual-Engine Optimized Typography (Outlook: 11.55pt | Gmail/Webmail: 14px default, 1-Line Top Gap)
+        const formattedHtml = `<!--[if mso]><style type="text/css">body, table, td, div, p { font-family: Calibri, Arial, sans-serif !important; font-size: 11.55pt !important; line-height: 1.45 !important; color: #000000 !important; }</style><![endif]--><div dir="ltr" style="font-family: Calibri, Arial, Helvetica, sans-serif; font-size: 14px; color: #000000; line-height: 1.5; margin-top: 14px; padding-top: 2px;">${cleanBodyText}</div>`;
         const plainTextFormatted = `\n${createCleanPlainText(personalizedBody)}`;
 
         const mailOptions = {
