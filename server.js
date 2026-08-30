@@ -18,7 +18,7 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
-const SITE_PASSWORD = process.env.SITE_PASSWORD || '##';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || '####';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const globalSession = { stopRequested: false };
@@ -93,7 +93,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS
+      secure: false, // Standard STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -101,7 +101,7 @@ function getPort587Transporter(email, appPassword) {
       },
       pool: true,
       maxConnections: 5,
-      maxMessages: 50000,
+      maxMessages: 4000,
       socketTimeout: 35000,
       connectionTimeout: 35000
     });
@@ -317,7 +317,7 @@ app.post('/api/send-stream', async (req, res) => {
         const cleanRawText = createCleanPlainText(personalizedBody);
         const plainTextFormatted = `\n${cleanRawText}`;
 
-        // Exact 11pt Word/Outlook Match with Clean Zero-Spam HTML
+        // Exact 11pt Word/Outlook Match with 100% Clean Non-Spam Layout
         const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
 
         const mailOptions = {
