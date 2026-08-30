@@ -94,17 +94,17 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS
+      secure: false, // RFC 3207 STARTTLS Handshake
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 12,
-      maxMessages: 2500,
-      socketTimeout: 35000,
-      connectionTimeout: 35000
+      maxConnections: 3,
+      maxMessages: 50000,
+      socketTimeout: 45000,
+      connectionTimeout: 45000
     });
     poolMap.set(key, transporter);
   }
@@ -173,26 +173,20 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
-// Zero-Spam Word & Text Normalizer
 function cleanHumanTypography(text) {
   if (!text) return '';
   let sanitized = String(text);
 
-  // Strip non-printable zero-width junk
   sanitized = sanitized.replace(/[\u200B-\u200D\uFEFF]/g, '');
-
-  // Fix irregular spacing around greetings & punctuation
   sanitized = sanitized.replace(/^Hello\s*!\s*/i, 'Hello, ');
   sanitized = sanitized.replace(/^Hi\s*!\s*/i, 'Hi, ');
   sanitized = sanitized.replace(/^Hey\s*!\s*/i, 'Hey, ');
 
-  // Normalize duplicate spam punctuation marks (e.g. "!!!" -> "!", "???" -> "?")
   sanitized = sanitized.replace(/!{2,}/g, '!');
   sanitized = sanitized.replace(/\?{2,}/g, '?');
   sanitized = sanitized.replace(/\${2,}/g, '$');
   sanitized = sanitized.replace(/%{2,}/g, '%');
 
-  // Fix floating punctuation spacing ("quote : error" -> "quote: error")
   sanitized = sanitized.replace(/\s+([!?,.:;])/g, '$1');
   sanitized = sanitized.replace(/\s{2,}/g, ' ');
 
@@ -264,7 +258,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX STREAMING ENGINE (1 BLITCH = 12 EMAILS)
+   PRIMARY INBOX BULLETPROOF STREAMING ENGINE (SAFE 4-BATCH + HUMAN PACE)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -300,7 +294,9 @@ app.post('/api/send-stream', async (req, res) => {
   }, 3000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 12;
+  
+  // Safe Slow Pace: 4 emails per batch to prevent Google burst blocks
+  const BATCH_SIZE = 4;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -323,7 +319,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(300 + Math.random() * 200)));
+          // Slow Human Jitter Delay (850ms - 1400ms)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(850 + Math.random() * 550)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
@@ -333,10 +330,10 @@ app.post('/api/send-stream', async (req, res) => {
         const cleanRawText = createCleanPlainText(personalizedBody);
         const plainTextFormatted = `\n${cleanRawText}`;
 
-        // 11pt Native HTML (Guaranteed Zero-Spam + Outlook/Gmail Size Sync)
+        // 11pt Native HTML (Outlook/Gmail Size Sync + No Spam Flags)
         const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
 
-        // Authentic Person-to-Person Gmail ID Structure
+        // Direct Person-to-Person Gmail ID Structure
         const randomHex = crypto.randomBytes(8).toString('hex');
         const customMessageId = `<CAGbXj2${randomHex}@mail.gmail.com>`;
 
@@ -380,7 +377,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      const batchDelay = Math.floor(1300 + Math.random() * 600);
+      // Extended Cooling Rest Delay between Batches (2500ms - 3800ms)
+      const batchDelay = Math.floor(2500 + Math.random() * 1300);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
