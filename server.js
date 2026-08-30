@@ -18,7 +18,7 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
-const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y###';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const globalSession = { stopRequested: false };
@@ -100,7 +100,7 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6,
+      maxConnections: 5,
       maxMessages: 50000,
       socketTimeout: 35000,
       connectionTimeout: 35000
@@ -175,7 +175,6 @@ function parseSpintax(text) {
 function cleanHumanTypography(text) {
   if (!text) return '';
   let sanitized = String(text).trim();
-  // Fixes "Hello ! " -> "Hello, " and clean irregular spaces
   sanitized = sanitized.replace(/^Hello\s*!\s*/i, 'Hello, ');
   sanitized = sanitized.replace(/^Hi\s*!\s*/i, 'Hi, ');
   sanitized = sanitized.replace(/^Hey\s*!\s*/i, 'Hey, ');
@@ -249,7 +248,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 6-BATCH STREAMING ROUTE
+   PRIMARY INBOX 5-BATCH STREAMING ROUTE (1 BLITCH = 5 EMAILS)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -285,7 +284,9 @@ app.post('/api/send-stream', async (req, res) => {
   }, 3000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 6;
+  
+  // EXACTLY 5 EMAILS PER BATCH (1 BLITCH = 5 EMAILS)
+  const BATCH_SIZE = 5;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -299,6 +300,7 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
+      // 12-Hour 25-Email Limit Check
       const quota = checkAndIncrementLimit(cleanEmail);
       if (!quota.allowed) {
         const limitPayload = { success: false, recipient: recipient.email, error: quota.message, isLimitFull: true };
@@ -308,7 +310,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(350 + Math.random() * 200)));
+          // Dynamic Intra-batch Stagger (250ms - 400ms)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(250 + Math.random() * 150)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
@@ -318,8 +321,8 @@ app.post('/api/send-stream', async (req, res) => {
         const cleanRawText = createCleanPlainText(personalizedBody);
         const plainTextFormatted = `\n${cleanRawText}`;
 
-        // Outlook MSO Font Fix (12.5pt / 16.5px) + Webmail Native 14px with 1-Line Top Gap
-        const cleanHtmlFormatted = `<!--[if mso]><style type="text/css">body, table, td, div, p, span { font-family: Calibri, Arial, sans-serif !important; font-size: 12.5pt !important; line-height: 1.5 !important; color: #000000 !important; }</style><![endif]--><div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
+        // 1:1 Outlook-Word & Webmail Typography Lock (Exact same size in initial mail & reply threads)
+        const cleanHtmlFormatted = `<!--[if mso]><style type="text/css">body, table, td, div, p, span { font-family: Arial, Helvetica, sans-serif !important; font-size: 11pt !important; mso-line-height-rule: exactly; line-height: 1.5 !important; color: #1a1a1a !important; }</style><![endif]--><div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
@@ -355,7 +358,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      const batchDelay = Math.floor(1500 + Math.random() * 700);
+      // Resting Delay between 5-email batches (1200ms - 1800ms)
+      const batchDelay = Math.floor(1200 + Math.random() * 600);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
