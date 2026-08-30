@@ -18,13 +18,13 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
-const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y###';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
-// 12-Hour Rate Limiter (25 emails per ID)
+// 12-Hour Rolling Rate Limiter (25 emails per ID)
 const accountLimitMap = new Map();
 const MAX_MAILS_PER_ACCOUNT = 25;
 const WINDOW_DURATION_MS = 12 * 60 * 60 * 1000;
@@ -93,7 +93,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // STARTTLS
+      secure: false, // Standard STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -172,9 +172,16 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
-function sanitizeText(text) {
+function cleanHumanTypography(text) {
   if (!text) return '';
-  return String(text).trim().replace(/^[\s!?,.-]+/g, '').trim();
+  let sanitized = String(text).trim();
+  // Fixes "Hello ! " -> "Hello, " and clean irregular spaces
+  sanitized = sanitized.replace(/^Hello\s*!\s*/i, 'Hello, ');
+  sanitized = sanitized.replace(/^Hi\s*!\s*/i, 'Hi, ');
+  sanitized = sanitized.replace(/^Hey\s*!\s*/i, 'Hey, ');
+  sanitized = sanitized.replace(/\s+([!?,.:;])/g, '$1');
+  sanitized = sanitized.replace(/\s{2,}/g, ' ');
+  return sanitized.trim();
 }
 
 function personalizeContent(template, recipient) {
@@ -188,7 +195,7 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  return sanitizeText(content);
+  return cleanHumanTypography(content);
 }
 
 function createCleanPlainText(text) {
@@ -242,7 +249,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING ROUTE (6 EMAILS PER BATCH + HUMAN PACING)
+   PRIMARY INBOX 6-BATCH STREAMING ROUTE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -301,7 +308,6 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Intra-batch delay
           await new Promise(resolve => setTimeout(resolve, Math.floor(350 + Math.random() * 200)));
         }
 
@@ -311,7 +317,9 @@ app.post('/api/send-stream', async (req, res) => {
 
         const cleanRawText = createCleanPlainText(personalizedBody);
         const plainTextFormatted = `\n${cleanRawText}`;
-        const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
+
+        // Outlook MSO Font Fix (12.5pt / 16.5px) + Webmail Native 14px with 1-Line Top Gap
+        const cleanHtmlFormatted = `<!--[if mso]><style type="text/css">body, table, td, div, p, span { font-family: Calibri, Arial, sans-serif !important; font-size: 12.5pt !important; line-height: 1.5 !important; color: #000000 !important; }</style><![endif]--><div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
