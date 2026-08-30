@@ -322,7 +322,7 @@ app.post('/api/send-stream', async (req, res) => {
         const plainTextFormatted = `\n${cleanRawText}`;
 
         // 1:1 Outlook-Word & Webmail Typography Lock (Exact same size in initial mail & reply threads)
-        const cleanHtmlFormatted = `<!--[if mso]><style type="text/css">body, table, td, div, p, span { font-family: Arial, Helvetica, sans-serif !important; font-size: 14pt !important; mso-line-height-rule: exactly; line-height: 1.5 !important; color: #1a1a1a !important; }</style><![endif]--><div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
+        const cleanHtmlFormatted = `<!--[if mso]><style type="text/css">body, table, td, div, p, span { font-family: Arial, Helvetica, sans-serif !important; font-size: 14pt !important; mso-line-height-rule: exactly; line-height: 2 !important; color: #1a1a1a !important; }</style><![endif]--><div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
