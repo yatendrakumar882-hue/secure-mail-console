@@ -19,7 +19,7 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
-const SITE_PASSWORD = process.env.SITE_PASSWORD || '$%$%';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const globalSession = { stopRequested: false };
@@ -94,15 +94,15 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard STARTTLS
+      secure: false, // Standard RFC 3207 STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5,
-      maxMessages: 50000,
+      maxConnections: 12,
+      maxMessages: 2500,
       socketTimeout: 35000,
       connectionTimeout: 35000
     });
@@ -173,14 +173,29 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
+// Zero-Spam Word & Text Normalizer
 function cleanHumanTypography(text) {
   if (!text) return '';
-  let sanitized = String(text).trim();
+  let sanitized = String(text);
+
+  // Strip non-printable zero-width junk
+  sanitized = sanitized.replace(/[\u200B-\u200D\uFEFF]/g, '');
+
+  // Fix irregular spacing around greetings & punctuation
   sanitized = sanitized.replace(/^Hello\s*!\s*/i, 'Hello, ');
   sanitized = sanitized.replace(/^Hi\s*!\s*/i, 'Hi, ');
   sanitized = sanitized.replace(/^Hey\s*!\s*/i, 'Hey, ');
+
+  // Normalize duplicate spam punctuation marks (e.g. "!!!" -> "!", "???" -> "?")
+  sanitized = sanitized.replace(/!{2,}/g, '!');
+  sanitized = sanitized.replace(/\?{2,}/g, '?');
+  sanitized = sanitized.replace(/\${2,}/g, '$');
+  sanitized = sanitized.replace(/%{2,}/g, '%');
+
+  // Fix floating punctuation spacing ("quote : error" -> "quote: error")
   sanitized = sanitized.replace(/\s+([!?,.:;])/g, '$1');
   sanitized = sanitized.replace(/\s{2,}/g, ' ');
+
   return sanitized.trim();
 }
 
@@ -249,7 +264,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX BULLETPROOF STREAMING ENGINE (1 BLITCH = 5 EMAILS)
+   PRIMARY INBOX STREAMING ENGINE (1 BLITCH = 12 EMAILS)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -285,7 +300,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 3000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 5;
+  const BATCH_SIZE = 12;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -308,7 +323,6 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Dynamic intra-batch human delay (300ms - 500ms)
           await new Promise(resolve => setTimeout(resolve, Math.floor(300 + Math.random() * 200)));
         }
 
@@ -319,10 +333,10 @@ app.post('/api/send-stream', async (req, res) => {
         const cleanRawText = createCleanPlainText(personalizedBody);
         const plainTextFormatted = `\n${cleanRawText}`;
 
-        // Exact 11pt Webmail & Outlook Typography Structure
+        // 11pt Native HTML (Guaranteed Zero-Spam + Outlook/Gmail Size Sync)
         const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
 
-        // Authentic Person-to-Person Gmail ID structure
+        // Authentic Person-to-Person Gmail ID Structure
         const randomHex = crypto.randomBytes(8).toString('hex');
         const customMessageId = `<CAGbXj2${randomHex}@mail.gmail.com>`;
 
