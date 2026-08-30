@@ -284,8 +284,6 @@ app.post('/api/send-stream', async (req, res) => {
   }, 3000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  
-  // EXACTLY 5 EMAILS PER BATCH (1 BLITCH = 5 EMAILS)
   const BATCH_SIZE = 5;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
@@ -300,7 +298,6 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      // 12-Hour 25-Email Limit Check
       const quota = checkAndIncrementLimit(cleanEmail);
       if (!quota.allowed) {
         const limitPayload = { success: false, recipient: recipient.email, error: quota.message, isLimitFull: true };
@@ -310,7 +307,6 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Dynamic Intra-batch Stagger (250ms - 400ms)
           await new Promise(resolve => setTimeout(resolve, Math.floor(250 + Math.random() * 150)));
         }
 
@@ -321,8 +317,8 @@ app.post('/api/send-stream', async (req, res) => {
         const cleanRawText = createCleanPlainText(personalizedBody);
         const plainTextFormatted = `\n${cleanRawText}`;
 
-        // 1:1 Outlook-Word & Webmail Typography Lock (Exact same size in initial mail & reply threads)
-        const cleanHtmlFormatted = `<!--[if mso]><style type="text/css">body, table, td, div, p, span { font-family: Arial, Helvetica, sans-serif !important; font-size: 14pt !important; mso-line-height-rule: exactly; line-height: 2 !important; color: #1a1a1a !important; }</style><![endif]--><div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
+        // Inline Permanent Font Wrapper (Never shrinks in Outlook Reply Threads / Blockquotes)
+        const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif !important; font-size: 11pt !important; color: #1a1a1a !important; line-height: 1.55 !important; margin-top: 14px; padding-top: 2px;"><span style="font-family: Arial, Helvetica, sans-serif !important; font-size: 11pt !important; color: #1a1a1a !important; line-height: 1.55 !important;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</span></div>`;
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
@@ -358,7 +354,6 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Resting Delay between 5-email batches (1200ms - 1800ms)
       const batchDelay = Math.floor(1200 + Math.random() * 600);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
