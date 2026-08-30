@@ -170,54 +170,10 @@ function parseSpintax(text) {
     });
     iterations++;
   }
-  return spun.replace(/[\{\}]/g, '').trim();
+  return spun.replace(/[\{\}]/g, '');
 }
 
-// Deep Universal Spam Keyword & Bot Pattern Neutralizer
-function cleanHumanTypography(text) {
-  if (!text) return '';
-  let sanitized = String(text);
-
-  // Strip non-printable/zero-width junk
-  sanitized = sanitized.replace(/[\u200B-\u200D\uFEFF]/g, '');
-
-  // Normalize excessive capitalization (e.g., "FREE QUOTE" -> "Free quote")
-  sanitized = sanitized.replace(/\b[A-Z]{4,}\b/g, (match) => {
-    return match.charAt(0).toUpperCase() + match.slice(1).toLowerCase();
-  });
-
-  // Convert aggressive spam/bot keywords into natural conversational phrasing
-  const spamReplacements = [
-    { pattern: /\b(free quote|the quote|quote: error|error: quote|quote)\b/gi, replacement: 'overview' },
-    { pattern: /\b(cheap price|best price|special price|lowest rate)\b/gi, replacement: 'details' },
-    { pattern: /\b(seo ranking|google ranking|first page ranking)\b/gi, replacement: 'online presence' },
-    { pattern: /\b(100% free|100% guaranteed|guarantee)\b/gi, replacement: 'straightforward' },
-    { pattern: /\b(click here|act now|urgent|limited time offer)\b/gi, replacement: 'let me know' },
-    { pattern: /\b(buy now|order now)\b/gi, replacement: 'connect' }
-  ];
-
-  spamReplacements.forEach(({ pattern, replacement }) => {
-    sanitized = sanitized.replace(pattern, replacement);
-  });
-
-  // Clean greeting formatting
-  sanitized = sanitized.replace(/^Hello\s*!\s*/i, 'Hello, ');
-  sanitized = sanitized.replace(/^Hi\s*!\s*/i, 'Hi, ');
-  sanitized = sanitized.replace(/^Hey\s*!\s*/i, 'Hey, ');
-
-  // Normalize duplicate punctuation
-  sanitized = sanitized.replace(/!{2,}/g, '!');
-  sanitized = sanitized.replace(/\?{2,}/g, '?');
-  sanitized = sanitized.replace(/\${2,}/g, '$');
-  sanitized = sanitized.replace(/%{2,}/g, '%');
-
-  // Fix spacing around punctuation marks
-  sanitized = sanitized.replace(/\s+([!?,.:;])/g, '$1');
-  sanitized = sanitized.replace(/\s{2,}/g, ' ');
-
-  return sanitized.trim();
-}
-
+// Exact Preservation Personalizer (No word alterations)
 function personalizeContent(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
@@ -229,7 +185,7 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  return cleanHumanTypography(content);
+  return content.trim();
 }
 
 function createCleanPlainText(text) {
@@ -283,7 +239,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX BULLETPROOF STREAMING ENGINE (SAFE 8-BATCH + HUMAN PACE)
+   PRIMARY INBOX STREAMING ENGINE (SAFE 8-BATCH + RAW PRESERVATION)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -348,6 +304,7 @@ app.post('/api/send-stream', async (req, res) => {
           await new Promise(resolve => setTimeout(resolve, Math.floor(850 + Math.random() * 550)));
         }
 
+        // Exact Raw Subject & Body Preservation
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
         const personalizedBody = personalizeContent(messageBody, recipient);
         const hasHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
@@ -355,7 +312,7 @@ app.post('/api/send-stream', async (req, res) => {
         const cleanRawText = createCleanPlainText(personalizedBody);
         const plainTextFormatted = `\n${cleanRawText}`;
 
-        // 11pt Native HTML (Outlook/Gmail Size Sync + No Spam Flags)
+        // 11pt Native HTML (Exact same size in Outlook & Gmail, zero spam flags)
         const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
 
         // Direct Person-to-Person Gmail ID Structure
