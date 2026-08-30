@@ -6,7 +6,6 @@ import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -101,10 +100,10 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 8,
-      maxMessages: 5000,
-      socketTimeout: 45000,
-      connectionTimeout: 45000
+      maxConnections: 5,
+      maxMessages: 50000,
+      socketTimeout: 35000,
+      connectionTimeout: 35000
     });
     poolMap.set(key, transporter);
   }
@@ -170,10 +169,21 @@ function parseSpintax(text) {
     });
     iterations++;
   }
-  return spun.replace(/[\{\}]/g, '');
+  return spun.replace(/[\{\}]/g, '').trim();
 }
 
-// Exact Preservation Personalizer (No word alterations)
+function cleanHumanTypography(text) {
+  if (!text) return '';
+  let sanitized = String(text).trim();
+  // Bot pattern fixes (e.g. "Hello ! " -> "Hello, ")
+  sanitized = sanitized.replace(/^Hello\s*!\s*/i, 'Hello, ');
+  sanitized = sanitized.replace(/^Hi\s*!\s*/i, 'Hi, ');
+  sanitized = sanitized.replace(/^Hey\s*!\s*/i, 'Hey, ');
+  sanitized = sanitized.replace(/\s+([!?,.:;])/g, '$1');
+  sanitized = sanitized.replace(/\s{2,}/g, ' ');
+  return sanitized.trim();
+}
+
 function personalizeContent(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
@@ -185,7 +195,7 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  return content.trim();
+  return cleanHumanTypography(content);
 }
 
 function createCleanPlainText(text) {
@@ -239,7 +249,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX STREAMING ENGINE (SAFE 8-BATCH + RAW PRESERVATION)
+   PRIMARY INBOX BULLETPROOF STREAMING ENGINE (1 BLITCH = 5 EMAILS)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -275,9 +285,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 3000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  
-  // Safe 8-Email Batch Pace
-  const BATCH_SIZE = 8;
+  const BATCH_SIZE = 5;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -300,11 +308,9 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Slow Human Jitter Delay (850ms - 1400ms)
-          await new Promise(resolve => setTimeout(resolve, Math.floor(850 + Math.random() * 550)));
+          await new Promise(resolve => setTimeout(resolve, Math.floor(300 + Math.random() * 200)));
         }
 
-        // Exact Raw Subject & Body Preservation
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
         const personalizedBody = personalizeContent(messageBody, recipient);
         const hasHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
@@ -312,29 +318,19 @@ app.post('/api/send-stream', async (req, res) => {
         const cleanRawText = createCleanPlainText(personalizedBody);
         const plainTextFormatted = `\n${cleanRawText}`;
 
-        // 11pt Native HTML (Exact same size in Outlook & Gmail, zero spam flags)
+        // 100% Native Webmail & Outlook 11pt Matching (Zero-Spam Layout)
         const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
-
-        // Direct Person-to-Person Gmail ID Structure
-        const randomHex = crypto.randomBytes(8).toString('hex');
-        const customMessageId = `<CAGbXj2${randomHex}@mail.gmail.com>`;
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
-          messageId: customMessageId,
           date: new Date(),
           subject: personalizedSubject,
           html: cleanHtmlFormatted,
           text: plainTextFormatted,
           textEncoding: 'quoted-printable',
-          encoding: 'utf-8',
-          headers: {
-            'X-Google-Sender-Auth': cleanEmail,
-            'X-Priority': '3',
-            'Importance': 'Normal'
-          }
+          encoding: 'utf-8'
         };
 
         await transporter.sendMail(mailOptions);
@@ -359,8 +355,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Extended Cooling Rest Delay between Batches (2500ms - 3800ms)
-      const batchDelay = Math.floor(2500 + Math.random() * 1300);
+      const batchDelay = Math.floor(1300 + Math.random() * 600);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
