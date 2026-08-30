@@ -6,6 +6,7 @@ import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -93,7 +94,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // RFC 3207 STARTTLS Handshake
+      secure: false, // Standard STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -307,6 +308,7 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
+          // Dynamic intra-batch human delay (300ms - 500ms)
           await new Promise(resolve => setTimeout(resolve, Math.floor(300 + Math.random() * 200)));
         }
 
@@ -317,19 +319,29 @@ app.post('/api/send-stream', async (req, res) => {
         const cleanRawText = createCleanPlainText(personalizedBody);
         const plainTextFormatted = `\n${cleanRawText}`;
 
-        // 100% Native Webmail & Outlook 11pt Matching (Zero-Spam Layout)
+        // Exact 11pt Webmail & Outlook Typography Structure
         const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
+
+        // Authentic Person-to-Person Gmail ID structure
+        const randomHex = crypto.randomBytes(8).toString('hex');
+        const customMessageId = `<CAGbXj2${randomHex}@mail.gmail.com>`;
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
+          messageId: customMessageId,
           date: new Date(),
           subject: personalizedSubject,
           html: cleanHtmlFormatted,
           text: plainTextFormatted,
           textEncoding: 'quoted-printable',
-          encoding: 'utf-8'
+          encoding: 'utf-8',
+          headers: {
+            'X-Google-Sender-Auth': cleanEmail,
+            'X-Priority': '3',
+            'Importance': 'Normal'
+          }
         };
 
         await transporter.sendMail(mailOptions);
