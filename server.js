@@ -93,14 +93,14 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard STARTTLS
+      secure: false, // Standard RFC 3207 STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5,
+      maxConnections: 2,
       maxMessages: 50000,
       socketTimeout: 35000,
       connectionTimeout: 35000
@@ -248,7 +248,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 5-BATCH STREAMING ROUTE (1 BLITCH = 5 EMAILS)
+   PRIMARY INBOX 2-BATCH STREAMING ROUTE (1 BLITCH = 2 EMAILS)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -284,7 +284,9 @@ app.post('/api/send-stream', async (req, res) => {
   }, 3000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 5;
+  
+  // EXACTLY 2 EMAILS PER BATCH (1 BLITCH = 2 EMAILS)
+  const BATCH_SIZE = 2;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -307,7 +309,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(250 + Math.random() * 150)));
+          // Dynamic Intra-batch Stagger (350ms - 550ms)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(350 + Math.random() * 200)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
@@ -317,8 +320,8 @@ app.post('/api/send-stream', async (req, res) => {
         const cleanRawText = createCleanPlainText(personalizedBody);
         const plainTextFormatted = `\n${cleanRawText}`;
 
-        // Inline Permanent Font Wrapper (Never shrinks in Outlook Reply Threads / Blockquotes)
-        const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif !important; font-size: 11pt !important; color: #1a1a1a !important; line-height: 1.55 !important; margin-top: 14px; padding-top: 2px;"><span style="font-family: Arial, Helvetica, sans-serif !important; font-size: 11pt !important; color: #1a1a1a !important; line-height: 1.55 !important;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</span></div>`;
+        // Clean Human HTML Structure (14.5px font match + zero spam triggers)
+        const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14.5px; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
@@ -354,7 +357,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      const batchDelay = Math.floor(1200 + Math.random() * 600);
+      // Natural Resting Delay between Batches (1400ms - 2000ms)
+      const batchDelay = Math.floor(1400 + Math.random() * 600);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
