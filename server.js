@@ -18,7 +18,7 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
-const SITE_PASSWORD = process.env.SITE_PASSWORD || '####';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const globalSession = { stopRequested: false };
@@ -93,7 +93,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard STARTTLS
+      secure: false, // RFC 3207 STARTTLS Handshake
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -101,7 +101,7 @@ function getPort587Transporter(email, appPassword) {
       },
       pool: true,
       maxConnections: 5,
-      maxMessages: 4000,
+      maxMessages: 50000,
       socketTimeout: 35000,
       connectionTimeout: 35000
     });
@@ -175,6 +175,7 @@ function parseSpintax(text) {
 function cleanHumanTypography(text) {
   if (!text) return '';
   let sanitized = String(text).trim();
+  // Bot pattern fixes (e.g. "Hello ! " -> "Hello, ")
   sanitized = sanitized.replace(/^Hello\s*!\s*/i, 'Hello, ');
   sanitized = sanitized.replace(/^Hi\s*!\s*/i, 'Hi, ');
   sanitized = sanitized.replace(/^Hey\s*!\s*/i, 'Hey, ');
@@ -248,7 +249,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 5-BATCH STREAMING ROUTE (1 BLITCH = 5 EMAILS)
+   PRIMARY INBOX BULLETPROOF STREAMING ENGINE (1 BLITCH = 5 EMAILS)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -307,7 +308,7 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(250 + Math.random() * 150)));
+          await new Promise(resolve => setTimeout(resolve, Math.floor(300 + Math.random() * 200)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
@@ -317,7 +318,7 @@ app.post('/api/send-stream', async (req, res) => {
         const cleanRawText = createCleanPlainText(personalizedBody);
         const plainTextFormatted = `\n${cleanRawText}`;
 
-        // Exact 11pt Word/Outlook Match with 100% Clean Non-Spam Layout
+        // 100% Native Webmail & Outlook 11pt Matching (Zero-Spam Layout)
         const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
 
         const mailOptions = {
@@ -354,7 +355,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      const batchDelay = Math.floor(1200 + Math.random() * 600);
+      const batchDelay = Math.floor(1300 + Math.random() * 600);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
