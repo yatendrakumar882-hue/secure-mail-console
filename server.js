@@ -103,8 +103,8 @@ function getPort587Transporter(email, appPassword) {
       pool: true,
       maxConnections: 8,
       maxMessages: 5000,
-      socketTimeout: 1000000,
-      connectionTimeout: 1055000
+      socketTimeout: 45000,
+      connectionTimeout: 45000
     });
     poolMap.set(key, transporter);
   }
@@ -173,20 +173,45 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
+// Deep Universal Spam Keyword & Bot Pattern Neutralizer
 function cleanHumanTypography(text) {
   if (!text) return '';
   let sanitized = String(text);
 
+  // Strip non-printable/zero-width junk
   sanitized = sanitized.replace(/[\u200B-\u200D\uFEFF]/g, '');
+
+  // Normalize excessive capitalization (e.g., "FREE QUOTE" -> "Free quote")
+  sanitized = sanitized.replace(/\b[A-Z]{4,}\b/g, (match) => {
+    return match.charAt(0).toUpperCase() + match.slice(1).toLowerCase();
+  });
+
+  // Convert aggressive spam/bot keywords into natural conversational phrasing
+  const spamReplacements = [
+    { pattern: /\b(free quote|the quote|quote: error|error: quote|quote)\b/gi, replacement: 'overview' },
+    { pattern: /\b(cheap price|best price|special price|lowest rate)\b/gi, replacement: 'details' },
+    { pattern: /\b(seo ranking|google ranking|first page ranking)\b/gi, replacement: 'online presence' },
+    { pattern: /\b(100% free|100% guaranteed|guarantee)\b/gi, replacement: 'straightforward' },
+    { pattern: /\b(click here|act now|urgent|limited time offer)\b/gi, replacement: 'let me know' },
+    { pattern: /\b(buy now|order now)\b/gi, replacement: 'connect' }
+  ];
+
+  spamReplacements.forEach(({ pattern, replacement }) => {
+    sanitized = sanitized.replace(pattern, replacement);
+  });
+
+  // Clean greeting formatting
   sanitized = sanitized.replace(/^Hello\s*!\s*/i, 'Hello, ');
   sanitized = sanitized.replace(/^Hi\s*!\s*/i, 'Hi, ');
   sanitized = sanitized.replace(/^Hey\s*!\s*/i, 'Hey, ');
 
+  // Normalize duplicate punctuation
   sanitized = sanitized.replace(/!{2,}/g, '!');
   sanitized = sanitized.replace(/\?{2,}/g, '?');
   sanitized = sanitized.replace(/\${2,}/g, '$');
   sanitized = sanitized.replace(/%{2,}/g, '%');
 
+  // Fix spacing around punctuation marks
   sanitized = sanitized.replace(/\s+([!?,.:;])/g, '$1');
   sanitized = sanitized.replace(/\s{2,}/g, ' ');
 
@@ -295,7 +320,7 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getPort587Transporter(email, appPassword);
   
-  // Safe Slow Pace: 8 emails per batch to prevent Google burst blocks
+  // Safe 8-Email Batch Pace
   const BATCH_SIZE = 8;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
