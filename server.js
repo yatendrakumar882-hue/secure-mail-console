@@ -24,10 +24,10 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x000000000000
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
-// 12-Hour Rate Limiting Engine (25 mails per account)
+// 12-Hour Rate Limiter (25 emails per ID)
 const accountLimitMap = new Map();
 const MAX_MAILS_PER_ACCOUNT = 25;
-const WINDOW_DURATION_MS = 12 * 60 * 60 * 1000; // 12 Hours
+const WINDOW_DURATION_MS = 12 * 60 * 60 * 1000;
 
 function checkAndIncrementLimit(email) {
   const cleanEmail = email.toLowerCase().trim();
@@ -43,7 +43,7 @@ function checkAndIncrementLimit(email) {
     const remainingMinutes = Math.ceil((WINDOW_DURATION_MS - (now - record.startTime)) / 60000);
     return {
       allowed: false,
-      message: `Limit Full: 12-hour quota reached for ${cleanEmail} (25/25 mails). Try again in ${remainingMinutes}m.`
+      message: `Limit Full: 12-hour quota reached for ${cleanEmail} (25/25 mails). Available in ${remainingMinutes}m.`
     };
   }
 
@@ -93,7 +93,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS
+      secure: false, // STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -242,7 +242,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 6-BATCH STREAMING ROUTE (1 BLITCH = 6 EMAILS)
+   STREAMING ROUTE (6 EMAILS PER BATCH + HUMAN PACING)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -292,7 +292,6 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      // 12-Hour 25-Email Limit Check
       const quota = checkAndIncrementLimit(cleanEmail);
       if (!quota.allowed) {
         const limitPayload = { success: false, recipient: recipient.email, error: quota.message, isLimitFull: true };
@@ -302,7 +301,7 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Natural Intra-batch Delay (350ms - 550ms)
+          // Intra-batch delay
           await new Promise(resolve => setTimeout(resolve, Math.floor(350 + Math.random() * 200)));
         }
 
@@ -348,7 +347,6 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      // Natural Rest Delay between Batches (1500ms - 2200ms)
       const batchDelay = Math.floor(1500 + Math.random() * 700);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
