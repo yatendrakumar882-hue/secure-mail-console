@@ -101,10 +101,10 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 3,
-      maxMessages: 50000,
-      socketTimeout: 45000,
-      connectionTimeout: 45000
+      maxConnections: 8,
+      maxMessages: 5000,
+      socketTimeout: 1000000,
+      connectionTimeout: 1055000
     });
     poolMap.set(key, transporter);
   }
@@ -258,7 +258,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX BULLETPROOF STREAMING ENGINE (SAFE 4-BATCH + HUMAN PACE)
+   PRIMARY INBOX BULLETPROOF STREAMING ENGINE (SAFE 8-BATCH + HUMAN PACE)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -295,8 +295,8 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getPort587Transporter(email, appPassword);
   
-  // Safe Slow Pace: 4 emails per batch to prevent Google burst blocks
-  const BATCH_SIZE = 4;
+  // Safe Slow Pace: 8 emails per batch to prevent Google burst blocks
+  const BATCH_SIZE = 8;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
