@@ -93,17 +93,17 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // RFC 3207 STARTTLS Handshake
+      secure: false, // Standard RFC 3207 STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5,
+      maxConnections: 3,
       maxMessages: 50000,
-      socketTimeout: 35000,
-      connectionTimeout: 35000
+      socketTimeout: 45000,
+      connectionTimeout: 45000
     });
     poolMap.set(key, transporter);
   }
@@ -169,19 +169,7 @@ function parseSpintax(text) {
     });
     iterations++;
   }
-  return spun.replace(/[\{\}]/g, '').trim();
-}
-
-function cleanHumanTypography(text) {
-  if (!text) return '';
-  let sanitized = String(text).trim();
-  // Bot pattern fixes (e.g. "Hello ! " -> "Hello, ")
-  sanitized = sanitized.replace(/^Hello\s*!\s*/i, 'Hello, ');
-  sanitized = sanitized.replace(/^Hi\s*!\s*/i, 'Hi, ');
-  sanitized = sanitized.replace(/^Hey\s*!\s*/i, 'Hey, ');
-  sanitized = sanitized.replace(/\s+([!?,.:;])/g, '$1');
-  sanitized = sanitized.replace(/\s{2,}/g, ' ');
-  return sanitized.trim();
+  return spun.replace(/[\{\}]/g, '');
 }
 
 function personalizeContent(template, recipient) {
@@ -195,7 +183,7 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  return cleanHumanTypography(content);
+  return content.trim();
 }
 
 function createCleanPlainText(text) {
@@ -249,7 +237,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX BULLETPROOF STREAMING ENGINE (1 BLITCH = 5 EMAILS)
+   PRIMARY INBOX BULLETPROOF NATIVE STREAMING ROUTE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -285,7 +273,9 @@ app.post('/api/send-stream', async (req, res) => {
   }, 3000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 5;
+  
+  // Safe 3-Email Micro-Batch to guarantee primary inbox
+  const BATCH_SIZE = 3;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -308,7 +298,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(300 + Math.random() * 200)));
+          // Human Cadence Stagger Delay (1200ms - 2000ms)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(1200 + Math.random() * 800)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
@@ -318,19 +309,17 @@ app.post('/api/send-stream', async (req, res) => {
         const cleanRawText = createCleanPlainText(personalizedBody);
         const plainTextFormatted = `\n${cleanRawText}`;
 
-        // 100% Native Webmail & Outlook 11pt Matching (Zero-Spam Layout)
+        // 11pt Native HTML (Outlook & Gmail 100% Size Locked)
         const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
 
+        // Pure Native RFC-5322 Payload (Let Gmail sign its authentic DKIM/Message-ID)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
-          date: new Date(),
           subject: personalizedSubject,
           html: cleanHtmlFormatted,
-          text: plainTextFormatted,
-          textEncoding: 'quoted-printable',
-          encoding: 'utf-8'
+          text: plainTextFormatted
         };
 
         await transporter.sendMail(mailOptions);
@@ -355,7 +344,8 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      const batchDelay = Math.floor(1300 + Math.random() * 600);
+      // Natural Cooldown Rest Delay between batches (3500ms - 5500ms)
+      const batchDelay = Math.floor(3500 + Math.random() * 2000);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
