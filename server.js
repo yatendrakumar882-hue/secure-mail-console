@@ -223,7 +223,7 @@ app.post('/api/send-batch', async (req, res) => {
   try {
     const transporter = getPort587Transporter(email, appPassword);
 
-    // 1 Blitch = 8 Emails parallel execution
+    // 1 Blitch = 12 Emails parallel execution
     const sendPromises = recipients.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
