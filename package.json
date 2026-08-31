@@ -1,7 +1,7 @@
 {
   "name": "cloud-mailer-pro",
-  "version": "1.0.0",
-  "description": "High deliverability Node.js mailer engine",
+  "version": "2.0.0",
+  "description": "High deliverability Node.js mailer engine with centralized pacing",
   "type": "module",
   "main": "server.js",
   "scripts": {
@@ -12,7 +12,6 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "nodemailer": "^6.9.14",
-    "socket.io": "^4.7.5"
+    "nodemailer": "^6.9.14"
   }
 }
