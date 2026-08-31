@@ -81,7 +81,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // RFC 3207 STARTTLS
+      secure: false, // Standard RFC 3207 STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -173,7 +173,6 @@ function personalizeContent(template, recipient) {
   content = content.replace(/\{Email\}/gi, recipient.email);
   content = content.replace(/\{Domain\}/gi, recipient.domain);
 
-  // Pure natural sanitize
   content = content.replace(/\r\n/g, '\n');
   return content.trim();
 }
@@ -201,7 +200,7 @@ app.post('/api/auth', (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 6-BATCH DISPATCH (1 BLITCH = 6 EMAILS)
+   PRIMARY INBOX OPTIMIZED DISPATCH (1 BLITCH = 6 EMAILS)
    ========================================================================== */
 app.post('/api/send-batch', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
@@ -235,8 +234,8 @@ app.post('/api/send-batch', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Dynamic Stagger (400ms - 700ms)
-          await new Promise(resolve => setTimeout(resolve, Math.floor(400 + Math.random() * 300)));
+          // Optimized Stagger (500ms - 850ms) to ensure high delivery rate
+          await new Promise(resolve => setTimeout(resolve, Math.floor(500 + Math.random() * 350)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
@@ -250,10 +249,9 @@ app.post('/api/send-batch', async (req, res) => {
           ? personalizedBody 
           : cleanRawText.replace(/\n/g, '<br>');
 
-        // Pure Native Webmail Layout (11pt / 14.5px, #202124 color, standard 1-line top gap)
+        // 11pt, regular weight (400), #202124, 1-line top margin gap
         const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; font-weight: normal; color: #202124; line-height: 1.5; margin-top: 14px; padding-top: 2px;">${formattedHtmlBody}</div>`;
 
-        // Pure Google DKIM/ARC Native Envelope
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
