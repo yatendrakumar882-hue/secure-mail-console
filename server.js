@@ -57,7 +57,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS Handshake
+      secure: false, // Standard RFC 3207 STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -66,8 +66,8 @@ function getPort587Transporter(email, appPassword) {
       pool: true,
       maxConnections: 6,
       maxMessages: 50000,
-      socketTimeout: 45000,
-      connectionTimeout: 45000
+      socketTimeout: 35000,
+      connectionTimeout: 35000
     });
     poolMap.set(key, transporter);
   }
@@ -136,7 +136,33 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '');
 }
 
-function personalizeContent(template, recipient) {
+// Universal Spam Keyword Obfuscator (Bypasses keyword scanning without changing visual appearance)
+function protectContentFromFilters(text) {
+  if (!text) return '';
+  let str = String(text);
+
+  // Common high-trigger sales/pitch words that Bayesian spam filters block
+  const triggerWords = [
+    'quote', 'price', 'pricing', 'seo', 'ranking', 'traffic', 'proposal', 
+    'audit', 'feedback', 'free', 'cost', 'guarantee', '1st pages', 'first page',
+    'leads', 'services', 'discount', 'urgent', 'deal'
+  ];
+
+  // Zero-width space insertion inside trigger words
+  triggerWords.forEach(word => {
+    const regex = new RegExp(`\\b(${word})\\b`, 'gi');
+    str = str.replace(regex, (match) => {
+      if (match.length > 2) {
+        return match.slice(0, 1) + '\u200C' + match.slice(1);
+      }
+      return match;
+    });
+  });
+
+  return str;
+}
+
+function personalizeContent(template, recipient, isHtml = false) {
   if (!template) return '';
   let content = parseSpintax(template);
   const fallback = recipient.firstName || recipient.name || 'there';
@@ -147,8 +173,9 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  // Strip invisible non-printable characters
-  content = content.replace(/[\u200B-\u200D\uFEFF]/g, '');
+  if (isHtml) {
+    return protectContentFromFilters(content.trim());
+  }
   return content.trim();
 }
 
@@ -175,7 +202,7 @@ app.post('/api/auth', (req, res) => {
 });
 
 /* ==========================================================================
-   SAFE-CADENCE 6-BATCH DISPATCH (NATIVE DKIM & INBOX DELIVERABILITY)
+   PRIMARY INBOX 6-BATCH DISPATCH (FAST REVERTED CADENCE + KEYWORD IMMUNITY)
    ========================================================================== */
 app.post('/api/send-batch', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients } = req.body;
@@ -190,7 +217,7 @@ app.post('/api/send-batch', async (req, res) => {
   try {
     const transporter = getPort587Transporter(email, appPassword);
 
-    // 1 Blitch = 6 Emails parallel with staggered safe human cadence
+    // 1 Blitch = 6 Emails parallel execution
     const sendPromises = recipients.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
@@ -202,25 +229,27 @@ app.post('/api/send-batch', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Safe Human Jitter Stagger (900ms - 1500ms) to avoid burst filters
-          await new Promise(resolve => setTimeout(resolve, Math.floor(900 + Math.random() * 600)));
+          // Reverted fast jitter delay (450ms - 750ms)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(450 + Math.random() * 300)));
         }
 
-        const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
-        const personalizedBody = personalizeContent(messageBody, recipient);
-        const hasHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
-
-        const cleanRawText = createCleanPlainText(personalizedBody);
+        const personalizedSubject = personalizeContent(subject, recipient, false) || 'Quick note';
+        const personalizedBodyHtml = personalizeContent(messageBody, recipient, true);
+        const personalizedBodyPlain = personalizeContent(messageBody, recipient, false);
+        
+        const hasHtml = /<[a-z][\s\S]*>/i.test(personalizedBodyHtml);
+        const cleanRawText = createCleanPlainText(personalizedBodyPlain);
         const plainTextFormatted = cleanRawText;
 
+        // Exact line preservation formatting
         const formattedHtmlBody = hasHtml 
-          ? personalizedBody 
-          : personalizedBody.replace(/\r\n/g, '\n').replace(/\n/g, '<br>');
+          ? personalizedBodyHtml 
+          : personalizedBodyHtml.replace(/\r\n/g, '\n').replace(/\n/g, '<br>');
 
-        // Natural normal weight (#202124, 400 normal weight, 11pt, standard 1-line top margin)
+        // Natural normal weight (#202124, 400 normal weight, 11pt, 1-line top margin)
         const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; font-weight: 400; color: #202124; line-height: 1.5; margin-top: 14px; padding-top: 2px; -webkit-font-smoothing: antialiased;">${formattedHtmlBody}</div>`;
 
-        // Pure Native Payload (Google DKIM Cryptographic Signature)
+        // Native payload for Google authentic DKIM signature
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
