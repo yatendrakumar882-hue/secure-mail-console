@@ -19,7 +19,6 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
-const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
@@ -57,32 +56,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 app.use(express.static(path.join(__dirname, 'public')));
 
-io.on('connection', (socket) => {
-  socket.on('disconnect', () => {});
-});
-
-async function verifyTurnstileToken(token, remoteIp) {
-  if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
-    return true;
-  }
-
-  try {
-    const formData = new URLSearchParams();
-    formData.append('secret', TURNSTILE_SECRET_KEY);
-    formData.append('response', token);
-    if (remoteIp) formData.append('remoteip', remoteIp);
-
-    const result = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-      method: 'POST',
-      body: formData,
-      headers: { 'content-type': 'application/x-www-form-urlencoded' }
-    });
-    const outcome = await result.json();
-    return outcome.success === true;
-  } catch {
-    return false;
-  }
-}
+io.on('connection', () => {});
 
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -93,7 +67,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS Handshake
+      secure: false, // STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -102,8 +76,8 @@ function getPort587Transporter(email, appPassword) {
       pool: true,
       maxConnections: 6,
       maxMessages: 50000,
-      socketTimeout: 45000,
-      connectionTimeout: 45000
+      socketTimeout: 35000,
+      connectionTimeout: 35000
     });
     poolMap.set(key, transporter);
   }
@@ -123,15 +97,6 @@ function parseRecipientData(input) {
     if (angleMatch) {
       rawName = angleMatch[1] ? angleMatch[1].trim() : '';
       email = angleMatch[2].trim();
-    } else if (str.includes(',')) {
-      const parts = str.split(',');
-      if (parts[0].includes('@')) {
-        email = parts[0].trim();
-        rawName = parts[1].trim();
-      } else {
-        rawName = parts[0].trim();
-        email = parts[1].trim();
-      }
     } else {
       email = str;
     }
@@ -203,170 +168,102 @@ function createCleanPlainText(text) {
     .trim();
 }
 
-app.post('/api/auth', (req, res) => {
-  const { password } = req.body;
-  if (password === SITE_PASSWORD) return res.json({ success: true, message: 'Authorized' });
-  return res.status(401).json({ success: false, message: 'Unauthorized Password' });
-});
-
-app.post('/api/verify', async (req, res) => {
-  const { email, appPassword, cfToken } = req.body;
-  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-
-  if (!email || !appPassword) {
-    return res.status(400).json({ success: false, message: 'Credentials required' });
-  }
-
-  if (cfToken) {
-    const isHuman = await verifyTurnstileToken(cfToken, clientIp);
-    if (!isHuman) {
-      return res.status(403).json({ success: false, message: 'Security Verification Failed' });
-    }
-  }
-
-  try {
-    const transporter = getPort587Transporter(email, appPassword);
-    await transporter.verify();
-    return res.json({ success: true, message: 'SMTP verified successfully' });
-  } catch (error) {
-    return res.status(401).json({
-      success: false,
-      message: error.message || 'SMTP Auth Failed. Check 16-char App Password.'
-    });
-  }
-});
-
 /* ==========================================================================
-   PRIMARY INBOX 6-BATCH STREAMING ROUTE (1 BLITCH = 6 EMAILS)
+   PRIMARY DISPATCH BATCH ROUTE (1 BLITCH = 6 EMAILS)
    ========================================================================== */
-app.post('/api/send-stream', async (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.flushHeaders?.();
-
-  const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
-  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+app.post('/api/send-batch', async (req, res) => {
+  const { email, appPassword, senderName, subject, messageBody, recipients } = req.body;
 
   if (!email || !appPassword || !Array.isArray(recipients) || recipients.length === 0) {
-    res.write(`data: ${JSON.stringify({ success: false, error: 'Invalid Request Data' })}\n\n`);
-    res.end();
-    return;
-  }
-
-  if (cfToken) {
-    const isHuman = await verifyTurnstileToken(cfToken, clientIp);
-    if (!isHuman) {
-      res.write(`data: ${JSON.stringify({ success: false, error: 'Turnstile Verification Failed' })}\n\n`);
-      res.end();
-      return;
-    }
+    return res.status(400).json({ success: false, error: 'Invalid Parameters' });
   }
 
   const cleanEmail = email.toLowerCase().trim();
   const cleanSenderName = (senderName || '').replace(/["\r\n]/g, '').trim();
   globalSession.stopRequested = false;
 
-  const keepAlivePing = setInterval(() => {
-    try { res.write(': keep-alive\n\n'); } catch {}
-  }, 3000);
+  // Respond immediately so Vercel does not buffer or timeout
+  res.json({ success: true, message: 'Processing started' });
 
-  const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 6;
+  // Background sending execution
+  (async () => {
+    const transporter = getPort587Transporter(email, appPassword);
+    const BATCH_SIZE = 6;
 
-  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
-    if (globalSession.stopRequested) {
-      res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
-      break;
-    }
+    for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
+      if (globalSession.stopRequested) break;
 
-    const batch = recipients.slice(i, i + BATCH_SIZE);
+      const batch = recipients.slice(i, i + BATCH_SIZE);
 
-    const sendPromises = batch.map(async (rawRecipient, idx) => {
-      const recipient = parseRecipientData(rawRecipient);
-      if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
+      const sendPromises = batch.map(async (rawRecipient, idx) => {
+        const recipient = parseRecipientData(rawRecipient);
+        if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      const quota = checkAndIncrementLimit(cleanEmail);
-      if (!quota.allowed) {
-        const limitPayload = { success: false, recipient: recipient.email, error: quota.message, isLimitFull: true };
-        io.emit('mail_error', limitPayload);
-        return limitPayload;
-      }
-
-      try {
-        if (idx > 0) {
-          // Dynamic Intra-batch Stagger (450ms - 750ms)
-          await new Promise(resolve => setTimeout(resolve, Math.floor(450 + Math.random() * 300)));
+        const quota = checkAndIncrementLimit(cleanEmail);
+        if (!quota.allowed) {
+          const limitPayload = { success: false, recipient: recipient.email, error: quota.message, isLimitFull: true };
+          io.emit('mail_error', limitPayload);
+          return limitPayload;
         }
 
-        const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
-        const personalizedBody = personalizeContent(messageBody, recipient);
-        const hasHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+        try {
+          if (idx > 0) {
+            await new Promise(resolve => setTimeout(resolve, Math.floor(450 + Math.random() * 300)));
+          }
 
-        const cleanRawText = createCleanPlainText(personalizedBody);
-        const plainTextFormatted = `\n${cleanRawText}`;
+          const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
+          const personalizedBody = personalizeContent(messageBody, recipient);
+          const hasHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-        // 11pt Native HTML (Outlook & Gmail 100% Size Locked)
-        const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
+          const cleanRawText = createCleanPlainText(personalizedBody);
+          const plainTextFormatted = `\n${cleanRawText}`;
 
-        // Pure Native Payload (Google automatically generates valid cryptographical DKIM & Message-ID)
-        const mailOptions = {
-          from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
-          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-          replyTo: cleanEmail,
-          subject: personalizedSubject,
-          html: cleanHtmlFormatted,
-          text: plainTextFormatted
-        };
+          // Exact 11pt HTML Typography Lock for Outlook & Gmail
+          const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
 
-        await transporter.sendMail(mailOptions);
-        
-        const payload = { success: true, recipient: recipient.email, name: recipient.name };
-        io.emit('mail_sent', payload);
-        return payload;
+          const mailOptions = {
+            from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
+            to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+            replyTo: cleanEmail,
+            subject: personalizedSubject,
+            html: cleanHtmlFormatted,
+            text: plainTextFormatted
+          };
 
-      } catch (err) {
-        const errPayload = { success: false, recipient: recipient.email, error: err.message };
-        io.emit('mail_error', errPayload);
-        return errPayload;
-      }
-    });
+          await transporter.sendMail(mailOptions);
 
-    const results = await Promise.allSettled(sendPromises);
+          const payload = { success: true, recipient: recipient.email, name: recipient.name };
+          io.emit('mail_sent', payload);
+          return payload;
 
-    for (const resItem of results) {
-      if (resItem.status === 'fulfilled' && resItem.value.recipient) {
-        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
+        } catch (err) {
+          const errPayload = { success: false, recipient: recipient.email, error: err.message };
+          io.emit('mail_error', errPayload);
+          return errPayload;
+        }
+      });
+
+      await Promise.allSettled(sendPromises);
+
+      if (i + BATCH_SIZE < recipients.length) {
+        const batchDelay = Math.floor(1800 + Math.random() * 1000);
+        await new Promise(resolve => setTimeout(resolve, batchDelay));
       }
     }
-
-    if (i + BATCH_SIZE < recipients.length) {
-      // Natural Rest Pause between 6-email batches (1800ms - 2800ms)
-      const batchDelay = Math.floor(1800 + Math.random() * 1000);
-      await new Promise(resolve => setTimeout(resolve, batchDelay));
-    }
-  }
-
-  clearInterval(keepAlivePing);
-  res.write('data: [DONE]\n\n');
-  res.end();
+  })();
 });
 
 app.post('/api/stop', (req, res) => {
   globalSession.stopRequested = true;
-  res.json({ success: true, message: 'Sending process stopped' });
+  res.json({ success: true, message: 'Stopped' });
 });
 
 app.get('*', (req, res) => {
   const filePath1 = path.join(__dirname, 'public', 'index.html');
   const filePath2 = path.join(process.cwd(), 'public', 'index.html');
 
-  if (fs.existsSync(filePath1)) {
-    return res.sendFile(filePath1);
-  } else if (fs.existsSync(filePath2)) {
-    return res.sendFile(filePath2);
-  }
+  if (fs.existsSync(filePath1)) return res.sendFile(filePath1);
+  if (fs.existsSync(filePath2)) return res.sendFile(filePath2);
   return res.status(200).send('<h1>Server Running</h1>');
 });
 
