@@ -57,7 +57,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS Handshake
+      secure: false, // Standard RFC 3207 STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -127,27 +127,6 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '');
 }
 
-// Intelligent Spam Protection & Content Cleaner
-function cleanSpamTriggers(text) {
-  if (!text) return '';
-  let sanitized = String(text);
-
-  // Remove invisible zero-width characters (popular bot fingerprints)
-  sanitized = sanitized.replace(/[\u200B-\u200D\uFEFF]/g, '');
-
-  // Normalize excessive spam symbols (e.g. "???" -> "?", "!!!" -> "!", "$$$" -> "$")
-  sanitized = sanitized.replace(/!{2,}/g, '!');
-  sanitized = sanitized.replace(/\?{2,}/g, '?');
-  sanitized = sanitized.replace(/\${2,}/g, '$');
-  sanitized = sanitized.replace(/%{2,}/g, '%');
-
-  // Fix spacing around punctuation marks
-  sanitized = sanitized.replace(/\s+([!?,.:;])/g, '$1');
-  sanitized = sanitized.replace(/\s{2,}/g, ' ');
-
-  return sanitized.trim();
-}
-
 function personalizeContent(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
@@ -159,7 +138,8 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  return cleanSpamTriggers(content);
+  content = content.replace(/[\u200B-\u200D\uFEFF]/g, '');
+  return content.trim();
 }
 
 function createCleanPlainText(text) {
@@ -175,7 +155,6 @@ function createCleanPlainText(text) {
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
-    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
@@ -186,7 +165,7 @@ app.post('/api/auth', (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 6-BATCH DISPATCH (1-LINE GAP TYPOGRAPHY)
+   PRIMARY INBOX 6-BATCH DISPATCH (NATURAL REGULAR WEIGHT & CLEAN INBOX TYPOGRAPHY)
    ========================================================================== */
 app.post('/api/send-batch', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients } = req.body;
@@ -201,7 +180,6 @@ app.post('/api/send-batch', async (req, res) => {
   try {
     const transporter = getPort587Transporter(email, appPassword);
 
-    // 1 Blitch = 6 Emails parallel execution
     const sendPromises = recipients.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
@@ -223,14 +201,13 @@ app.post('/api/send-batch', async (req, res) => {
         const cleanRawText = createCleanPlainText(personalizedBody);
         const plainTextFormatted = cleanRawText;
 
-        // 1-Line Gap Typography: Single line break conversion & standard line-height (1.45)
         const formattedHtmlBody = hasHtml 
           ? personalizedBody 
-          : cleanRawText.split('\n').join('<br>');
+          : personalizedBody.replace(/\r\n/g, '\n').replace(/\n/g, '<br>');
 
-        const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.45; margin: 0; padding: 0;">${formattedHtmlBody}</div>`;
+        // Natural normal-weight font (#202124, 400 normal weight, 11pt)
+        const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; font-weight: normal; color: #202124; line-height: 1.5; margin-top: 14px; padding-top: 2px; -webkit-font-smoothing: antialiased;">${formattedHtmlBody}</div>`;
 
-        // Pure Native Payload with Google Cryptographic DKIM Signing
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
