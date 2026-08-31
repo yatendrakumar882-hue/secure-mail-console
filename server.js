@@ -57,7 +57,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS
+      secure: false, // Standard RFC 3207 STARTTLS Handshake
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -127,6 +127,27 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '');
 }
 
+// Intelligent Spam Protection & Content Cleaner
+function cleanSpamTriggers(text) {
+  if (!text) return '';
+  let sanitized = String(text);
+
+  // Remove invisible zero-width characters (popular bot fingerprints)
+  sanitized = sanitized.replace(/[\u200B-\u200D\uFEFF]/g, '');
+
+  // Normalize excessive spam symbols (e.g. "???" -> "?", "!!!" -> "!", "$$$" -> "$")
+  sanitized = sanitized.replace(/!{2,}/g, '!');
+  sanitized = sanitized.replace(/\?{2,}/g, '?');
+  sanitized = sanitized.replace(/\${2,}/g, '$');
+  sanitized = sanitized.replace(/%{2,}/g, '%');
+
+  // Fix spacing around punctuation marks
+  sanitized = sanitized.replace(/\s+([!?,.:;])/g, '$1');
+  sanitized = sanitized.replace(/\s{2,}/g, ' ');
+
+  return sanitized.trim();
+}
+
 function personalizeContent(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
@@ -138,12 +159,7 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  // Clean bot-spacing around punctuation
-  content = content.replace(/[\u200B-\u200D\uFEFF]/g, '');
-  content = content.replace(/\s+([!?,.:;])/g, '$1');
-  content = content.replace(/\s{2,}/g, ' ');
-
-  return content.trim();
+  return cleanSpamTriggers(content);
 }
 
 function createCleanPlainText(text) {
@@ -152,14 +168,14 @@ function createCleanPlainText(text) {
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<br\s*[\/]?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/p>/gi, '\n')
     .replace(/<\/div>/gi, '\n')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
-    .replace(/\n\s*\n/g, '\n\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
@@ -170,7 +186,7 @@ app.post('/api/auth', (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX ENHANCED BATCH DISPATCH (1 BLITCH = 6 EMAILS)
+   PRIMARY INBOX 6-BATCH DISPATCH (1-LINE GAP TYPOGRAPHY)
    ========================================================================== */
 app.post('/api/send-batch', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients } = req.body;
@@ -197,7 +213,6 @@ app.post('/api/send-batch', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Dynamic jitter to stagger multi-threaded connection
           await new Promise(resolve => setTimeout(resolve, Math.floor(350 + Math.random() * 250)));
         }
 
@@ -206,15 +221,16 @@ app.post('/api/send-batch', async (req, res) => {
         const hasHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
         const cleanRawText = createCleanPlainText(personalizedBody);
-        
-        // RFC standard matching plain text
         const plainTextFormatted = cleanRawText;
 
-        // Clean HTML container without inline CSS spam triggers (Exact 11pt/14.5px Outlook sync)
-        const bodyContent = hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>');
-        const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.55; margin: 0; padding: 0;">${bodyContent}</div>`;
+        // 1-Line Gap Typography: Single line break conversion & standard line-height (1.45)
+        const formattedHtmlBody = hasHtml 
+          ? personalizedBody 
+          : cleanRawText.split('\n').join('<br>');
 
-        // Pure Native Payload (Google DKIM Cryptographic Signature)
+        const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.45; margin: 0; padding: 0;">${formattedHtmlBody}</div>`;
+
+        // Pure Native Payload with Google Cryptographic DKIM Signing
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
