@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Cloud Mailer Pro</title>
-  <script src="/socket.io/socket.io.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
     body { background: #0b1120; color: #f8fafc; padding: 24px; }
@@ -35,7 +34,7 @@
 <body>
 
 <div class="container">
-  <h1>⚡ Cloud Mailer Pro <span style="font-size: 12px; color: #94a3b8; font-weight: normal;">6-Batch Fast Engine</span></h1>
+  <h1>⚡ Cloud Mailer Pro <span style="font-size: 12px; color: #94a3b8; font-weight: normal;">6-Batch Engine</span></h1>
 
   <div class="grid">
     <div class="form-group">
@@ -55,7 +54,7 @@
       <input type="text" id="subject" placeholder="Subject line" />
     </div>
     <div class="form-group full-width">
-      <label>Recipients (1 per line)</label>
+      <label>Recipients (1 per line or Name &lt;email&gt;)</label>
       <textarea id="recipients" rows="4" placeholder="client1@domain.com&#10;client2@domain.com"></textarea>
     </div>
     <div class="form-group full-width">
@@ -87,31 +86,7 @@
 </div>
 
 <script>
-  let socket;
-  try {
-    socket = io();
-    socket.on('mail_sent', (data) => {
-      sent++;
-      document.getElementById('sentCount').textContent = sent;
-      log(`[SENT] -> ${data.recipient}`, 'success');
-      checkCompletion();
-    });
-
-    socket.on('mail_error', (data) => {
-      failed++;
-      document.getElementById('failedCount').textContent = failed;
-      log(`[FAILED] -> ${data.recipient} (${data.error})`, 'error');
-
-      if (data.isLimitFull) {
-        document.getElementById('limitMsg').textContent = data.error;
-        document.getElementById('limitModal').style.display = 'flex';
-        resetButton();
-      }
-      checkCompletion();
-    });
-  } catch(e) {}
-
-  let sent = 0, failed = 0, total = 0, isSending = false;
+  let sent = 0, failed = 0, total = 0, isSending = false, stopRequested = false;
 
   function log(msg, type = 'info') {
     const box = document.getElementById('logBox');
@@ -129,19 +104,13 @@
     btn.textContent = sending ? 'Sending in Progress...' : 'Start Campaign';
   }
 
-  function resetButton() {
-    setButtonState(false);
-  }
-
-  function checkCompletion() {
-    if (isSending && (sent + failed) >= total && total > 0) {
-      log('All emails processed!', 'success');
-      resetButton();
-    }
-  }
-
   function closeModal() {
     document.getElementById('limitModal').style.display = 'none';
+  }
+
+  function stopSending() {
+    stopRequested = true;
+    log('Stopping process requested...', 'error');
   }
 
   async function startSending() {
@@ -155,11 +124,11 @@
     const rawRecipients = document.getElementById('recipients').value.trim().split('\n').map(r => r.trim()).filter(Boolean);
 
     if (!email || !appPassword || rawRecipients.length === 0) {
-      alert('Please enter Gmail ID, 16-char App Password, and at least 1 Recipient!');
+      alert('Please fill email, 16-char app password, and at least 1 recipient.');
       return;
     }
 
-    sent = 0; failed = 0;
+    sent = 0; failed = 0; stopRequested = false;
     total = rawRecipients.length;
     document.getElementById('totalCount').textContent = total;
     document.getElementById('sentCount').textContent = '0';
@@ -167,30 +136,58 @@
     document.getElementById('logBox').innerHTML = '';
 
     setButtonState(true);
-    log(`Connecting & dispatching ${total} email(s)...`, 'info');
+    log(`Starting campaign for ${total} recipient(s)...`, 'info');
 
-    try {
-      const response = await fetch('/api/send-batch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, appPassword, senderName, subject, messageBody, recipients: rawRecipients })
-      });
-
-      const result = await response.json();
-      if (!result.success) {
-        log(`Error: ${result.error}`, 'error');
-        resetButton();
+    const BATCH_SIZE = 6;
+    for (let i = 0; i < rawRecipients.length; i += BATCH_SIZE) {
+      if (stopRequested) {
+        log('Campaign stopped by user.', 'error');
+        break;
       }
-    } catch (err) {
-      log(`Request Error: ${err.message}`, 'error');
-      resetButton();
-    }
-  }
 
-  async function stopSending() {
-    await fetch('/api/stop', { method: 'POST' });
-    log('Stop command requested.', 'error');
-    resetButton();
+      const batch = rawRecipients.slice(i, i + BATCH_SIZE);
+      log(`Sending batch of ${batch.length} email(s)...`, 'info');
+
+      try {
+        const response = await fetch('/api/send-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, appPassword, senderName, subject, messageBody, recipients: batch })
+        });
+
+        const data = await response.json();
+
+        if (!data.success && data.isLimitFull) {
+          document.getElementById('limitMsg').textContent = data.error;
+          document.getElementById('limitModal').style.display = 'flex';
+          log(`Limit reached: ${data.error}`, 'error');
+          break;
+        }
+
+        if (Array.isArray(data.results)) {
+          data.results.forEach(res => {
+            if (res.success) {
+              sent++;
+              document.getElementById('sentCount').textContent = sent;
+              log(`[SENT] -> ${res.recipient}`, 'success');
+            } else {
+              failed++;
+              document.getElementById('failedCount').textContent = failed;
+              log(`[FAILED] -> ${res.recipient} (${res.error})`, 'error');
+            }
+          });
+        }
+      } catch (err) {
+        log(`Batch Error: ${err.message}`, 'error');
+      }
+
+      if (i + BATCH_SIZE < rawRecipients.length && !stopRequested) {
+        await new Promise(r => setTimeout(r, 1500));
+      }
+    }
+
+    log('Campaign execution finished.', 'info');
+    setButtonState(false);
   }
 </script>
 </body>
