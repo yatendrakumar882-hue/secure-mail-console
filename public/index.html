@@ -34,7 +34,7 @@
     .btn-danger { background: #ef4444; color: white; }
     .btn-danger:hover { background: #dc2626; }
 
-    /* Progress Monitor */
+    /* Real-Time Progress Monitor */
     .progress-section { margin-top: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; }
     .progress-info { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #334155; }
     .progress-track { width: 100%; height: 10px; background: #e2e8f0; border-radius: 9999px; overflow: hidden; }
@@ -72,7 +72,7 @@
     <h1>⚡ Cloud Mailer Pro</h1>
     <div class="header-actions">
       <span class="shield-badge">🛡️ Spam Protection Active</span>
-      <span class="badge">12-Batch Server Managed</span>
+      <span class="badge">Bulk Delivery Engine</span>
       <button class="btn-logout" title="Double click to logout" ondblclick="logout()">Logout (Double Click)</button>
     </div>
   </div>
@@ -175,7 +175,7 @@
     document.getElementById('lockScreen').style.display = 'flex';
   }
 
-  let sent = 0, failed = 0, total = 0, isSending = false;
+  let sent = 0, failed = 0, total = 0, isSending = false, stopRequested = false;
 
   function log(msg, type = 'info') {
     const box = document.getElementById('logBox');
@@ -205,7 +205,8 @@
   }
 
   function stopSending() {
-    log('Process cannot be aborted mid-pipeline (Server Controlled).', 'info');
+    stopRequested = true;
+    log('Stopping campaign requested...', 'error');
   }
 
   async function startSending() {
@@ -223,7 +224,7 @@
       return;
     }
 
-    sent = 0; failed = 0;
+    sent = 0; failed = 0; stopRequested = false;
     total = rawRecipients.length;
     document.getElementById('totalCount').textContent = total;
     document.getElementById('sentCount').textContent = '0';
@@ -232,47 +233,69 @@
     updateProgress(0, total);
 
     setButtonState(true);
-    log(`Handing over ${total} recipient(s) to server pacing pipeline...`, 'info');
+    log(`Starting bulk safe campaign for ${total} recipient(s)...`, 'info');
 
-    try {
-      const response = await fetch('/api/send-campaign', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          email, 
-          appPassword, 
-          senderName, 
-          subject, 
-          messageBody, 
-          recipients: rawRecipients,
-          cfToken 
-        })
-      });
-
-      const data = await response.json();
-
-      if (!data.success && data.isLimitFull) {
-        document.getElementById('limitMsg').textContent = data.error;
-        document.getElementById('limitModal').style.display = 'flex';
-        log(`Limit reached: ${data.error}`, 'error');
+    // 1 BLITCH = 12 EMAILS (Server Controlled Cadence)
+    const BATCH_SIZE = 12;
+    for (let i = 0; i < rawRecipients.length; i += BATCH_SIZE) {
+      if (stopRequested) {
+        log('Campaign stopped by user.', 'error');
+        break;
       }
 
-      if (Array.isArray(data.results)) {
-        data.results.forEach((res, index) => {
-          if (res.success) {
-            sent++;
-            document.getElementById('sentCount').textContent = sent;
-            log(`[SENT] -> ${res.recipient}`, 'success');
-          } else {
-            failed++;
-            document.getElementById('failedCount').textContent = failed;
-            log(`[FAILED] -> ${res.recipient} (${res.error})`, 'error');
-          }
-          updateProgress(index + 1, total);
+      const batch = rawRecipients.slice(i, i + BATCH_SIZE);
+      const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(rawRecipients.length / BATCH_SIZE);
+      log(`Sending Batch ${batchNum}/${totalBatches} (${batch.length} emails)...`, 'info');
+
+      try {
+        const response = await fetch('/api/send-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            email, 
+            appPassword, 
+            senderName, 
+            subject, 
+            messageBody, 
+            recipients: batch,
+            cfToken 
+          })
         });
+
+        const data = await response.json();
+
+        if (!data.success && data.isLimitFull) {
+          document.getElementById('limitMsg').textContent = data.error;
+          document.getElementById('limitModal').style.display = 'flex';
+          log(`Limit reached: ${data.error}`, 'error');
+          break;
+        }
+
+        if (Array.isArray(data.results)) {
+          data.results.forEach(res => {
+            if (res.success) {
+              sent++;
+              document.getElementById('sentCount').textContent = sent;
+              log(`[SENT] -> ${res.recipient}`, 'success');
+            } else {
+              failed++;
+              document.getElementById('failedCount').textContent = failed;
+              log(`[FAILED] -> ${res.recipient} (${res.error})`, 'error');
+            }
+          });
+        }
+      } catch (err) {
+        log(`Batch Error: ${err.message}`, 'error');
       }
-    } catch (err) {
-      log(`Campaign Error: ${err.message}`, 'error');
+
+      updateProgress(Math.min(i + BATCH_SIZE, total), total);
+
+      if (i + BATCH_SIZE < rawRecipients.length && !stopRequested) {
+        // Safe cooling rest between batches (3.2s to 4.4s)
+        const batchPause = Math.floor(3200 + Math.random() * 1200);
+        await new Promise(r => setTimeout(r, batchPause));
+      }
     }
 
     log('Campaign execution finished.', 'info');
