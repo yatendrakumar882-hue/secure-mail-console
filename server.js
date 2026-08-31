@@ -18,9 +18,9 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x000000000000
    SPEED & INBOXING ENGINE CONFIGURATION (EDIT HERE ONLY)
    ========================================================================== */
 const SERVER_PACING_CONFIG = {
-  BATCH_SIZE: 2,                   // 1 Blitch = 2 Emails
-  INTRA_MIN_DELAY: 750,            // 0.75s min delay per email (Safe + Fast)
-  INTRA_RANDOM_DELAY: 400          // + 0.4s jitter (0.75s - 1.15s)
+  BATCH_SIZE: 8,                   // 1 Blitch = 8 Emails
+  INTRA_MIN_DELAY: 800,            // 0.8s min delay per email (Safe + Fast)
+  INTRA_RANDOM_DELAY: 500          // + 0.5s jitter (0.8s - 1.3s)
 };
 
 const poolMap = new Map();
@@ -97,7 +97,7 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6,
+      maxConnections: 8,
       maxMessages: 500,
       socketTimeout: 45000,
       connectionTimeout: 45000
@@ -209,7 +209,7 @@ app.post('/api/auth', (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 2-BATCH DISPATCH (FAST + SAFE ENGINE)
+   PRIMARY INBOX 8-BATCH DISPATCH (FAST + SAFE INBOXING ENGINE)
    ========================================================================== */
 app.post('/api/send-batch', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
@@ -233,7 +233,7 @@ app.post('/api/send-batch', async (req, res) => {
     const transporter = getPort587Transporter(email, appPassword);
     const { INTRA_MIN_DELAY, INTRA_RANDOM_DELAY } = SERVER_PACING_CONFIG;
 
-    // 1 Blitch = 2 Emails execution
+    // 1 Blitch = 8 Emails execution
     const sendPromises = recipients.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
@@ -260,7 +260,7 @@ app.post('/api/send-batch', async (req, res) => {
           ? personalizedBody 
           : cleanRawText.replace(/\n/g, '<br>');
 
-        // 11pt, #202124 color, regular 400 weight, standard 14px top gap
+        // Standard 11pt, #202124 color, regular 400 weight, standard 14px top gap
         const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; font-weight: normal; color: #202124; line-height: 1.5; margin-top: 14px; padding-top: 2px;">${formattedHtmlBody}</div>`;
 
         // Pure Google DKIM/ARC Native Payload
