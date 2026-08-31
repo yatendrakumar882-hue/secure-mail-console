@@ -24,6 +24,7 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x000000000000
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
+// Express Configuration
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
@@ -34,10 +35,14 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {});
 });
 
+/* ==========================================================================
+   TURNSTILE BOT PROTECTION VERIFICATION
+   ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
     return true;
   }
+
   try {
     const formData = new URLSearchParams();
     formData.append('secret', TURNSTILE_SECRET_KEY);
@@ -56,6 +61,9 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
+/* ==========================================================================
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
+   ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
@@ -66,9 +74,12 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: '://gmail.com',
       port: 587,
-      secure: false,
+      secure: false, 
       requireTLS: true,
-      auth: { user: cleanEmail, pass: cleanPass },
+      auth: {
+        user: cleanEmail,
+        pass: cleanPass
+      },
       pool: true,
       maxConnections: 6,
       maxMessages: 50000,
@@ -80,6 +91,9 @@ function getPort587Transporter(email, appPassword) {
   return poolMap.get(key);
 }
 
+/* ==========================================================================
+   RECIPIENT NORMALIZATION & ADVANCED SPINTAX
+   ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
   let rawName = '';
@@ -97,10 +111,10 @@ function parseRecipientData(input) {
       const parts = str.split(',');
       if (parts[0].includes('@')) {
         email = parts[0].trim();
-        rawName = parts[1].trim();
+        rawName = parts[1] ? parts[1].trim() : '';
       } else {
         rawName = parts[0].trim();
-        email = parts[1].trim();
+        email = parts[1] ? parts[1].trim() : '';
       }
     } else {
       email = str;
@@ -145,6 +159,7 @@ function parseSpintax(text) {
 function personalizeContent(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
+
   const fallback = recipient.firstName || recipient.name || '';
 
   content = content.replace(/{Name}/gi, recipient.name || fallback || 'there');
@@ -177,6 +192,9 @@ function createCleanPlainText(text) {
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/* ==========================================================================
+   API ROUTES
+   ========================================================================== */
 app.post('/api/auth', (req, res) => {
   const { password } = req.body;
   if (!password || !SITE_PASSWORD) {
@@ -197,9 +215,12 @@ app.post('/api/verify', async (req, res) => {
   if (!email || !appPassword) {
     return res.status(400).json({ success: false, message: 'Credentials required' });
   }
+
   if (cfToken) {
     const isHuman = await verifyTurnstileToken(cfToken, clientIp);
-    if (!isHuman) return res.status(403).json({ success: false, message: 'Security Verification Failed' });
+    if (!isHuman) {
+      return res.status(403).json({ success: false, message: 'Security Verification Failed' });
+    }
   }
 
   try {
@@ -207,10 +228,16 @@ app.post('/api/verify', async (req, res) => {
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP verified successfully' });
   } catch (error) {
-    return res.status(401).json({ success: false, message: error.message || 'SMTP Auth Failed.' });
+    return res.status(401).json({
+      success: false,
+      message: error.message || 'SMTP Auth Failed. Check 16-char App Password.'
+    });
   }
 });
 
+/* ==========================================================================
+   PRIMARY INBOX 6-BATCH STREAMING ROUTE
+   ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -237,6 +264,7 @@ app.post('/api/send-stream', async (req, res) => {
   try {
     const transporter = getPort587Transporter(email, appPassword);
     globalSession.stopRequested = false;
+
     res.write(`data: ${JSON.stringify({ status: 'started', total: recipients.length })}\n\n`);
 
     const batchSize = 6;
@@ -247,45 +275,8 @@ app.post('/api/send-stream', async (req, res) => {
       }
 
       const currentBatch = recipients.slice(i, i + batchSize);
+      
       const mailPromises = currentBatch.map(async (recipientInput) => {
         const target = parseRecipientData(recipientInput);
         if (!target.email) return { email: 'Unknown', success: false, error: 'Invalid Email format' };
 
-        const finalSubject = personalizeContent(subject, target);
-        const finalHTML = personalizeContent(messageBody, target);
-        const plainText = createCleanPlainText(finalHTML);
-
-        const mailOptions = {
-          from: senderName ? `"${parseSpintax(senderName)}" <${email}>` : email,
-          to: target.email,
-          subject: finalSubject,
-          html: finalHTML,
-          text: plainText
-        };
-
-        try {
-          await transporter.sendMail(mailOptions);
-          return { email: target.email, success: true };
-        } catch (err) {
-          return { email: target.email, success: false, error: err.message };
-        }
-      });
-
-      const results = await Promise.all(mailPromises);
-      results.forEach((resItem) => {
-        res.write(`data: ${JSON.stringify({ status: 'progress', data: resItem })}\n\n`);
-      });
-
-      if (i + batchSize < recipients.length) {
-        await delay(1500);
-      }
-    }
-    res.write(`data: ${JSON.stringify({ status: 'completed' })}\n\n`);
-  } catch (error) {
-    res.write(`data: ${JSON.stringify({ success: false, message: error.message })}\n\n`);
-  } finally {
-    res.end();
-  }
-});
-
-app.post('/api/stop-stream', (req, res) => {
