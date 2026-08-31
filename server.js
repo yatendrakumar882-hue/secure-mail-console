@@ -235,8 +235,8 @@ app.post('/api/send-batch', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Natural Stagger (2.5s - 4.0s) to prevent spam burst flags
-          await new Promise(resolve => setTimeout(resolve, Math.floor(2500 + Math.random() * 1500)));
+          // Natural Stagger (1.2s - 1.7s) to prevent spam burst flags
+          await new Promise(resolve => setTimeout(resolve, Math.floor(1250 + Math.random() * 500)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
