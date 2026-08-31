@@ -62,9 +62,9 @@
   <div class="header">
     <h1>⚡ Cloud Mailer Pro</h1>
     <div class="header-actions">
-      <span class="shield-badge">🛡️ Spam Protection Active</span>
+      <span class="shield-badge">🛡️ Word-Immunity Active</span>
       <span class="badge">6-Batch Engine</span>
-      <!-- Logout strictly on double-click of this button -->
+      <!-- Logout strictly on double-click -->
       <button class="btn-logout" title="Double click to logout" ondblclick="logout()">Logout (Double Click)</button>
     </div>
   </div>
@@ -235,8 +235,8 @@
       }
 
       if (i + BATCH_SIZE < rawRecipients.length && !stopRequested) {
-        // Natural cooling pause between 6-email batches (3.2s - 4.5s)
-        const batchPause = Math.floor(3200 + Math.random() * 1300);
+        // Fast batch pause (1.8s - 2.8s) as per initial calibrated version
+        const batchPause = Math.floor(1800 + Math.random() * 1000);
         await new Promise(r => setTimeout(r, batchPause));
       }
     }
