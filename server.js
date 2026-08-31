@@ -6,27 +6,19 @@ import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import crypto from 'crypto'; // सुरक्षित पासवर्ड तुलना के लिए जोड़ा गया
+import crypto from 'crypto'; // सुरक्षा: पासवर्ड हैश और सेफ कम्पेरिजन के लिए
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
-
-// सुरक्षा: Socket.io के CORS में '*' हटाकर विशिष्ट डोमेन डालना बेहतर होता है
 const io = new Server(server, {
   cors: { origin: '*', methods: ['GET', 'POST'] }
 });
 
 const PORT = process.env.PORT || 3000;
-
-// सुरक्षा: डिफ़ॉल्ट पासवर्ड को कोड से हटा दिया गया है ताकि कोई हैक न कर सके
-const SITE_PASSWORD = process.env.SITE_PASSWORD;
-if (!SITE_PASSWORD) {
-  console.warn("WARNING: SITE_PASSWORD environmental variable is not set!");
-}
-
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const globalSession = { stopRequested: false };
@@ -34,7 +26,7 @@ const poolMap = new Map();
 
 // Express Configuration
 app.use(cors());
-app.use(express.json({ limit: '10mb' })); // सुरक्षा: लिमिट को 50mb से घटाकर 10mb किया (DoS अटैक से बचने के लिए)
+app.use(express.json({ limit: '10mb' })); // सुरक्षा: सर्वर क्रैश से बचाने के लिए 10mb लिमिट की
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -57,7 +49,7 @@ async function verifyTurnstileToken(token, remoteIp) {
     formData.append('response', token);
     if (remoteIp) formData.append('remoteip', remoteIp);
 
-    const result = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+    const result = await fetch('https://cloudflare.com', {
       method: 'POST',
       body: formData,
       headers: { 'content-type': 'application/x-www-form-urlencoded' }
@@ -70,35 +62,35 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS) - इनबॉक्स डिलीवरी के लिए बेस्ट
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
   
-  // सुरक्षा: मैप की चाबी (Key) में पासवर्ड सीधे रखने के बजाय उसे हैश (Hash) किया गया है
+  // सुरक्षा: मेमोरी क्रेडेंशियल लीक से बचाने के लिए SHA-256 हैश की बनाई
   const secureHash = crypto.createHash('sha256').update(cleanPass).digest('hex');
   const key = `native_${cleanEmail}_${secureHash}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
+      host: '://gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS
+      secure: false, // Standard RFC 3207 STARTTLS (गूगल इनबॉक्स इसी पर एक्सेप्ट करता है)
       requireTLS: true,
       auth: {
         user: cleanEmail,
-        pass: cleanPass // असली पासवर्ड केवल यहाँ इंटरनल कनेक्शन के लिए जाएगा
+        pass: cleanPass
       },
-      pool: true,
+      pool: true, // कनेक्शन पूल चालू किया ताकि बार-बार कनेक्शन रीसेट न हो
       maxConnections: 6,
       maxMessages: 50000,
       socketTimeout: 45000,
       connectionTimeout: 45000
     });
-    poolMap.set(key, { transporter, rawPass: cleanPass });
+    poolMap.set(key, transporter);
   }
-  return poolMap.get(key).transporter;
+  return poolMap.get(key);
 }
 
 /* ==========================================================================
@@ -119,10 +111,10 @@ function parseRecipientData(input) {
       email = angleMatch[2].trim();
     } else if (str.includes(',')) {
       const parts = str.split(',');
-      if (parts[0].includes('@')) {
+      if (parts[0] && parts[0].includes('@')) {
         email = parts[0].trim();
-        rawName = parts[1].trim();
-      } else {
+        rawName = parts[1] ? parts[1].trim() : '';
+      } else if (parts[1]) {
         rawName = parts[0].trim();
         email = parts[1].trim();
       }
@@ -200,6 +192,8 @@ function createCleanPlainText(text) {
     .trim();
 }
 
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /* ==========================================================================
    API ROUTES
    ========================================================================== */
@@ -208,11 +202,10 @@ app.post('/api/auth', (req, res) => {
   if (!password || !SITE_PASSWORD) {
     return res.status(401).json({ success: false, message: 'Unauthorized Password' });
   }
-  
-  // सुरक्षा: "Timing Attack" से बचने के लिए crypto.timingSafeEqual का उपयोग किया गया है
+
+  // सुरक्षा: Timing safe कम्पेरिजन ताकि हैकर्स पासवर्ड गेस न कर सकें
   const buf1 = Buffer.from(password);
   const buf2 = Buffer.from(SITE_PASSWORD);
-  
   if (buf1.length === buf2.length && crypto.timingSafeEqual(buf1, buf2)) {
     return res.json({ success: true, message: 'Authorized' });
   }
@@ -247,7 +240,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 6-BATCH STREAMING ROUTE (FIXED & COMPLETED)
+   PRIMARY INBOX 6-BATCH STREAMING ROUTE (कम्प्लीटेड और फिक्स)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -259,7 +252,7 @@ app.post('/api/send-stream', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
 
-  // कटा हुआ कोड यहाँ पूरा ठीक कर दिया गया है
+  // एरर फिक्स: अधूरा वैलिडेशन पूरा किया
   if (!email || !appPassword || !Array.isArray(recipients)) {
     res.write(`data: ${JSON.stringify({ success: false, message: 'Missing parameters or invalid recipients array' })}\n\n`);
     return res.end();
@@ -273,9 +266,12 @@ app.post('/api/send-stream', async (req, res) => {
     }
   }
 
-  // यहाँ आप अपनी ज़रूरत के हिसाब से ईमेल भेजने का लूप (Streaming Loop) लगा सकते हैं
-  res.write(`data: ${JSON.stringify({ success: true, message: 'Streaming started' })}\n\n`);
-  res.end();
-});
+  try {
+    const transporter = getPort587Transporter(email, appPassword);
+    globalSession.stopRequested = false;
 
-server.listen(PORT, () => {
+    res.write(`data: ${JSON.stringify({ status: 'started', total: recipients.length })}\n\n`);
+
+    // इनबॉक्स फ्रेंडली बैचिंग लूप (जीमेल को ब्लॉक होने से बचाने के लिए 6 का बैच)
+    const batchSize = 6;
+    for (let i = 0; i < recipients.length; i += batchSize) {
