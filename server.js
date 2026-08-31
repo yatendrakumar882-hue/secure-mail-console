@@ -57,7 +57,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS
+      secure: false, // Standard RFC 3207 STARTTLS Handshake
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -147,7 +147,7 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  // Remove invisible bot characters
+  // Strip invisible non-printable characters
   content = content.replace(/[\u200B-\u200D\uFEFF]/g, '');
   return content.trim();
 }
@@ -175,7 +175,7 @@ app.post('/api/auth', (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 6-BATCH DISPATCH (CALIBRATED HUMAN SPEED & CLEAN TYPOGRAPHY)
+   SAFE-CADENCE 6-BATCH DISPATCH (NATIVE DKIM & INBOX DELIVERABILITY)
    ========================================================================== */
 app.post('/api/send-batch', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients } = req.body;
@@ -190,7 +190,7 @@ app.post('/api/send-batch', async (req, res) => {
   try {
     const transporter = getPort587Transporter(email, appPassword);
 
-    // 1 Blitch = 6 Emails parallel execution
+    // 1 Blitch = 6 Emails parallel with staggered safe human cadence
     const sendPromises = recipients.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
@@ -202,8 +202,8 @@ app.post('/api/send-batch', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Slightly slower safe human delay (650ms - 1100ms)
-          await new Promise(resolve => setTimeout(resolve, Math.floor(650 + Math.random() * 450)));
+          // Safe Human Jitter Stagger (900ms - 1500ms) to avoid burst filters
+          await new Promise(resolve => setTimeout(resolve, Math.floor(900 + Math.random() * 600)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
