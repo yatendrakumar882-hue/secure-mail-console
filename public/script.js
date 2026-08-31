@@ -70,6 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
             window.location.reload();
         });
 
+        // Single click hint animation
         let clickTimer;
         logoutBtn.addEventListener('click', () => {
             clearTimeout(clickTimer);
