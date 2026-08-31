@@ -19,10 +19,11 @@
     
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
     .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .full-width { grid-column: span 2; }
     label { font-size: 13px; font-weight: 600; color: #475569; }
     input, textarea { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; color: #0f172a; font-size: 14px; outline: none; width: 100%; transition: border-color 0.2s; }
     input:focus, textarea:focus { border-color: #0284c7; background: #ffffff; box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.1); }
-    textarea { resize: vertical; min-height: 140px; }
+    textarea { resize: vertical; min-height: 130px; }
     
     .controls-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 10px; margin-bottom: 16px; flex-wrap: wrap; }
     .turnstile-wrapper { display: flex; align-items: center; min-height: 65px; }
@@ -66,7 +67,7 @@
     <h1>⚡ Cloud Mailer Pro</h1>
     <div class="header-actions">
       <span class="shield-badge">🛡️ Spam Protection Active</span>
-      <span class="badge">10-Batch Engine</span>
+      <span class="badge">8-Batch Engine</span>
       <button class="btn-logout" title="Double click to logout" ondblclick="logout()">Logout (Double Click)</button>
     </div>
   </div>
@@ -92,7 +93,13 @@
       <input type="text" id="subject" placeholder="Subject line" />
     </div>
 
-    <!-- Row 3: Email Message Template - Recipients -->
+    <!-- Row 3: Template Link Input (Optional) -->
+    <div class="form-group full-width">
+      <label>Include Link (Optional - Appears 2 lines below template)</label>
+      <input type="text" id="customLink" placeholder="https://example.com or example.com" />
+    </div>
+
+    <!-- Row 4: Email Message Template - Recipients -->
     <div class="form-group">
       <label>Email Message Template (HTML / Plain Text)</label>
       <textarea id="messageBody" placeholder="Your site offers a tidy design but isn't appearing on the 1st pages. Can I email you quote?"></textarea>
@@ -192,6 +199,7 @@
     const appPassword = document.getElementById('appPassword').value.trim();
     const senderName = document.getElementById('senderName').value.trim();
     const subject = document.getElementById('subject').value.trim();
+    const customLink = document.getElementById('customLink').value.trim();
     const messageBody = document.getElementById('messageBody').value.trim();
     const rawRecipients = document.getElementById('recipients').value.trim().split('\n').map(r => r.trim()).filter(Boolean);
 
@@ -208,10 +216,10 @@
     document.getElementById('logBox').innerHTML = '';
 
     setButtonState(true);
-    log(`Starting 10-batch campaign for ${total} recipient(s)...`, 'info');
+    log(`Starting 8-batch campaign for ${total} recipient(s)...`, 'info');
 
-    // 1 BLITCH = 10 EMAILS
-    const BATCH_SIZE = 10;
+    // 1 BLITCH = 8 EMAILS
+    const BATCH_SIZE = 8;
     for (let i = 0; i < rawRecipients.length; i += BATCH_SIZE) {
       if (stopRequested) {
         log('Campaign stopped by user.', 'error');
@@ -232,6 +240,7 @@
             appPassword, 
             senderName, 
             subject, 
+            customLink,
             messageBody, 
             recipients: batch,
             cfToken 
@@ -265,8 +274,7 @@
       }
 
       if (i + BATCH_SIZE < rawRecipients.length && !stopRequested) {
-        // Natural Cooling Rest Pause between 10-email batches (2.5s to 3.8s)
-        const batchPause = Math.floor(2500 + Math.random() * 1300);
+        const batchPause = Math.floor(2400 + Math.random() * 1100);
         await new Promise(r => setTimeout(r, batchPause));
       }
     }
