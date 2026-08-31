@@ -81,7 +81,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS Handshake
+      secure: false, // RFC 3207 STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -173,7 +173,8 @@ function personalizeContent(template, recipient) {
   content = content.replace(/\{Email\}/gi, recipient.email);
   content = content.replace(/\{Domain\}/gi, recipient.domain);
 
-  content = content.replace(/[\u200B-\u200D\uFEFF]/g, '');
+  // Pure natural sanitize
+  content = content.replace(/\r\n/g, '\n');
   return content.trim();
 }
 
@@ -183,7 +184,7 @@ function createCleanPlainText(text) {
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<br\s*[\/]?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
     .replace(/<\/div>/gi, '\n')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/gi, ' ')
@@ -200,7 +201,7 @@ app.post('/api/auth', (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 6-BATCH DISPATCH (SPAM-PROTECTION & NATIVE DKIM AUTH)
+   PRIMARY INBOX 6-BATCH DISPATCH (1 BLITCH = 6 EMAILS)
    ========================================================================== */
 app.post('/api/send-batch', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
@@ -210,7 +211,6 @@ app.post('/api/send-batch', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Invalid Parameters' });
   }
 
-  // Turnstile verification
   if (cfToken) {
     const isVerified = await verifyTurnstileToken(cfToken, clientIp);
     if (!isVerified) {
@@ -224,7 +224,6 @@ app.post('/api/send-batch', async (req, res) => {
   try {
     const transporter = getPort587Transporter(email, appPassword);
 
-    // 1 Blitch = 6 Emails parallel execution
     const sendPromises = recipients.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
@@ -236,7 +235,8 @@ app.post('/api/send-batch', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(450 + Math.random() * 300)));
+          // Dynamic Stagger (400ms - 700ms)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(400 + Math.random() * 300)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
@@ -248,20 +248,19 @@ app.post('/api/send-batch', async (req, res) => {
 
         const formattedHtmlBody = hasHtml 
           ? personalizedBody 
-          : personalizedBody.replace(/\r\n/g, '\n').replace(/\n/g, '<br>');
+          : cleanRawText.replace(/\n/g, '<br>');
 
-        // 11pt, normal weight 400, #202124, 1-line top margin (14px)
-        const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; font-weight: 400; color: #202124; line-height: 1.5; margin-top: 14px; padding-top: 2px; -webkit-font-smoothing: antialiased;">${formattedHtmlBody}</div>`;
+        // Pure Native Webmail Layout (11pt / 14.5px, #202124 color, standard 1-line top gap)
+        const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; font-weight: normal; color: #202124; line-height: 1.5; margin-top: 14px; padding-top: 2px;">${formattedHtmlBody}</div>`;
 
-        // Pure Native Payload (Google DKIM Cryptographic Signature)
+        // Pure Google DKIM/ARC Native Envelope
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           subject: personalizedSubject,
           text: plainTextFormatted,
-          html: cleanHtmlFormatted,
-          encoding: 'utf-8'
+          html: cleanHtmlFormatted
         };
 
         await transporter.sendMail(mailOptions);
