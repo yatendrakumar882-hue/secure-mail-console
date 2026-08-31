@@ -89,9 +89,9 @@ function getPort587Transporter(email, appPassword) {
       },
       pool: true,
       maxConnections: 8,
-      maxMessages: 250,
-      socketTimeout: 50000,
-      connectionTimeout: 50000
+      maxMessages: 200,
+      socketTimeout: 45000,
+      connectionTimeout: 45000
     });
     poolMap.set(key, transporter);
   }
@@ -200,10 +200,10 @@ app.post('/api/auth', (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 8-BATCH DISPATCH (SLOW NATURAL CADENCE)
+   PRIMARY INBOX CLEAN DISPATCH (1 BLITCH = 8 EMAILS)
    ========================================================================== */
 app.post('/api/send-batch', async (req, res) => {
-  const { email, appPassword, senderName, subject, customLink, messageBody, recipients, cfToken } = req.body;
+  const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
 
   if (!email || !appPassword || !Array.isArray(recipients) || recipients.length === 0) {
@@ -220,23 +220,10 @@ app.post('/api/send-batch', async (req, res) => {
   const cleanEmail = email.toLowerCase().trim();
   const cleanSenderName = (senderName || '').replace(/["\r\n]/g, '').trim();
 
-  // Format custom link (2-line gap below template)
-  let formattedUrl = (customLink || '').trim();
-  let linkHtmlPart = '';
-  let linkTextPart = '';
-
-  if (formattedUrl) {
-    if (!/^https?:\/\//i.test(formattedUrl)) {
-      formattedUrl = `https://${formattedUrl}`;
-    }
-    linkHtmlPart = `<br><br><a href="${formattedUrl}" target="_blank" rel="noopener noreferrer" style="color: #0284c7; text-decoration: underline;">${formattedUrl}</a>`;
-    linkTextPart = `\n\n${formattedUrl}`;
-  }
-
   try {
     const transporter = getPort587Transporter(email, appPassword);
 
-    // 1 Blitch = 8 Emails parallel execution with slow, natural stagger
+    // 1 Blitch = 8 Emails parallel execution
     const sendPromises = recipients.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
@@ -248,8 +235,8 @@ app.post('/api/send-batch', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Slow Human Jitter Delay (3.5s - 5.5s per mail) to bypass burst spam detection
-          await new Promise(resolve => setTimeout(resolve, Math.floor(3500 + Math.random() * 2000)));
+          // Natural Stagger (2.5s - 4.0s) to prevent spam burst flags
+          await new Promise(resolve => setTimeout(resolve, Math.floor(2500 + Math.random() * 1500)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
@@ -257,16 +244,16 @@ app.post('/api/send-batch', async (req, res) => {
         const hasHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
         const cleanRawText = createCleanPlainText(personalizedBody);
-        const plainTextFormatted = `${cleanRawText}${linkTextPart}`;
+        const plainTextFormatted = cleanRawText;
 
-        const formattedHtmlBody = (hasHtml 
+        const formattedHtmlBody = hasHtml 
           ? personalizedBody 
-          : cleanRawText.replace(/\n/g, '<br>')) + linkHtmlPart;
+          : cleanRawText.replace(/\n/g, '<br>');
 
-        // Standard 11pt, #202124 color, 400 normal weight, standard 14px top margin gap
+        // Exact 11pt, #202124 color, regular 400 weight, standard 14px top gap
         const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; font-weight: normal; color: #202124; line-height: 1.5; margin-top: 14px; padding-top: 2px;">${formattedHtmlBody}</div>`;
 
-        // Pure Google Native Payload
+        // Pure Google DKIM/ARC Native Payload
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
