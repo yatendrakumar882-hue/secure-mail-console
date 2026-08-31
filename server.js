@@ -88,7 +88,7 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 8,
+      maxConnections: 12,
       maxMessages: 200,
       socketTimeout: 45000,
       connectionTimeout: 45000
@@ -200,7 +200,7 @@ app.post('/api/auth', (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX CLEAN DISPATCH (1 BLITCH = 8 EMAILS)
+   PRIMARY INBOX CLEAN DISPATCH (1 BLITCH = 12 EMAILS)
    ========================================================================== */
 app.post('/api/send-batch', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
