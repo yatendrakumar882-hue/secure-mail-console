@@ -235,7 +235,9 @@
       }
 
       if (i + BATCH_SIZE < rawRecipients.length && !stopRequested) {
-        await new Promise(r => setTimeout(r, 1400));
+        // Safe inter-batch cooling pause (2.4s - 3.2s)
+        const batchPause = Math.floor(2400 + Math.random() * 800);
+        await new Promise(r => setTimeout(r, batchPause));
       }
     }
 
