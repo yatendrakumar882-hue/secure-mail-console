@@ -15,14 +15,14 @@ const SITE_PASSWORD = process.env.SITE_PASSWORD || '@#@#';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 /* ==========================================================================
-   CENTRALIZED SPEED & PACING ENGINE (EDIT HERE ONLY)
+   CENTRALIZED BULK PACING ENGINE
    ========================================================================== */
 const SERVER_PACING_CONFIG = {
   BATCH_SIZE: 12,                  // 1 Blitch = 12 Emails
-  INTRA_MIN_DELAY: 1250,           // 1.25s min delay per email
-  INTRA_RANDOM_DELAY: 500,         // + 0.5s random jitter (1.25s - 1.75s)
-  INTER_BATCH_MIN_PAUSE: 3000,     // 3.0s min pause between batches
-  INTER_BATCH_RANDOM_PAUSE: 1000   // + 1.0s random jitter (3.0s - 4.0s)
+  INTRA_MIN_DELAY: 1200,           // 1.2s min delay per email
+  INTRA_RANDOM_DELAY: 600,         // + 0.6s jitter (1.2s - 1.8s)
+  INTER_BATCH_MIN_PAUSE: 3200,     // 3.2s min pause between batches
+  INTER_BATCH_RANDOM_PAUSE: 1200   // + 1.2s jitter (3.2s - 4.4s)
 };
 
 const poolMap = new Map();
@@ -92,7 +92,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS Handshake
+      secure: false, // Standard RFC 3207 STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -100,9 +100,9 @@ function getPort587Transporter(email, appPassword) {
       },
       pool: true,
       maxConnections: 12,
-      maxMessages: 200,
-      socketTimeout: 45000,
-      connectionTimeout: 45000
+      maxMessages: 500,
+      socketTimeout: 50000,
+      connectionTimeout: 50000
     });
     poolMap.set(key, transporter);
   }
@@ -211,9 +211,9 @@ app.post('/api/auth', (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX BULK PIPELINE WITH STREAMED PACING
+   PRIMARY INBOX BULK EXECUTION ENGINE
    ========================================================================== */
-app.post('/api/send-campaign', async (req, res) => {
+app.post('/api/send-batch', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
 
@@ -233,76 +233,64 @@ app.post('/api/send-campaign', async (req, res) => {
 
   try {
     const transporter = getPort587Transporter(email, appPassword);
-    const allResults = [];
-    const { BATCH_SIZE, INTRA_MIN_DELAY, INTRA_RANDOM_DELAY, INTER_BATCH_MIN_PAUSE, INTER_BATCH_RANDOM_PAUSE } = SERVER_PACING_CONFIG;
+    const { INTRA_MIN_DELAY, INTRA_RANDOM_DELAY } = SERVER_PACING_CONFIG;
 
-    for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
-      const currentBatch = recipients.slice(i, i + BATCH_SIZE);
+    const sendPromises = recipients.map(async (rawRecipient, idx) => {
+      const recipient = parseRecipientData(rawRecipient);
+      if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      const batchPromises = currentBatch.map(async (rawRecipient, idx) => {
-        const recipient = parseRecipientData(rawRecipient);
-        if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
-
-        const quota = checkAndIncrementLimit(cleanEmail);
-        if (!quota.allowed) {
-          return { success: false, recipient: recipient.email, error: quota.message, isLimitFull: true };
-        }
-
-        try {
-          if (idx > 0) {
-            const dynamicStagger = Math.floor(INTRA_MIN_DELAY + Math.random() * INTRA_RANDOM_DELAY);
-            await new Promise(resolve => setTimeout(resolve, dynamicStagger));
-          }
-
-          const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
-          const personalizedBody = personalizeContent(messageBody, recipient);
-          const hasHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
-
-          const cleanRawText = createCleanPlainText(personalizedBody);
-          const plainTextFormatted = cleanRawText;
-
-          const formattedHtmlBody = hasHtml 
-            ? personalizedBody 
-            : cleanRawText.replace(/\n/g, '<br>');
-
-          // Standard 11pt, #202124, 400 normal weight, standard 14px top gap
-          const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; font-weight: normal; color: #202124; line-height: 1.5; margin-top: 14px; padding-top: 2px;">${formattedHtmlBody}</div>`;
-
-          // Pure Google DKIM/ARC Native Payload
-          const mailOptions = {
-            from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
-            to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-            replyTo: cleanEmail,
-            subject: personalizedSubject,
-            text: plainTextFormatted,
-            html: cleanHtmlFormatted
-          };
-
-          await transporter.sendMail(mailOptions);
-          return { success: true, recipient: recipient.email, name: recipient.name };
-
-        } catch (err) {
-          return { success: false, recipient: recipient.email, error: err.message };
-        }
-      });
-
-      const settledBatch = await Promise.allSettled(batchPromises);
-      const batchResults = settledBatch.map(s => s.status === 'fulfilled' ? s.value : { success: false, error: 'Execution failed' });
-
-      allResults.push(...batchResults);
-
-      const limitReached = batchResults.find(r => r.isLimitFull);
-      if (limitReached) {
-        return res.json({ success: false, isLimitFull: true, error: limitReached.error, results: allResults });
+      const quota = checkAndIncrementLimit(cleanEmail);
+      if (!quota.allowed) {
+        return { success: false, recipient: recipient.email, error: quota.message, isLimitFull: true };
       }
 
-      if (i + BATCH_SIZE < recipients.length) {
-        const batchPause = Math.floor(INTER_BATCH_MIN_PAUSE + Math.random() * INTER_BATCH_RANDOM_PAUSE);
-        await new Promise(r => setTimeout(r, batchPause));
+      try {
+        if (idx > 0) {
+          const delay = Math.floor(INTRA_MIN_DELAY + Math.random() * INTRA_RANDOM_DELAY);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+
+        const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
+        const personalizedBody = personalizeContent(messageBody, recipient);
+        const hasHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+
+        const cleanRawText = createCleanPlainText(personalizedBody);
+        const plainTextFormatted = cleanRawText;
+
+        const formattedHtmlBody = hasHtml 
+          ? personalizedBody 
+          : cleanRawText.replace(/\n/g, '<br>');
+
+        // 11pt, #202124, 400 normal weight, standard 14px top gap
+        const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; font-weight: normal; color: #202124; line-height: 1.5; margin-top: 14px; padding-top: 2px;">${formattedHtmlBody}</div>`;
+
+        // Pure Google DKIM/ARC Native Payload
+        const mailOptions = {
+          from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
+          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+          replyTo: cleanEmail,
+          subject: personalizedSubject,
+          text: plainTextFormatted,
+          html: cleanHtmlFormatted
+        };
+
+        await transporter.sendMail(mailOptions);
+        return { success: true, recipient: recipient.email, name: recipient.name };
+
+      } catch (err) {
+        return { success: false, recipient: recipient.email, error: err.message };
       }
+    });
+
+    const settled = await Promise.allSettled(sendPromises);
+    const results = settled.map(s => s.status === 'fulfilled' ? s.value : { success: false, error: 'Execution failed' });
+
+    const limitReached = results.find(r => r.isLimitFull);
+    if (limitReached) {
+      return res.json({ success: false, isLimitFull: true, error: limitReached.error, results });
     }
 
-    return res.json({ success: true, results: allResults });
+    return res.json({ success: true, results });
 
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
