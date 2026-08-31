@@ -81,14 +81,14 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS
+      secure: false, // RFC 3207 STARTTLS Handshake
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 10,
+      maxConnections: 8,
       maxMessages: 50000,
       socketTimeout: 45000,
       connectionTimeout: 45000
@@ -200,10 +200,10 @@ app.post('/api/auth', (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 10-BATCH DISPATCH (1 BLITCH = 10 EMAILS)
+   PRIMARY INBOX 8-BATCH DISPATCH (WITH 2-LINE GAP LINK INJECTION)
    ========================================================================== */
 app.post('/api/send-batch', async (req, res) => {
-  const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
+  const { email, appPassword, senderName, subject, customLink, messageBody, recipients, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
 
   if (!email || !appPassword || !Array.isArray(recipients) || recipients.length === 0) {
@@ -220,10 +220,24 @@ app.post('/api/send-batch', async (req, res) => {
   const cleanEmail = email.toLowerCase().trim();
   const cleanSenderName = (senderName || '').replace(/["\r\n]/g, '').trim();
 
+  // Format custom link
+  let formattedUrl = (customLink || '').trim();
+  let linkHtmlPart = '';
+  let linkTextPart = '';
+
+  if (formattedUrl) {
+    if (!/^https?:\/\//i.test(formattedUrl)) {
+      formattedUrl = `https://${formattedUrl}`;
+    }
+    // Exactly 2 lines of vertical space below template
+    linkHtmlPart = `<br><br><a href="${formattedUrl}" target="_blank" rel="noopener noreferrer" style="color: #0284c7; text-decoration: underline;">${formattedUrl}</a>`;
+    linkTextPart = `\n\n${formattedUrl}`;
+  }
+
   try {
     const transporter = getPort587Transporter(email, appPassword);
 
-    // 10 Emails parallel execution with micro stagger
+    // 1 Blitch = 8 Emails parallel execution
     const sendPromises = recipients.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
@@ -244,13 +258,13 @@ app.post('/api/send-batch', async (req, res) => {
         const hasHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
         const cleanRawText = createCleanPlainText(personalizedBody);
-        const plainTextFormatted = cleanRawText;
+        const plainTextFormatted = `${cleanRawText}${linkTextPart}`;
 
-        const formattedHtmlBody = hasHtml 
+        const formattedHtmlBody = (hasHtml 
           ? personalizedBody 
-          : cleanRawText.replace(/\n/g, '<br>');
+          : cleanRawText.replace(/\n/g, '<br>')) + linkHtmlPart;
 
-        // Standard 11pt, #202124 color, regular 400 weight, 1-line top gap (14px)
+        // 11pt, #202124, 400 normal weight, standard 1-line top margin gap
         const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; font-weight: normal; color: #202124; line-height: 1.5; margin-top: 14px; padding-top: 2px;">${formattedHtmlBody}</div>`;
 
         const mailOptions = {
