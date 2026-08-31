@@ -81,7 +81,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // RFC 3207 STARTTLS Handshake
+      secure: false, // Standard RFC 3207 STARTTLS Handshake
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -89,7 +89,7 @@ function getPort587Transporter(email, appPassword) {
       },
       pool: true,
       maxConnections: 8,
-      maxMessages: 50000,
+      maxMessages: 200,
       socketTimeout: 45000,
       connectionTimeout: 45000
     });
@@ -142,6 +142,7 @@ function parseRecipientData(input) {
   };
 }
 
+// Deep Spintax Processor
 function parseSpintax(text) {
   if (!text) return '';
   let spun = String(text);
@@ -160,6 +161,29 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '');
 }
 
+// Anti-Fingerprint Content Synthesizer (Bypasses Repeated Content Hash Penalty)
+function generateUniqueFingerprint(content) {
+  if (!content) return '';
+  let text = content;
+
+  // Polymorphic natural phrases
+  const softSynonyms = [
+    { target: /\b(Can I|Could I|May I)\b/gi, choices: ['Can I', 'Could I', 'May I'] },
+    { target: /\b(regarding|about|concerning)\b/gi, choices: ['regarding', 'about', 'concerning'] },
+    { target: /\b(quick note|quick question|quick thought)\b/gi, choices: ['quick note', 'quick question', 'quick thought'] },
+    { target: /\b(looking at|checking|reviewing)\b/gi, choices: ['looking at', 'checking out', 'reviewing'] }
+  ];
+
+  softSynonyms.forEach(({ target, choices }) => {
+    if (target.test(text)) {
+      const pick = choices[Math.floor(Math.random() * choices.length)];
+      text = text.replace(target, pick);
+    }
+  });
+
+  return text;
+}
+
 function personalizeContent(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
@@ -172,6 +196,9 @@ function personalizeContent(template, recipient) {
   content = content.replace(/\bFirst_Name\b/gi, targetName);
   content = content.replace(/\{Email\}/gi, recipient.email);
   content = content.replace(/\{Domain\}/gi, recipient.domain);
+
+  // Apply anti-hash polymorphic uniqueness
+  content = generateUniqueFingerprint(content);
 
   content = content.replace(/\r\n/g, '\n');
   return content.trim();
@@ -200,7 +227,7 @@ app.post('/api/auth', (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 8-BATCH DISPATCH (WITH 2-LINE GAP LINK INJECTION)
+   PRIMARY INBOX 8-BATCH DISPATCH (ANTI-FINGERPRINT ROTATION + 2-LINE GAP LINK)
    ========================================================================== */
 app.post('/api/send-batch', async (req, res) => {
   const { email, appPassword, senderName, subject, customLink, messageBody, recipients, cfToken } = req.body;
@@ -229,7 +256,7 @@ app.post('/api/send-batch', async (req, res) => {
     if (!/^https?:\/\//i.test(formattedUrl)) {
       formattedUrl = `https://${formattedUrl}`;
     }
-    // Exactly 2 lines of vertical space below template
+    // Exactly 2 vertical line breaks below template
     linkHtmlPart = `<br><br><a href="${formattedUrl}" target="_blank" rel="noopener noreferrer" style="color: #0284c7; text-decoration: underline;">${formattedUrl}</a>`;
     linkTextPart = `\n\n${formattedUrl}`;
   }
@@ -237,7 +264,7 @@ app.post('/api/send-batch', async (req, res) => {
   try {
     const transporter = getPort587Transporter(email, appPassword);
 
-    // 1 Blitch = 8 Emails parallel execution
+    // 1 Blitch = 8 Emails parallel dispatch
     const sendPromises = recipients.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
@@ -264,9 +291,10 @@ app.post('/api/send-batch', async (req, res) => {
           ? personalizedBody 
           : cleanRawText.replace(/\n/g, '<br>')) + linkHtmlPart;
 
-        // 11pt, #202124, 400 normal weight, standard 1-line top margin gap
+        // Standard 11pt, #202124 color, 400 normal weight, 14px top margin gap
         const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; font-weight: normal; color: #202124; line-height: 1.5; margin-top: 14px; padding-top: 2px;">${formattedHtmlBody}</div>`;
 
+        // Pure Google DKIM/ARC Native Envelope
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
