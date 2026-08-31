@@ -15,14 +15,12 @@ const SITE_PASSWORD = process.env.SITE_PASSWORD || '@#@#';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 /* ==========================================================================
-   CENTRALIZED BULK PACING ENGINE
+   SPEED & INBOXING ENGINE CONFIGURATION (EDIT HERE ONLY)
    ========================================================================== */
 const SERVER_PACING_CONFIG = {
-  BATCH_SIZE: 12,                  // 1 Blitch = 12 Emails
-  INTRA_MIN_DELAY: 1200,           // 1.2s min delay per email
-  INTRA_RANDOM_DELAY: 600,         // + 0.6s jitter (1.2s - 1.8s)
-  INTER_BATCH_MIN_PAUSE: 3200,     // 3.2s min pause between batches
-  INTER_BATCH_RANDOM_PAUSE: 1200   // + 1.2s jitter (3.2s - 4.4s)
+  BATCH_SIZE: 2,                   // 1 Blitch = 2 Emails
+  INTRA_MIN_DELAY: 750,            // 0.75s min delay per email (Safe + Fast)
+  INTRA_RANDOM_DELAY: 400          // + 0.4s jitter (0.75s - 1.15s)
 };
 
 const poolMap = new Map();
@@ -92,17 +90,17 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS
+      secure: false, // RFC 3207 STARTTLS Handshake
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 12,
+      maxConnections: 6,
       maxMessages: 500,
-      socketTimeout: 50000,
-      connectionTimeout: 50000
+      socketTimeout: 45000,
+      connectionTimeout: 45000
     });
     poolMap.set(key, transporter);
   }
@@ -211,7 +209,7 @@ app.post('/api/auth', (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX BULK EXECUTION ENGINE
+   PRIMARY INBOX 2-BATCH DISPATCH (FAST + SAFE ENGINE)
    ========================================================================== */
 app.post('/api/send-batch', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
@@ -235,6 +233,7 @@ app.post('/api/send-batch', async (req, res) => {
     const transporter = getPort587Transporter(email, appPassword);
     const { INTRA_MIN_DELAY, INTRA_RANDOM_DELAY } = SERVER_PACING_CONFIG;
 
+    // 1 Blitch = 2 Emails execution
     const sendPromises = recipients.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
@@ -261,7 +260,7 @@ app.post('/api/send-batch', async (req, res) => {
           ? personalizedBody 
           : cleanRawText.replace(/\n/g, '<br>');
 
-        // 11pt, #202124, 400 normal weight, standard 14px top gap
+        // 11pt, #202124 color, regular 400 weight, standard 14px top gap
         const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; font-weight: normal; color: #202124; line-height: 1.5; margin-top: 14px; padding-top: 2px;">${formattedHtmlBody}</div>`;
 
         // Pure Google DKIM/ARC Native Payload
