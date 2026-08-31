@@ -1,7 +1,5 @@
 import 'dotenv/config';
 import express from 'express';
-import http from 'http';
-import { Server } from 'socket.io';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
@@ -12,15 +10,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: '*', methods: ['GET', 'POST'] }
-});
-
 const PORT = process.env.PORT || 3000;
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 
-const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
 // 12-Hour Rolling Rate Limiter (25 emails per ID)
@@ -56,8 +48,6 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 app.use(express.static(path.join(__dirname, 'public')));
 
-io.on('connection', () => {});
-
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
@@ -67,7 +57,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // STARTTLS
+      secure: false, // Standard STARTTLS Handshake
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -97,6 +87,15 @@ function parseRecipientData(input) {
     if (angleMatch) {
       rawName = angleMatch[1] ? angleMatch[1].trim() : '';
       email = angleMatch[2].trim();
+    } else if (str.includes(',')) {
+      const parts = str.split(',');
+      if (parts[0].includes('@')) {
+        email = parts[0].trim();
+        rawName = parts[1].trim();
+      } else {
+        rawName = parts[0].trim();
+        email = parts[1].trim();
+      }
     } else {
       email = str;
     }
@@ -169,7 +168,7 @@ function createCleanPlainText(text) {
 }
 
 /* ==========================================================================
-   PRIMARY DISPATCH BATCH ROUTE (1 BLITCH = 6 EMAILS)
+   PRIMARY SYNCHRONOUS BATCH DISPATCH (1 BLITCH = 6 EMAILS)
    ========================================================================== */
 app.post('/api/send-batch', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients } = req.body;
@@ -180,82 +179,66 @@ app.post('/api/send-batch', async (req, res) => {
 
   const cleanEmail = email.toLowerCase().trim();
   const cleanSenderName = (senderName || '').replace(/["\r\n]/g, '').trim();
-  globalSession.stopRequested = false;
 
-  // Respond immediately so Vercel does not buffer or timeout
-  res.json({ success: true, message: 'Processing started' });
-
-  // Background sending execution
-  (async () => {
+  try {
     const transporter = getPort587Transporter(email, appPassword);
-    const BATCH_SIZE = 6;
 
-    for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
-      if (globalSession.stopRequested) break;
+    // 1 Blitch = 6 Emails parallel execution
+    const sendPromises = recipients.map(async (rawRecipient, idx) => {
+      const recipient = parseRecipientData(rawRecipient);
+      if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      const batch = recipients.slice(i, i + BATCH_SIZE);
-
-      const sendPromises = batch.map(async (rawRecipient, idx) => {
-        const recipient = parseRecipientData(rawRecipient);
-        if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
-
-        const quota = checkAndIncrementLimit(cleanEmail);
-        if (!quota.allowed) {
-          const limitPayload = { success: false, recipient: recipient.email, error: quota.message, isLimitFull: true };
-          io.emit('mail_error', limitPayload);
-          return limitPayload;
-        }
-
-        try {
-          if (idx > 0) {
-            await new Promise(resolve => setTimeout(resolve, Math.floor(450 + Math.random() * 300)));
-          }
-
-          const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
-          const personalizedBody = personalizeContent(messageBody, recipient);
-          const hasHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
-
-          const cleanRawText = createCleanPlainText(personalizedBody);
-          const plainTextFormatted = `\n${cleanRawText}`;
-
-          // Exact 11pt HTML Typography Lock for Outlook & Gmail
-          const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
-
-          const mailOptions = {
-            from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
-            to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-            replyTo: cleanEmail,
-            subject: personalizedSubject,
-            html: cleanHtmlFormatted,
-            text: plainTextFormatted
-          };
-
-          await transporter.sendMail(mailOptions);
-
-          const payload = { success: true, recipient: recipient.email, name: recipient.name };
-          io.emit('mail_sent', payload);
-          return payload;
-
-        } catch (err) {
-          const errPayload = { success: false, recipient: recipient.email, error: err.message };
-          io.emit('mail_error', errPayload);
-          return errPayload;
-        }
-      });
-
-      await Promise.allSettled(sendPromises);
-
-      if (i + BATCH_SIZE < recipients.length) {
-        const batchDelay = Math.floor(1800 + Math.random() * 1000);
-        await new Promise(resolve => setTimeout(resolve, batchDelay));
+      const quota = checkAndIncrementLimit(cleanEmail);
+      if (!quota.allowed) {
+        return { success: false, recipient: recipient.email, error: quota.message, isLimitFull: true };
       }
-    }
-  })();
-});
 
-app.post('/api/stop', (req, res) => {
-  globalSession.stopRequested = true;
-  res.json({ success: true, message: 'Stopped' });
+      try {
+        if (idx > 0) {
+          await new Promise(resolve => setTimeout(resolve, Math.floor(300 + Math.random() * 200)));
+        }
+
+        const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
+        const personalizedBody = personalizeContent(messageBody, recipient);
+        const hasHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+
+        const cleanRawText = createCleanPlainText(personalizedBody);
+        const plainTextFormatted = `\n${cleanRawText}`;
+
+        // 11pt Native HTML (Outlook & Gmail 100% Size Locked)
+        const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
+
+        // Pure Native Payload (Google DKIM Cryptographic Signature)
+        const mailOptions = {
+          from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
+          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+          replyTo: cleanEmail,
+          subject: personalizedSubject,
+          html: cleanHtmlFormatted,
+          text: plainTextFormatted
+        };
+
+        await transporter.sendMail(mailOptions);
+        return { success: true, recipient: recipient.email, name: recipient.name };
+
+      } catch (err) {
+        return { success: false, recipient: recipient.email, error: err.message };
+      }
+    });
+
+    const settled = await Promise.allSettled(sendPromises);
+    const results = settled.map(s => s.status === 'fulfilled' ? s.value : { success: false, error: 'Execution failed' });
+
+    const limitReached = results.find(r => r.isLimitFull);
+    if (limitReached) {
+      return res.json({ success: false, isLimitFull: true, error: limitReached.error, results });
+    }
+
+    return res.json({ success: true, results });
+
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 app.get('*', (req, res) => {
@@ -268,7 +251,7 @@ app.get('*', (req, res) => {
 });
 
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
-  server.listen(PORT, () => {
+  app.listen(PORT, () => {
     console.log(`🚀 Mailer server running on port ${PORT}`);
   });
 }
