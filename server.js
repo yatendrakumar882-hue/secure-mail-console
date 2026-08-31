@@ -81,7 +81,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS Handshake
+      secure: false, // Standard RFC 3207 STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -90,8 +90,8 @@ function getPort587Transporter(email, appPassword) {
       pool: true,
       maxConnections: 8,
       maxMessages: 250,
-      socketTimeout: 45000,
-      connectionTimeout: 45000
+      socketTimeout: 50000,
+      connectionTimeout: 50000
     });
     poolMap.set(key, transporter);
   }
@@ -160,51 +160,6 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '');
 }
 
-// Multi-Variant Adaptive Language Engine (Rotates tone across 4 variants to eliminate repetitive spam footprint)
-function adaptLanguageTone(content) {
-  if (!content) return '';
-  let text = content;
-
-  const toneReplacements = [
-    { target: /\b(Your site offers a tidy design|Your website looks great|Your site presents well)\b/gi, 
-      choices: [
-        'Your website layout looks very clean', 
-        'I really like the presentation of your site', 
-        'Your site looks neatly designed', 
-        'Checked your website and the design looks solid'
-      ] 
-    },
-    { target: /\b(isn't appearing on the 1st pages|is missing from the 1st pages|is missing from the first pages)\b/gi, 
-      choices: [
-        'could definitely get more visibility on main searches', 
-        'seems to have potential for higher search ranking', 
-        'is currently not reaching the top search spots', 
-        'has room to reach the front pages'
-      ] 
-    },
-    { target: /\b(Can I email you quote\?|Can I email the quote\?|Should I send the details\?)\b/gi, 
-      choices: [
-        'Would it be alright to share a quick overview with you?', 
-        'Can I drop you a quick breakdown of what we can do?', 
-        'Would you be open to seeing a short plan?', 
-        'May I send across some quick suggestions?'
-      ] 
-    },
-    { target: /\b(Hi|Hello|Hey)\b/gi, 
-      choices: ['Hi', 'Hello', 'Hey there', 'Greetings'] 
-    }
-  ];
-
-  toneReplacements.forEach(({ target, choices }) => {
-    if (target.test(text)) {
-      const pick = choices[Math.floor(Math.random() * choices.length)];
-      text = text.replace(target, pick);
-    }
-  });
-
-  return text;
-}
-
 function personalizeContent(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
@@ -217,9 +172,6 @@ function personalizeContent(template, recipient) {
   content = content.replace(/\bFirst_Name\b/gi, targetName);
   content = content.replace(/\{Email\}/gi, recipient.email);
   content = content.replace(/\{Domain\}/gi, recipient.domain);
-
-  // Apply automatic natural language variations
-  content = adaptLanguageTone(content);
 
   content = content.replace(/\r\n/g, '\n');
   return content.trim();
@@ -248,7 +200,7 @@ app.post('/api/auth', (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 8-BATCH DISPATCH (MULTI-LANGUAGE ADAPTIVE ENGINE)
+   PRIMARY INBOX 8-BATCH DISPATCH (SLOW NATURAL CADENCE)
    ========================================================================== */
 app.post('/api/send-batch', async (req, res) => {
   const { email, appPassword, senderName, subject, customLink, messageBody, recipients, cfToken } = req.body;
@@ -268,7 +220,7 @@ app.post('/api/send-batch', async (req, res) => {
   const cleanEmail = email.toLowerCase().trim();
   const cleanSenderName = (senderName || '').replace(/["\r\n]/g, '').trim();
 
-  // Format custom link with exact 2-line gap below template
+  // Format custom link (2-line gap below template)
   let formattedUrl = (customLink || '').trim();
   let linkHtmlPart = '';
   let linkTextPart = '';
@@ -284,7 +236,7 @@ app.post('/api/send-batch', async (req, res) => {
   try {
     const transporter = getPort587Transporter(email, appPassword);
 
-    // 1 Blitch = 8 Emails parallel dispatch
+    // 1 Blitch = 8 Emails parallel execution with slow, natural stagger
     const sendPromises = recipients.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
@@ -296,8 +248,8 @@ app.post('/api/send-batch', async (req, res) => {
 
       try {
         if (idx > 0) {
-          // Dynamic Stagger (450ms - 750ms)
-          await new Promise(resolve => setTimeout(resolve, Math.floor(450 + Math.random() * 300)));
+          // Slow Human Jitter Delay (3.5s - 5.5s per mail) to bypass burst spam detection
+          await new Promise(resolve => setTimeout(resolve, Math.floor(3500 + Math.random() * 2000)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
@@ -311,10 +263,10 @@ app.post('/api/send-batch', async (req, res) => {
           ? personalizedBody 
           : cleanRawText.replace(/\n/g, '<br>')) + linkHtmlPart;
 
-        // Standard 11pt, #202124 color, 400 normal weight, 14px top margin gap
+        // Standard 11pt, #202124 color, 400 normal weight, standard 14px top margin gap
         const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; font-weight: normal; color: #202124; line-height: 1.5; margin-top: 14px; padding-top: 2px;">${formattedHtmlBody}</div>`;
 
-        // Pure Google Native Envelope
+        // Pure Google Native Payload
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
