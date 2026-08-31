@@ -274,6 +274,7 @@
       }
 
       if (i + BATCH_SIZE < rawRecipients.length && !stopRequested) {
+        // Inter-batch cooldown pause (2.4s to 3.5s)
         const batchPause = Math.floor(2400 + Math.random() * 1100);
         await new Promise(r => setTimeout(r, batchPause));
       }
