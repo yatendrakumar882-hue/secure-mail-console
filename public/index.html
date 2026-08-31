@@ -1,168 +1,173 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Secure Mail Console</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cloud Mailer Pro</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    body { background: #0f172a; color: #f8fafc; padding: 24px; }
+    .container { max-width: 900px; margin: 0 auto; background: #1e293b; border-radius: 12px; padding: 24px; border: 1px solid #334155; }
+    h1 { font-size: 20px; font-weight: 600; margin-bottom: 20px; color: #38bdf8; display: flex; align-items: center; justify-content: space-between; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .full-width { grid-column: span 2; }
+    label { font-size: 13px; font-weight: 500; color: #94a3b8; }
+    input, textarea { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 10px 12px; color: #fff; font-size: 14px; outline: none; width: 100%; }
+    input:focus, textarea:focus { border-color: #38bdf8; }
+    textarea { resize: vertical; }
+    .btn-group { display: flex; gap: 12px; margin-top: 16px; }
+    button { padding: 10px 20px; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: 0.2s; }
+    .btn-primary { background: #0284c7; color: white; }
+    .btn-primary:hover { background: #0369a1; }
+    .btn-danger { background: #e11d48; color: white; }
+    .btn-danger:hover { background: #be123c; }
+    .stats { display: flex; gap: 16px; margin-top: 20px; padding: 12px; background: #0f172a; border-radius: 6px; border: 1px solid #334155; font-size: 13px; }
+    .log-box { margin-top: 16px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; height: 180px; overflow-y: auto; padding: 12px; font-family: monospace; font-size: 12px; }
+    .log-success { color: #4ade80; }
+    .log-error { color: #f87171; }
+    .modal { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7); align-items: center; justify-content: center; z-index: 50; }
+    .modal-content { background: #1e293b; padding: 24px; border-radius: 12px; max-width: 400px; text-align: center; border: 1px solid #ef4444; }
+  </style>
 </head>
-
 <body>
-    <!-- Password Gate Overlay -->
-    <div id="password-gate" class="password-gate">
-        <div class="gate-card fade-in">
-            <div class="gate-icon">
-                <i class="fa-solid fa-lock"></i>
-            </div>
-            <h2>Access Protected</h2>
-            <p>Enter the password to continue</p>
-            <form id="gate-form" autocomplete="off">
-                <div class="form-group">
-                    <div class="password-wrapper">
-                        <input type="password" id="gate-password" placeholder="Enter password..." autocomplete="current-password" required>
-                        <button type="button" id="toggle-gate-password" class="icon-button" aria-label="Toggle password visibility">
-                            <i class="fa-regular fa-eye"></i>
-                        </button>
-                    </div>
-                </div>
-                <div id="gate-error" class="gate-error hidden">
-                    <i class="fa-solid fa-triangle-exclamation"></i>
-                    <span>Incorrect password</span>
-                </div>
-                <button type="submit" id="gate-submit-btn" class="btn btn-primary btn-block">
-                    <i class="fa-solid fa-arrow-right-to-bracket"></i> Enter
-                </button>
-            </form>
-        </div>
+
+<div class="container">
+  <h1>⚡ Cloud Mailer Pro <span style="font-size: 12px; color: #94a3b8; font-weight: normal;">6-Batch Engine</span></h1>
+
+  <div class="grid">
+    <div class="form-group">
+      <label>Sender Gmail ID</label>
+      <input type="email" id="email" placeholder="example@gmail.com" />
     </div>
-
-    <!-- Main Dashboard Application -->
-    <div class="app-container hidden" id="main-app">
-        <header class="app-header">
-            <h1><i class="fa-solid fa-shield-halved"></i> Secure Mail Console</h1>
-            <button type="button" id="logout-btn" class="btn-logout" title="Double click to logout">
-                <i class="fa-solid fa-right-from-bracket"></i> Logout (Double Click)
-            </button>
-        </header>
-
-        <section id="dashboard-section">
-            <div class="dashboard-header fade-in">
-                <h2><i class="fa-solid fa-paper-plane"></i> Bulk Email Sender</h2>
-            </div>
-
-            <div class="dashboard-grid">
-                <!-- Composer Card -->
-                <div class="card composer-card fade-in delay-1">
-                    <h3><i class="fa-solid fa-pen-to-square"></i> Compose Message</h3>
-                    <form id="compose-form" onsubmit="return false;">
-                        
-                        <div class="form-row">
-                            <div class="form-group half">
-                                <label for="sender-name">Sender Name</label>
-                                <input type="text" id="sender-name" placeholder="E.g., John Doe" required spellcheck="false">
-                            </div>
-                            <div class="form-group half">
-                                <label for="dashboard-email">Your Gmail</label>
-                                <input type="email" id="dashboard-email" placeholder="you@gmail.com" required spellcheck="false" autocomplete="email">
-                            </div>
-                        </div>
-
-                        <div class="form-row">
-                            <div class="form-group half">
-                                <label for="dashboard-password">App Password</label>
-                                <div class="password-wrapper">
-                                    <input type="password" id="dashboard-password" placeholder="16-char app password" required autocomplete="off">
-                                    <button type="button" id="toggle-password" class="icon-button" aria-label="Toggle App Password">
-                                        <i class="fa-regular fa-eye"></i>
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="form-group half">
-                                <label for="subject">Email Subject</label>
-                                <input type="text" id="subject" placeholder="Enter subject line..." required>
-                            </div>
-                        </div>
-
-                        <div class="form-group flex-grow">
-                            <label for="message-body">Message Body (Plain Text / HTML)</label>
-                            <textarea id="message-body" placeholder="Write your email here... Spintax supported: {Hi|Hello} {name}" required></textarea>
-                        </div>
-                        
-                        <div class="form-group" style="margin-top: 0.5rem; margin-bottom: 0;">
-                            <label><i class="fa-solid fa-shield-cat"></i> Spam Protection</label>
-                            <div class="cf-turnstile" data-sitekey="1x00000000000000000000AA" data-theme="light"></div>
-                        </div>
-                    </form>
-                </div>
-
-                <!-- Recipients & Controls -->
-                <div class="right-column">
-                    <div class="card recipients-card fade-in delay-2">
-                        <div class="card-header-flex">
-                            <h3><i class="fa-solid fa-users"></i> Recipients</h3>
-                            <span class="badge" id="detected-count">0 found</span>
-                        </div>
-                        <p class="help-subtext">Paste emails (comma separated, new lines, or Excel copy)</p>
-                        <div class="form-group flex-grow" style="margin-bottom: 0;">
-                            <textarea id="recipients-input" placeholder="recipient1@example.com&#10;recipient2@example.com" spellcheck="false"></textarea>
-                        </div>
-                        <div id="email-validation-error" class="error-message hidden">
-                            <i class="fa-solid fa-triangle-exclamation"></i> <span>Please enter valid recipients.</span>
-                        </div>
-                    </div>
-
-                    <div class="card progress-card fade-in delay-3">
-                        <h3><i class="fa-solid fa-chart-pie"></i> Progress Monitor</h3>
-
-                        <div class="stats-grid">
-                            <div class="stat-box neutral">
-                                <span class="stat-label">Total</span>
-                                <span class="stat-value" id="stat-total">0</span>
-                            </div>
-                            <div class="stat-box success">
-                                <span class="stat-label">Sent</span>
-                                <span class="stat-value" id="stat-sent">0</span>
-                            </div>
-                            <div class="stat-box danger">
-                                <span class="stat-label">Failed</span>
-                                <span class="stat-value" id="stat-failed">0</span>
-                            </div>
-                            <div class="stat-box warning">
-                                <span class="stat-label">Remaining</span>
-                                <span class="stat-value" id="stat-remaining">0</span>
-                            </div>
-                        </div>
-
-                        <div class="progress-bar-container">
-                            <div class="progress-bar" id="progress-bar" style="width: 0%;"></div>
-                        </div>
-
-                        <div class="status-indicator">
-                            <i id="status-icon" class="fa-solid fa-circle-pause text-muted"></i>
-                            <span id="status-text">Ready to send</span>
-                        </div>
-
-                        <div class="control-buttons">
-                            <button type="button" id="send-btn" class="btn btn-success btn-lg flex-1">
-                                <i class="fa-solid fa-paper-plane"></i> Send All
-                            </button>
-                            <button type="button" id="stop-btn" class="btn btn-danger btn-lg flex-1 hidden">
-                                <i class="fa-solid fa-stop"></i> Stop Sending
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
+    <div class="form-group">
+      <label>App Password (16-char)</label>
+      <input type="password" id="appPassword" placeholder="abcd efgh ijkl mnop" />
     </div>
+    <div class="form-group full-width">
+      <label>Sender Name</label>
+      <input type="text" id="senderName" placeholder="Your Name or Business Name" />
+    </div>
+    <div class="form-group full-width">
+      <label>Subject Line</label>
+      <input type="text" id="subject" placeholder="{Hi|Hello} {FirstName}, quick update" />
+    </div>
+    <div class="form-group full-width">
+      <label>Recipients (1 per line or Name &lt;email&gt;)</label>
+      <textarea id="recipients" rows="4" placeholder="client1@domain.com&#10;John Doe <client2@domain.com>"></textarea>
+    </div>
+    <div class="form-group full-width">
+      <label>Email Message Template (Spintax & Variables Supported)</label>
+      <textarea id="messageBody" rows="5" placeholder="{Hi|Hello} {FirstName},&#10;&#10;I noticed your website design and wanted to check if you're open for feedback.&#10;&#10;Best regards,"></textarea>
+    </div>
+  </div>
 
-    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
-    <script src="script.js"></script>
+  <div class="btn-group">
+    <button class="btn-primary" id="startBtn" onclick="startSending()">Start Campaign</button>
+    <button class="btn-danger" id="stopBtn" onclick="stopSending()">Stop</button>
+  </div>
+
+  <div class="stats">
+    <div>Total: <span id="totalCount">0</span></div>
+    <div>Sent: <span id="sentCount" style="color: #4ade80;">0</span></div>
+    <div>Failed: <span id="failedCount" style="color: #f87171;">0</span></div>
+  </div>
+
+  <div class="log-box" id="logBox"></div>
+</div>
+
+<div class="modal" id="limitModal">
+  <div class="modal-content">
+    <h3 style="color: #ef4444; margin-bottom: 8px;">⚠️ Limit Full</h3>
+    <p id="limitMsg" style="font-size: 13px; color: #cbd5e1; margin-bottom: 16px;"></p>
+    <button class="btn-primary" onclick="closeModal()">Acknowledge</button>
+  </div>
+</div>
+
+<script>
+  const socket = io();
+  let sent = 0, failed = 0, total = 0;
+
+  function log(msg, type = 'info') {
+    const box = document.getElementById('logBox');
+    const line = document.createElement('div');
+    line.className = type === 'success' ? 'log-success' : type === 'error' ? 'log-error' : '';
+    line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    box.appendChild(line);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  socket.on('mail_sent', (data) => {
+    sent++;
+    document.getElementById('sentCount').textContent = sent;
+    log(`Sent -> ${data.recipient}`, 'success');
+  });
+
+  socket.on('mail_error', (data) => {
+    failed++;
+    document.getElementById('failedCount').textContent = failed;
+    log(`Failed -> ${data.recipient} (${data.error})`, 'error');
+
+    if (data.isLimitFull) {
+      document.getElementById('limitMsg').textContent = data.error;
+      document.getElementById('limitModal').style.display = 'flex';
+    }
+  });
+
+  function closeModal() {
+    document.getElementById('limitModal').style.display = 'none';
+  }
+
+  async function startSending() {
+    const email = document.getElementById('email').value.trim();
+    const appPassword = document.getElementById('appPassword').value.trim();
+    const senderName = document.getElementById('senderName').value.trim();
+    const subject = document.getElementById('subject').value.trim();
+    const messageBody = document.getElementById('messageBody').value.trim();
+    const rawRecipients = document.getElementById('recipients').value.trim().split('\n').filter(Boolean);
+
+    if (!email || !appPassword || !rawRecipients.length) {
+      alert('Please fill email credentials and at least 1 recipient.');
+      return;
+    }
+
+    sent = 0; failed = 0;
+    total = rawRecipients.length;
+    document.getElementById('totalCount').textContent = total;
+    document.getElementById('sentCount').textContent = '0';
+    document.getElementById('failedCount').textContent = '0';
+    document.getElementById('logBox').innerHTML = '';
+
+    log('Starting stream connection...', 'info');
+
+    try {
+      const res = await fetch('/api/send-stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, appPassword, senderName, subject, messageBody, recipients: rawRecipients })
+      });
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value);
+        if (chunk.includes('[DONE]')) {
+          log('Campaign finished successfully.', 'info');
+        }
+      }
+    } catch (err) {
+      log(`Stream Error: ${err.message}`, 'error');
+    }
+  }
+
+  async function stopSending() {
+    await fetch('/api/stop', { method: 'POST' });
+    log('Stopping request sent...', 'info');
+  }
+</script>
 </body>
-
 </html>
