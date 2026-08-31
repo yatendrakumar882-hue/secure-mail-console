@@ -81,14 +81,14 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // RFC 3207 STARTTLS Handshake
+      secure: false, // Standard RFC 3207 STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6,
+      maxConnections: 10,
       maxMessages: 50000,
       socketTimeout: 45000,
       connectionTimeout: 45000
@@ -200,7 +200,7 @@ app.post('/api/auth', (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 1-BY-1 SAFE DISPATCH
+   PRIMARY INBOX 10-BATCH DISPATCH (1 BLITCH = 10 EMAILS)
    ========================================================================== */
 app.post('/api/send-batch', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
@@ -223,7 +223,8 @@ app.post('/api/send-batch', async (req, res) => {
   try {
     const transporter = getPort587Transporter(email, appPassword);
 
-    const sendPromises = recipients.map(async (rawRecipient) => {
+    // 10 Emails parallel execution with micro stagger
+    const sendPromises = recipients.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
@@ -233,6 +234,11 @@ app.post('/api/send-batch', async (req, res) => {
       }
 
       try {
+        if (idx > 0) {
+          // Dynamic Stagger (450ms - 750ms)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(450 + Math.random() * 300)));
+        }
+
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
         const personalizedBody = personalizeContent(messageBody, recipient);
         const hasHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
@@ -244,7 +250,7 @@ app.post('/api/send-batch', async (req, res) => {
           ? personalizedBody 
           : cleanRawText.replace(/\n/g, '<br>');
 
-        // 11pt, regular weight (400), #202124, 1-line top margin gap
+        // Standard 11pt, #202124 color, regular 400 weight, 1-line top gap (14px)
         const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; font-weight: normal; color: #202124; line-height: 1.5; margin-top: 14px; padding-top: 2px;">${formattedHtmlBody}</div>`;
 
         const mailOptions = {
