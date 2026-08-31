@@ -57,7 +57,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard STARTTLS Handshake
+      secure: false, // Standard RFC 3207 STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -87,15 +87,6 @@ function parseRecipientData(input) {
     if (angleMatch) {
       rawName = angleMatch[1] ? angleMatch[1].trim() : '';
       email = angleMatch[2].trim();
-    } else if (str.includes(',')) {
-      const parts = str.split(',');
-      if (parts[0].includes('@')) {
-        email = parts[0].trim();
-        rawName = parts[1].trim();
-      } else {
-        rawName = parts[0].trim();
-        email = parts[1].trim();
-      }
     } else {
       email = str;
     }
@@ -201,7 +192,7 @@ app.post('/api/send-batch', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(300 + Math.random() * 200)));
+          await new Promise(resolve => setTimeout(resolve, Math.floor(350 + Math.random() * 250)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
@@ -209,19 +200,22 @@ app.post('/api/send-batch', async (req, res) => {
         const hasHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
         const cleanRawText = createCleanPlainText(personalizedBody);
-        const plainTextFormatted = `\n${cleanRawText}`;
+        
+        // RFC Standard Single Plain-Text representation
+        const plainTextFormatted = cleanRawText;
 
-        // 11pt Native HTML (Outlook & Gmail 100% Size Locked)
-        const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
+        // Zero-Penalty Clean HTML container with Outlook 11pt/14.5px sync
+        const bodyContent = hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>');
+        const cleanHtmlFormatted = `<div style="font-family: Arial, sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.5; margin: 0; padding: 0;">${bodyContent}</div>`;
 
-        // Pure Native Payload (Google DKIM Cryptographic Signature)
+        // Pure Native Payload (Google Cryptographic DKIM & ARC signed)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           subject: personalizedSubject,
-          html: cleanHtmlFormatted,
-          text: plainTextFormatted
+          text: plainTextFormatted,
+          html: cleanHtmlFormatted
         };
 
         await transporter.sendMail(mailOptions);
