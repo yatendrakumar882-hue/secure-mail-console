@@ -34,7 +34,7 @@
     .log-error { color: #f87171; }
     .log-info { color: #94a3b8; }
 
-    /* Modal & Lock Overlay */
+    /* Lock Screen Overlay */
     .lock-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 100; }
     .lock-card { background: #ffffff; border-radius: 12px; padding: 28px; width: 100%; max-width: 360px; text-align: center; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.2); }
     .lock-card h2 { font-size: 18px; color: #0f172a; margin-bottom: 6px; }
@@ -45,7 +45,7 @@
 </head>
 <body ondblclick="handleBodyDoubleClick(event)">
 
-<!-- Access Protected Password Screen -->
+<!-- Password Protection -->
 <div class="lock-overlay" id="lockScreen">
   <div class="lock-card" onclick="event.stopPropagation()">
     <h2>🔒 Access Protected</h2>
@@ -116,12 +116,11 @@
 </div>
 
 <script>
-  // Session Authentication Check
   if (sessionStorage.getItem('mailer_auth') === 'true') {
     document.getElementById('lockScreen').style.display = 'none';
   }
 
-  async function unlockApp() {
+  function unlockApp() {
     const pass = document.getElementById('accessPass').value.trim();
     if (pass === '@#@#') {
       sessionStorage.setItem('mailer_auth', 'true');
@@ -239,7 +238,7 @@
       }
 
       if (i + BATCH_SIZE < rawRecipients.length && !stopRequested) {
-        await new Promise(r => setTimeout(r, 1500));
+        await new Promise(r => setTimeout(r, 1400));
       }
     }
 
