@@ -12,6 +12,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 const SITE_PASSWORD = process.env.SITE_PASSWORD || '@#@#';
+const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const poolMap = new Map();
 
@@ -47,6 +48,29 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 app.use(express.static(path.join(__dirname, 'public')));
+
+async function verifyTurnstileToken(token, remoteIp) {
+  if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
+    return true;
+  }
+
+  try {
+    const formData = new URLSearchParams();
+    formData.append('secret', TURNSTILE_SECRET_KEY);
+    formData.append('response', token);
+    if (remoteIp) formData.append('remoteip', remoteIp);
+
+    const result = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      body: formData,
+      headers: { 'content-type': 'application/x-www-form-urlencoded' }
+    });
+    const outcome = await result.json();
+    return outcome.success === true;
+  } catch {
+    return false;
+  }
+}
 
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -136,13 +160,12 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '');
 }
 
-// 100% Reliable Variable Personalization (Never leaks raw tags)
+// Complete Variable Personalizer (Prevents raw variable leaks)
 function personalizeContent(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
   const targetName = recipient.firstName || recipient.name || 'there';
 
-  // Support both bracketed and unbracketed variable tags
   content = content.replace(/\{Name\}/gi, recipient.name || targetName);
   content = content.replace(/\{FirstName\}/gi, targetName);
   content = content.replace(/\{First_Name\}/gi, targetName);
@@ -151,7 +174,7 @@ function personalizeContent(template, recipient) {
   content = content.replace(/\{Email\}/gi, recipient.email);
   content = content.replace(/\{Domain\}/gi, recipient.domain);
 
-  // Strip non-printable junk
+  // Clean hidden non-printable bot artifacts
   content = content.replace(/[\u200B-\u200D\uFEFF]/g, '');
   return content.trim();
 }
@@ -179,13 +202,22 @@ app.post('/api/auth', (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 6-BATCH DISPATCH (CLEAN NATIVE ENVELOPE)
+   PRIMARY INBOX 6-BATCH DISPATCH (SPAM-PROTECTION + NATIVE DKIM DELIVERY)
    ========================================================================== */
 app.post('/api/send-batch', async (req, res) => {
-  const { email, appPassword, senderName, subject, messageBody, recipients } = req.body;
+  const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
 
   if (!email || !appPassword || !Array.isArray(recipients) || recipients.length === 0) {
     return res.status(400).json({ success: false, error: 'Invalid Parameters' });
+  }
+
+  // Turnstile Spam Protection Guard
+  if (cfToken) {
+    const isVerified = await verifyTurnstileToken(cfToken, clientIp);
+    if (!isVerified) {
+      return res.status(403).json({ success: false, error: 'Spam Protection Verification Failed' });
+    }
   }
 
   const cleanEmail = email.toLowerCase().trim();
@@ -194,6 +226,7 @@ app.post('/api/send-batch', async (req, res) => {
   try {
     const transporter = getPort587Transporter(email, appPassword);
 
+    // 1 Blitch = 6 Emails parallel execution
     const sendPromises = recipients.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
