@@ -262,7 +262,8 @@
       }
 
       if (i + BATCH_SIZE < rawRecipients.length && !stopRequested) {
-        const batchPause = Math.floor(1800 + Math.random() * 1000);
+        // Optimized cooling pause (2.0s - 3.0s)
+        const batchPause = Math.floor(2000 + Math.random() * 1000);
         await new Promise(r => setTimeout(r, batchPause));
       }
     }
