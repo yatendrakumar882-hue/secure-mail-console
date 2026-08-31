@@ -81,7 +81,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS
+      secure: false, // RFC 3207 STARTTLS Handshake
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -90,8 +90,8 @@ function getPort587Transporter(email, appPassword) {
       pool: true,
       maxConnections: 6,
       maxMessages: 50000,
-      socketTimeout: 35000,
-      connectionTimeout: 35000
+      socketTimeout: 45000,
+      connectionTimeout: 45000
     });
     poolMap.set(key, transporter);
   }
@@ -200,7 +200,7 @@ app.post('/api/auth', (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX OPTIMIZED DISPATCH (1 BLITCH = 6 EMAILS)
+   PRIMARY INBOX 1-BY-1 SAFE DISPATCH
    ========================================================================== */
 app.post('/api/send-batch', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
@@ -223,7 +223,7 @@ app.post('/api/send-batch', async (req, res) => {
   try {
     const transporter = getPort587Transporter(email, appPassword);
 
-    const sendPromises = recipients.map(async (rawRecipient, idx) => {
+    const sendPromises = recipients.map(async (rawRecipient) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
@@ -233,11 +233,6 @@ app.post('/api/send-batch', async (req, res) => {
       }
 
       try {
-        if (idx > 0) {
-          // Optimized Stagger (500ms - 850ms) to ensure high delivery rate
-          await new Promise(resolve => setTimeout(resolve, Math.floor(500 + Math.random() * 350)));
-        }
-
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
         const personalizedBody = personalizeContent(messageBody, recipient);
         const hasHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
