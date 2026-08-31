@@ -34,6 +34,12 @@
     .btn-danger { background: #ef4444; color: white; }
     .btn-danger:hover { background: #dc2626; }
 
+    /* Progress Monitor */
+    .progress-section { margin-top: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; }
+    .progress-info { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #334155; }
+    .progress-track { width: 100%; height: 10px; background: #e2e8f0; border-radius: 9999px; overflow: hidden; }
+    .progress-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #0284c7, #10b981); transition: width 0.3s ease; }
+
     .stats { display: flex; gap: 20px; margin-top: 16px; padding: 14px 18px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 13px; font-weight: 600; }
     .log-box { margin-top: 16px; background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; height: 180px; overflow-y: auto; padding: 12px 16px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
     .log-success { color: #4ade80; }
@@ -66,7 +72,7 @@
     <h1>⚡ Cloud Mailer Pro</h1>
     <div class="header-actions">
       <span class="shield-badge">🛡️ Spam Protection Active</span>
-      <span class="badge">12-Batch Engine</span>
+      <span class="badge">12-Batch Server Managed</span>
       <button class="btn-logout" title="Double click to logout" ondblclick="logout()">Logout (Double Click)</button>
     </div>
   </div>
@@ -114,6 +120,17 @@
     </div>
   </div>
 
+  <!-- Progress Monitor -->
+  <div class="progress-section">
+    <div class="progress-info">
+      <span>Progress Monitor: <span id="progressPercent" style="color: #0284c7;">0%</span></span>
+      <span id="progressStatus">Ready for dispatch</span>
+    </div>
+    <div class="progress-track">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+  </div>
+
   <div class="stats">
     <div>Total: <span id="totalCount" style="color: #0284c7;">0</span></div>
     <div>Sent: <span id="sentCount" style="color: #16a34a;">0</span></div>
@@ -158,7 +175,7 @@
     document.getElementById('lockScreen').style.display = 'flex';
   }
 
-  let sent = 0, failed = 0, total = 0, isSending = false, stopRequested = false;
+  let sent = 0, failed = 0, total = 0, isSending = false;
 
   function log(msg, type = 'info') {
     const box = document.getElementById('logBox');
@@ -167,6 +184,13 @@
     line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
     box.appendChild(line);
     box.scrollTop = box.scrollHeight;
+  }
+
+  function updateProgress(processed, totalCount) {
+    const percent = totalCount > 0 ? Math.round((processed / totalCount) * 100) : 0;
+    document.getElementById('progressBar').style.width = `${percent}%`;
+    document.getElementById('progressPercent').textContent = `${percent}%`;
+    document.getElementById('progressStatus').textContent = `Processed: ${processed} of ${totalCount}`;
   }
 
   function setButtonState(sending) {
@@ -181,8 +205,7 @@
   }
 
   function stopSending() {
-    stopRequested = true;
-    log('Stopping process requested...', 'error');
+    log('Process cannot be aborted mid-pipeline (Server Controlled).', 'info');
   }
 
   async function startSending() {
@@ -200,75 +223,56 @@
       return;
     }
 
-    sent = 0; failed = 0; stopRequested = false;
+    sent = 0; failed = 0;
     total = rawRecipients.length;
     document.getElementById('totalCount').textContent = total;
     document.getElementById('sentCount').textContent = '0';
     document.getElementById('failedCount').textContent = '0';
     document.getElementById('logBox').innerHTML = '';
+    updateProgress(0, total);
 
     setButtonState(true);
-    log(`Starting 12-batch campaign for ${total} recipient(s)...`, 'info');
+    log(`Handing over ${total} recipient(s) to server pacing pipeline...`, 'info');
 
-    // 1 BLITCH = 12 EMAILS
-    const BATCH_SIZE = 12;
-    for (let i = 0; i < rawRecipients.length; i += BATCH_SIZE) {
-      if (stopRequested) {
-        log('Campaign stopped by user.', 'error');
-        break;
+    try {
+      const response = await fetch('/api/send-campaign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          email, 
+          appPassword, 
+          senderName, 
+          subject, 
+          messageBody, 
+          recipients: rawRecipients,
+          cfToken 
+        })
+      });
+
+      const data = await response.json();
+
+      if (!data.success && data.isLimitFull) {
+        document.getElementById('limitMsg').textContent = data.error;
+        document.getElementById('limitModal').style.display = 'flex';
+        log(`Limit reached: ${data.error}`, 'error');
       }
 
-      const batch = rawRecipients.slice(i, i + BATCH_SIZE);
-      const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-      const totalBatches = Math.ceil(rawRecipients.length / BATCH_SIZE);
-      log(`Sending Batch ${batchNum}/${totalBatches} (${batch.length} emails)...`, 'info');
-
-      try {
-        const response = await fetch('/api/send-batch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            email, 
-            appPassword, 
-            senderName, 
-            subject, 
-            messageBody, 
-            recipients: batch,
-            cfToken 
-          })
+      if (Array.isArray(data.results)) {
+        data.results.forEach((res, index) => {
+          if (res.success) {
+            sent++;
+            document.getElementById('sentCount').textContent = sent;
+            log(`[SENT] -> ${res.recipient}`, 'success');
+          } else {
+            failed++;
+            document.getElementById('failedCount').textContent = failed;
+            log(`[FAILED] -> ${res.recipient} (${res.error})`, 'error');
+          }
+          updateProgress(index + 1, total);
         });
-
-        const data = await response.json();
-
-        if (!data.success && data.isLimitFull) {
-          document.getElementById('limitMsg').textContent = data.error;
-          document.getElementById('limitModal').style.display = 'flex';
-          log(`Limit reached: ${data.error}`, 'error');
-          break;
-        }
-
-        if (Array.isArray(data.results)) {
-          data.results.forEach(res => {
-            if (res.success) {
-              sent++;
-              document.getElementById('sentCount').textContent = sent;
-              log(`[SENT] -> ${res.recipient}`, 'success');
-            } else {
-              failed++;
-              document.getElementById('failedCount').textContent = failed;
-              log(`[FAILED] -> ${res.recipient} (${res.error})`, 'error');
-            }
-          });
-        }
-      } catch (err) {
-        log(`Batch Error: ${err.message}`, 'error');
       }
-
-      if (i + BATCH_SIZE < rawRecipients.length && !stopRequested) {
-        // Safe cooling pause between batches (2.0s to 4.0s)
-        const batchPause = Math.floor(3000 + Math.random() * 1000);
-        await new Promise(r => setTimeout(r, batchPause));
-      }
+    } catch (err) {
+      log(`Campaign Error: ${err.message}`, 'error');
     }
 
     log('Campaign execution finished.', 'info');
