@@ -81,7 +81,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard RFC 3207 STARTTLS
+      secure: false, // Standard RFC 3207 STARTTLS Handshake
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -160,7 +160,6 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '');
 }
 
-// Complete Variable Personalizer (Prevents raw variable leaks)
 function personalizeContent(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
@@ -174,7 +173,6 @@ function personalizeContent(template, recipient) {
   content = content.replace(/\{Email\}/gi, recipient.email);
   content = content.replace(/\{Domain\}/gi, recipient.domain);
 
-  // Clean hidden non-printable bot artifacts
   content = content.replace(/[\u200B-\u200D\uFEFF]/g, '');
   return content.trim();
 }
@@ -202,7 +200,7 @@ app.post('/api/auth', (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 6-BATCH DISPATCH (SPAM-PROTECTION + NATIVE DKIM DELIVERY)
+   PRIMARY INBOX 6-BATCH DISPATCH (SPAM-PROTECTION & NATIVE DKIM AUTH)
    ========================================================================== */
 app.post('/api/send-batch', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
@@ -212,7 +210,7 @@ app.post('/api/send-batch', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Invalid Parameters' });
   }
 
-  // Turnstile Spam Protection Guard
+  // Turnstile verification
   if (cfToken) {
     const isVerified = await verifyTurnstileToken(cfToken, clientIp);
     if (!isVerified) {
@@ -252,7 +250,7 @@ app.post('/api/send-batch', async (req, res) => {
           ? personalizedBody 
           : personalizedBody.replace(/\r\n/g, '\n').replace(/\n/g, '<br>');
 
-        // Natural normal weight (#202124, 400 normal weight, 11pt, 1-line top margin)
+        // 11pt, normal weight 400, #202124, 1-line top margin (14px)
         const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; font-weight: 400; color: #202124; line-height: 1.5; margin-top: 14px; padding-top: 2px; -webkit-font-smoothing: antialiased;">${formattedHtmlBody}</div>`;
 
         // Pure Native Payload (Google DKIM Cryptographic Signature)
