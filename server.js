@@ -66,8 +66,8 @@ function getPort587Transporter(email, appPassword) {
       pool: true,
       maxConnections: 6,
       maxMessages: 50000,
-      socketTimeout: 35000,
-      connectionTimeout: 35000
+      socketTimeout: 45000,
+      connectionTimeout: 45000
     });
     poolMap.set(key, transporter);
   }
@@ -87,6 +87,15 @@ function parseRecipientData(input) {
     if (angleMatch) {
       rawName = angleMatch[1] ? angleMatch[1].trim() : '';
       email = angleMatch[2].trim();
+    } else if (str.includes(',')) {
+      const parts = str.split(',');
+      if (parts[0].includes('@')) {
+        email = parts[0].trim();
+        rawName = parts[1].trim();
+      } else {
+        rawName = parts[0].trim();
+        email = parts[1].trim();
+      }
     } else {
       email = str;
     }
@@ -138,6 +147,7 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
+  // Remove invisible bot characters
   content = content.replace(/[\u200B-\u200D\uFEFF]/g, '');
   return content.trim();
 }
@@ -165,7 +175,7 @@ app.post('/api/auth', (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 6-BATCH DISPATCH (NATURAL REGULAR WEIGHT & CLEAN INBOX TYPOGRAPHY)
+   PRIMARY INBOX 6-BATCH DISPATCH (CALIBRATED HUMAN SPEED & CLEAN TYPOGRAPHY)
    ========================================================================== */
 app.post('/api/send-batch', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients } = req.body;
@@ -180,6 +190,7 @@ app.post('/api/send-batch', async (req, res) => {
   try {
     const transporter = getPort587Transporter(email, appPassword);
 
+    // 1 Blitch = 6 Emails parallel execution
     const sendPromises = recipients.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
@@ -191,7 +202,8 @@ app.post('/api/send-batch', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(350 + Math.random() * 250)));
+          // Slightly slower safe human delay (650ms - 1100ms)
+          await new Promise(resolve => setTimeout(resolve, Math.floor(650 + Math.random() * 450)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient) || 'Quick note';
@@ -205,9 +217,10 @@ app.post('/api/send-batch', async (req, res) => {
           ? personalizedBody 
           : personalizedBody.replace(/\r\n/g, '\n').replace(/\n/g, '<br>');
 
-        // Natural normal-weight font (#202124, 400 normal weight, 11pt)
-        const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; font-weight: normal; color: #202124; line-height: 1.5; margin-top: 14px; padding-top: 2px; -webkit-font-smoothing: antialiased;">${formattedHtmlBody}</div>`;
+        // Natural normal weight (#202124, 400 normal weight, 11pt, standard 1-line top margin)
+        const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; font-weight: 400; color: #202124; line-height: 1.5; margin-top: 14px; padding-top: 2px; -webkit-font-smoothing: antialiased;">${formattedHtmlBody}</div>`;
 
+        // Pure Native Payload (Google DKIM Cryptographic Signature)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
