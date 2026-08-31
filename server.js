@@ -15,12 +15,12 @@ const SITE_PASSWORD = process.env.SITE_PASSWORD || '@#@#';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 /* ==========================================================================
-   SPEED & INBOXING ENGINE CONFIGURATION (EDIT HERE ONLY)
+   PRIMARY INBOX OPTIMIZED PACING ENGINE
    ========================================================================== */
 const SERVER_PACING_CONFIG = {
   BATCH_SIZE: 8,                   // 1 Blitch = 8 Emails
-  INTRA_MIN_DELAY: 800,            // 0.8s min delay per email (Safe + Fast)
-  INTRA_RANDOM_DELAY: 500          // + 0.5s jitter (0.8s - 1.3s)
+  INTRA_MIN_DELAY: 850,            // 0.85s min delay per email
+  INTRA_RANDOM_DELAY: 450          // + 0.45s dynamic jitter (0.85s - 1.30s)
 };
 
 const poolMap = new Map();
@@ -90,7 +90,7 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // RFC 3207 STARTTLS Handshake
+      secure: false, // RFC 3207 STARTTLS Native Handshake
       requireTLS: true,
       auth: {
         user: cleanEmail,
@@ -209,7 +209,7 @@ app.post('/api/auth', (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 8-BATCH DISPATCH (FAST + SAFE INBOXING ENGINE)
+   PRIMARY INBOX 8-BATCH DISPATCH ENGINE
    ========================================================================== */
 app.post('/api/send-batch', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
@@ -233,7 +233,7 @@ app.post('/api/send-batch', async (req, res) => {
     const transporter = getPort587Transporter(email, appPassword);
     const { INTRA_MIN_DELAY, INTRA_RANDOM_DELAY } = SERVER_PACING_CONFIG;
 
-    // 1 Blitch = 8 Emails execution
+    // 1 Blitch = 8 Emails execution with safe human cadence
     const sendPromises = recipients.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
