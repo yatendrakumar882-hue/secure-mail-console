@@ -273,8 +273,6 @@ app.post('/api/send-stream', async (req, res) => {
   }, 3000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  
-  // 1 BLITCH = 6 EMAILS PER BATCH
   const BATCH_SIZE = 6;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
@@ -312,7 +310,7 @@ app.post('/api/send-stream', async (req, res) => {
         // 11pt Native HTML (Outlook & Gmail 100% Size Locked)
         const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.55; margin-top: 14px; padding-top: 2px;">${hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>')}</div>`;
 
-        // Pure Native MIME Payload (Google generates genuine cryptographic DKIM Message-ID)
+        // Pure Native Payload (Google automatically generates valid cryptographical DKIM & Message-ID)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
