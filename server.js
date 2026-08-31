@@ -138,6 +138,11 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
+  // Clean bot-spacing around punctuation
+  content = content.replace(/[\u200B-\u200D\uFEFF]/g, '');
+  content = content.replace(/\s+([!?,.:;])/g, '$1');
+  content = content.replace(/\s{2,}/g, ' ');
+
   return content.trim();
 }
 
@@ -165,7 +170,7 @@ app.post('/api/auth', (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY SYNCHRONOUS BATCH DISPATCH (1 BLITCH = 6 EMAILS)
+   PRIMARY INBOX ENHANCED BATCH DISPATCH (1 BLITCH = 6 EMAILS)
    ========================================================================== */
 app.post('/api/send-batch', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients } = req.body;
@@ -192,6 +197,7 @@ app.post('/api/send-batch', async (req, res) => {
 
       try {
         if (idx > 0) {
+          // Dynamic jitter to stagger multi-threaded connection
           await new Promise(resolve => setTimeout(resolve, Math.floor(350 + Math.random() * 250)));
         }
 
@@ -201,21 +207,22 @@ app.post('/api/send-batch', async (req, res) => {
 
         const cleanRawText = createCleanPlainText(personalizedBody);
         
-        // RFC Standard Single Plain-Text representation
+        // RFC standard matching plain text
         const plainTextFormatted = cleanRawText;
 
-        // Zero-Penalty Clean HTML container with Outlook 11pt/14.5px sync
+        // Clean HTML container without inline CSS spam triggers (Exact 11pt/14.5px Outlook sync)
         const bodyContent = hasHtml ? personalizedBody : cleanRawText.replace(/\n/g, '<br>');
-        const cleanHtmlFormatted = `<div style="font-family: Arial, sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.5; margin: 0; padding: 0;">${bodyContent}</div>`;
+        const cleanHtmlFormatted = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #1a1a1a; line-height: 1.55; margin: 0; padding: 0;">${bodyContent}</div>`;
 
-        // Pure Native Payload (Google Cryptographic DKIM & ARC signed)
+        // Pure Native Payload (Google DKIM Cryptographic Signature)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           subject: personalizedSubject,
           text: plainTextFormatted,
-          html: cleanHtmlFormatted
+          html: cleanHtmlFormatted,
+          encoding: 'utf-8'
         };
 
         await transporter.sendMail(mailOptions);
