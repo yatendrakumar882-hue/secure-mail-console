@@ -66,7 +66,7 @@
     <h1>⚡ Cloud Mailer Pro</h1>
     <div class="header-actions">
       <span class="shield-badge">🛡️ Spam Protection Active</span>
-      <span class="badge">8-Batch Engine</span>
+      <span class="badge">12-Batch Engine</span>
       <button class="btn-logout" title="Double click to logout" ondblclick="logout()">Logout (Double Click)</button>
     </div>
   </div>
@@ -208,7 +208,7 @@
     document.getElementById('logBox').innerHTML = '';
 
     setButtonState(true);
-    log(`Starting 8-batch clean campaign for ${total} recipient(s)...`, 'info');
+    log(`Starting 12-batch campaign for ${total} recipient(s)...`, 'info');
 
     // 1 BLITCH = 12 EMAILS
     const BATCH_SIZE = 12;
@@ -265,7 +265,7 @@
       }
 
       if (i + BATCH_SIZE < rawRecipients.length && !stopRequested) {
-        // Safe cooling rest (5.0s to 8.0s) between batches
+        // Safe cooling pause between batches (5.0s to 8.0s)
         const batchPause = Math.floor(5000 + Math.random() * 3000);
         await new Promise(r => setTimeout(r, batchPause));
       }
