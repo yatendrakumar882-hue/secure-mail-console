@@ -11,7 +11,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || '@#@#';
 
 const poolMap = new Map();
 
@@ -166,6 +166,12 @@ function createCleanPlainText(text) {
     .replace(/\n\s*\n/g, '\n\n')
     .trim();
 }
+
+app.post('/api/auth', (req, res) => {
+  const { password } = req.body;
+  if (password === SITE_PASSWORD) return res.json({ success: true, message: 'Authorized' });
+  return res.status(401).json({ success: false, message: 'Unauthorized' });
+});
 
 /* ==========================================================================
    PRIMARY SYNCHRONOUS BATCH DISPATCH (1 BLITCH = 6 EMAILS)
