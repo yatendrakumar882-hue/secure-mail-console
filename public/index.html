@@ -210,7 +210,7 @@
     setButtonState(true);
     log(`Starting 8-batch clean campaign for ${total} recipient(s)...`, 'info');
 
-    // 1 BLITCH = 8 EMAILS
+    // 1 BLITCH = 12 EMAILS
     const BATCH_SIZE = 8;
     for (let i = 0; i < rawRecipients.length; i += BATCH_SIZE) {
       if (stopRequested) {
