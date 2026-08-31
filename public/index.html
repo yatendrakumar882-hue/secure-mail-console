@@ -13,7 +13,7 @@
     .header-actions { display: flex; align-items: center; gap: 10px; }
     .badge { font-size: 12px; background: #e0f2fe; color: #0369a1; padding: 4px 10px; border-radius: 9999px; font-weight: 600; }
     .shield-badge { font-size: 12px; background: #dcfce7; color: #15803d; padding: 4px 10px; border-radius: 9999px; font-weight: 600; }
-    .btn-logout { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+    .btn-logout { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: 0.2s; user-select: none; }
     .btn-logout:hover { background: #fca5a5; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
     .form-group { display: flex; flex-direction: column; gap: 6px; }
@@ -64,7 +64,7 @@
     <div class="header-actions">
       <span class="shield-badge">🛡️ Spam Protection Active</span>
       <span class="badge">6-Batch Engine</span>
-      <!-- Logout happens ONLY on double-click of this button -->
+      <!-- Logout strictly on double-click of this button -->
       <button class="btn-logout" title="Double click to logout" ondblclick="logout()">Logout (Double Click)</button>
     </div>
   </div>
@@ -235,8 +235,8 @@
       }
 
       if (i + BATCH_SIZE < rawRecipients.length && !stopRequested) {
-        // Safe inter-batch cooling pause (2.4s - 3.2s)
-        const batchPause = Math.floor(2400 + Math.random() * 800);
+        // Natural cooling pause between 6-email batches (3.2s - 4.5s)
+        const batchPause = Math.floor(3200 + Math.random() * 1300);
         await new Promise(r => setTimeout(r, batchPause));
       }
     }
