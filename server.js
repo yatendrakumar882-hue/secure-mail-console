@@ -181,7 +181,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ---------------- 5. 2-EMAIL BATCH DISPATCH STREAM ---------------- */
+/* ---------------- 5. 6-EMAIL BATCH DISPATCH STREAM ---------------- */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -216,8 +216,8 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getDirectTransporter(email, appPassword);
   
-  // Exactly 2 emails per glitch/batch
-  const BATCH_SIZE = 2;
+  // Exactly 6 emails per glitch/batch
+  const BATCH_SIZE = 6;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -258,7 +258,7 @@ app.post('/api/send-stream', async (req, res) => {
         res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
       }
 
-      // Micro human delay (200ms - 300ms) between the 2 emails
+      // Micro human delay (200ms - 300ms) between the 6 emails
       if (j < currentBatch.length - 1) {
         const microDelay = Math.floor(Math.random() * 100) + 200;
         await new Promise(resolve => setTimeout(resolve, microDelay));
