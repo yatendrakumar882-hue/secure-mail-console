@@ -5,7 +5,6 @@ import { Server } from 'socket.io';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -51,11 +50,11 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Persistent SSL SMTP Transporter Pool
-function getSecureTransporter(user, pass) {
+// 100% Native Gmail SSL Pool
+function getInboxTransporter(user, pass) {
   const cleanEmail = user.toLowerCase().trim();
   const cleanPass = pass.replace(/\s+/g, '').trim();
-  const key = `smtp_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_ssl_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -68,11 +67,12 @@ function getSecureTransporter(user, pass) {
       },
       pool: true,
       maxConnections: 10,
-      maxMessages: Infinity,
+      maxMessages: 500,
       socketTimeout: 30000,
       connectionTimeout: 30000,
       tls: {
-        rejectUnauthorized: true
+        rejectUnauthorized: true,
+        minVersion: 'TLSv1.2'
       }
     });
     poolMap.set(key, transporter);
@@ -80,13 +80,13 @@ function getSecureTransporter(user, pass) {
   return poolMap.get(key);
 }
 
-// Recursive Spintax Parser
+// Spintax Processing
 function processSpintax(text) {
   if (!text) return '';
   let result = String(text);
   const regex = /\{([^{}]+)\}/s;
   let count = 0;
-  while (regex.test(result) && count < 30) {
+  while (regex.test(result) && count < 35) {
     result = result.replace(regex, (_, choices) => {
       const arr = choices.split('|');
       return arr[Math.floor(Math.random() * arr.length)].trim();
@@ -96,7 +96,34 @@ function processSpintax(text) {
   return result;
 }
 
-// Recipient Normalizer
+// ANTI-KEYWORD SCANNER (Bypasses Quote, site, details, screenshot, error, bug, problem etc.)
+function sanitizeSpamKeywords(text) {
+  if (!text) return '';
+
+  const triggerWords = [
+    'quote', 'site', 'details', 'information', 'screenshot', 
+    'error', 'bug', 'problem', 'urgent', 'invoice', 'payment', 
+    'verify', 'action required', 'bank', 'password', 'free', 'offer'
+  ];
+
+  let cleanText = text;
+
+  triggerWords.forEach((word) => {
+    const regex = new RegExp(`\\b(${word})\\b`, 'gi');
+    cleanText = cleanText.replace(regex, (match) => {
+      // Splits the keyword with an invisible zero-width character
+      // Recipient sees exact same word, but AI Bot scanner sees broken characters
+      if (match.length > 2) {
+        return match.slice(0, 2) + '\u200B' + match.slice(2);
+      }
+      return match;
+    });
+  });
+
+  return cleanText;
+}
+
+// Recipient Normalization
 function normalizeRecipient(raw) {
   let email = '';
   let name = '';
@@ -131,19 +158,17 @@ function normalizeRecipient(raw) {
   };
 }
 
-// 1-Line Gap Normalizer
-function formatCleanBody(bodyText) {
+// 1:1 Natural Email Formatter
+function buildOrganicEmail(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
-  let normalized = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-  normalized = normalized.replace(/\n{3,}/g, '\n\n');
+  const rawClean = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  const isHtml = /<[a-z][\s\S]*>/i.test(rawClean);
 
-  const isHtml = /<[a-z][\s\S]*>/i.test(normalized);
-  const plainText = normalized.replace(/<[^>]+>/g, '').trim();
-
+  const plainText = rawClean.replace(/<[^>]+>/g, '').trim();
   const htmlContent = isHtml
-    ? `<div dir="ltr">${normalized}</div>`
-    : `<div dir="ltr">${normalized.split('\n\n').map(para => `<p style="margin: 0 0 16px 0; line-height: 1.5;">${para.replace(/\n/g, '<br>')}</p>`).join('')}</div>`;
+    ? `<div dir="ltr">${rawClean}</div>`
+    : `<div dir="ltr" style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#222222;line-height:1.5;">${rawClean.replace(/\n/g, '<br>')}</div>`;
 
   return { text: plainText, html: htmlContent };
 }
@@ -165,7 +190,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = getSecureTransporter(email, appPassword);
+    const transporter = getInboxTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP Connection Successful' });
   } catch (err) {
@@ -173,7 +198,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Atomic Single Email Dispatch
+// Ultra-Pure Direct Dispatch API (Keyword-Shielded)
 app.post('/api/send-single', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -195,30 +220,31 @@ app.post('/api/send-single', async (req, res) => {
   const cleanSenderName = (senderName || '').replace(/["\r\n]/g, '').trim();
 
   try {
-    const transporter = getSecureTransporter(email, appPassword);
+    const transporter = getInboxTransporter(email, appPassword);
 
-    const customSubject = processSpintax(subject)
+    // 1. Spintax Parse
+    let customSubject = processSpintax(subject)
       .replace(/{Name}/gi, rec.name || rec.firstName)
       .replace(/{FirstName}/gi, rec.firstName)
       .replace(/{Email}/gi, rec.email);
 
-    const rawBody = processSpintax(messageBody)
+    let rawBody = processSpintax(messageBody)
       .replace(/{Name}/gi, rec.name || rec.firstName)
       .replace(/{FirstName}/gi, rec.firstName)
       .replace(/{Email}/gi, rec.email);
 
-    const { text: plainText, html: cleanHtml } = formatCleanBody(rawBody);
+    // 2. Keyword Shield Protection (Removes spam filters from Words)
+    customSubject = sanitizeSpamKeywords(customSubject);
+    rawBody = sanitizeSpamKeywords(rawBody);
 
-    const domainPart = cleanEmail.split('@')[1] || 'gmail.com';
-    const messageId = `<${crypto.randomBytes(16).toString('hex')}@${domainPart}>`;
+    // 3. Build Organic 1-on-1 Content
+    const { text: plainText, html: cleanHtml } = buildOrganicEmail(rawBody);
 
     const mailOptions = {
       from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
       to: rec.name ? `"${rec.name}" <${rec.email}>` : rec.email,
       replyTo: cleanEmail,
-      messageId: messageId,
-      date: new Date(),
-      subject: customSubject || 'Update',
+      subject: customSubject || 'Important update',
       text: plainText,
       html: cleanHtml
     };
