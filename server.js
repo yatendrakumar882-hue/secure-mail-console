@@ -3,7 +3,6 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -22,7 +21,7 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
-/* ---------------- 1. TURNSTILE BOT PROTECTION ---------------- */
+/* ---------------- 1. TURNSTILE BOT SHIELD ---------------- */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
 
@@ -48,7 +47,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 function getDirectTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '');
-  const key = `inbox_pipe_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_ssl_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -71,7 +70,7 @@ function getDirectTransporter(email, appPassword) {
   return poolMap.get(key);
 }
 
-/* ---------------- 3. RECIPIENT DATA & SPINTAX ---------------- */
+/* ---------------- 3. RECIPIENT DATA & SPINTAX ENGINE ---------------- */
 function parseRecipientData(input) {
   let email = "";
   let rawName = "";
@@ -161,6 +160,23 @@ function appendUniqueEntropy(text) {
     entropy += invisibleChars[Math.floor(Math.random() * invisibleChars.length)];
   }
   return text + entropy;
+}
+
+function createPlainTextFromHtml(html) {
+  if (!html) return "";
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*[\/]?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\n\s*\n/g, '\n\n')
+    .trim();
 }
 
 /* ---------------- 4. API ROUTES ---------------- */
@@ -254,11 +270,18 @@ app.post('/api/send-stream', async (req, res) => {
         let personalizedBody = personalizeContent(messageBody, recipient);
         personalizedBody = appendUniqueEntropy(personalizedBody);
 
+        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+        
+        // Outlook Inline Force-Inheritance Wrapper to prevent quote font shrinking on replies
+        const formattedContent = isHtml ? personalizedBody : personalizedBody.replace(/\r?\n/g, '<br>');
+        const finalHtmlWrapper = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; line-height: 1.5; color: #111111; mso-line-height-rule: exactly;"><span style="font-size: 11pt; font-family: Arial, Helvetica, sans-serif; color: #111111;">${formattedContent}</span></div>`;
+
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           subject: personalizedSubject,
-          text: personalizedBody
+          html: finalHtmlWrapper,
+          text: createPlainTextFromHtml(personalizedBody)
         };
 
         await transporter.sendMail(mailOptions);
@@ -268,14 +291,14 @@ app.post('/api/send-stream', async (req, res) => {
         res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
       }
 
-      // Intra-batch micro human delay (300ms - 600ms) between individual emails
+      // Micro human delay (400ms - 800ms) between individual batch items
       if (j < currentBatch.length - 1) {
-        const microDelay = Math.floor(Math.random() * 300) + 300;
+        const microDelay = Math.floor(Math.random() * 400) + 400;
         await new Promise(resolve => setTimeout(resolve, microDelay));
       }
     }
 
-    // Safe slow batch cooldown (3.5s - 5.5s) after every 6 emails
+    // Natural batch cooldown (3.5s - 5.5s) after every 6 emails
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
       const batchCooldown = Math.floor(Math.random() * 2000) + 3500;
       await new Promise(resolve => setTimeout(resolve, batchCooldown));
