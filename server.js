@@ -29,7 +29,6 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Cloudflare Turnstile Verification
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY || TURNSTILE_SECRET_KEY.startsWith('1x00000000')) return true;
   if (!token) return false;
@@ -51,8 +50,8 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Persistent SSL SMTP Transporter Pool
-function getSecureTransporter(user, pass) {
+// Ultra-High Concurrency Transporter Pool (Max Parallel Speed)
+function getFastTransporter(user, pass) {
   const cleanEmail = user.toLowerCase().trim();
   const cleanPass = pass.replace(/\s+/g, '').trim();
   const key = `smtp_${cleanEmail}_${cleanPass}`;
@@ -67,10 +66,10 @@ function getSecureTransporter(user, pass) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 10,
+      maxConnections: 20, // High-speed parallel connection pipe
       maxMessages: Infinity,
-      socketTimeout: 30000,
-      connectionTimeout: 30000,
+      socketTimeout: 20000,
+      connectionTimeout: 20000,
       tls: {
         rejectUnauthorized: true
       }
@@ -80,7 +79,6 @@ function getSecureTransporter(user, pass) {
   return poolMap.get(key);
 }
 
-// Recursive Spintax Parser
 function processSpintax(text) {
   if (!text) return '';
   let result = String(text);
@@ -96,7 +94,6 @@ function processSpintax(text) {
   return result;
 }
 
-// Recipient Normalizer
 function normalizeRecipient(raw) {
   let email = '';
   let name = '';
@@ -131,24 +128,21 @@ function normalizeRecipient(raw) {
   };
 }
 
-// 1-Line Gap Normalizer
-function formatCleanBody(bodyText) {
+// 1:1 Clean Direct Webmail Layout (Zero Junk Tags)
+function buildCleanBody(bodyText) {
   if (!bodyText) return { text: '', html: '' };
+  
+  const cleanText = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const isHtml = /<[a-z][\s\S]*>/i.test(cleanText);
 
-  let normalized = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-  normalized = normalized.replace(/\n{3,}/g, '\n\n');
-
-  const isHtml = /<[a-z][\s\S]*>/i.test(normalized);
-  const plainText = normalized.replace(/<[^>]+>/g, '').trim();
-
-  const htmlContent = isHtml
-    ? `<div dir="ltr">${normalized}</div>`
-    : `<div dir="ltr">${normalized.split('\n\n').map(para => `<p style="margin: 0 0 16px 0; line-height: 1.5;">${para.replace(/\n/g, '<br>')}</p>`).join('')}</div>`;
+  const plainText = cleanText.replace(/<[^>]+>/g, '').trim();
+  const htmlContent = isHtml 
+    ? `<div dir="ltr">${cleanText}</div>` 
+    : `<div dir="ltr">${cleanText.replace(/\n/g, '<br>')}</div>`;
 
   return { text: plainText, html: htmlContent };
 }
 
-// Authentication API
 app.post('/api/auth', (req, res) => {
   const p = req.body.password;
   if (p === SITE_PASSWORD || p === '@#@#' || p === 'Y##') {
@@ -157,7 +151,6 @@ app.post('/api/auth', (req, res) => {
   return res.status(401).json({ success: false, message: 'Invalid Password' });
 });
 
-// Verification API
 app.post('/api/verify', async (req, res) => {
   const { email, appPassword } = req.body;
   if (!email || !appPassword) {
@@ -165,7 +158,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = getSecureTransporter(email, appPassword);
+    const transporter = getFastTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP Connection Successful' });
   } catch (err) {
@@ -173,7 +166,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Atomic Single Email Dispatch
+// Instant High-Speed Dispatch API
 app.post('/api/send-single', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -195,7 +188,7 @@ app.post('/api/send-single', async (req, res) => {
   const cleanSenderName = (senderName || '').replace(/["\r\n]/g, '').trim();
 
   try {
-    const transporter = getSecureTransporter(email, appPassword);
+    const transporter = getFastTransporter(email, appPassword);
 
     const customSubject = processSpintax(subject)
       .replace(/{Name}/gi, rec.name || rec.firstName)
@@ -207,8 +200,9 @@ app.post('/api/send-single', async (req, res) => {
       .replace(/{FirstName}/gi, rec.firstName)
       .replace(/{Email}/gi, rec.email);
 
-    const { text: plainText, html: cleanHtml } = formatCleanBody(rawBody);
+    const { text: plainText, html: cleanHtml } = buildCleanBody(rawBody);
 
+    // Authentic Native Domain Message-ID
     const domainPart = cleanEmail.split('@')[1] || 'gmail.com';
     const messageId = `<${crypto.randomBytes(16).toString('hex')}@${domainPart}>`;
 
