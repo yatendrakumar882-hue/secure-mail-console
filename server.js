@@ -29,7 +29,6 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Cloudflare Turnstile Verification
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY || TURNSTILE_SECRET_KEY.startsWith('1x00000000')) return true;
   if (!token) return false;
@@ -51,7 +50,6 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// SMTP Transporter Pool with Keep-Alive & Direct SSL
 function getSecureTransporter(user, pass) {
   const cleanEmail = user.toLowerCase().trim();
   const cleanPass = pass.replace(/\s+/g, '').trim();
@@ -67,7 +65,7 @@ function getSecureTransporter(user, pass) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5,
+      maxConnections: 6,
       maxMessages: Infinity,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -77,7 +75,6 @@ function getSecureTransporter(user, pass) {
   return poolMap.get(key);
 }
 
-// Spintax Processing
 function processSpintax(text) {
   if (!text) return '';
   let result = String(text);
@@ -93,7 +90,6 @@ function processSpintax(text) {
   return result;
 }
 
-// Recipient Normalization
 function normalizeRecipient(raw) {
   let email = '';
   let name = '';
@@ -121,7 +117,6 @@ function normalizeRecipient(raw) {
   };
 }
 
-// Clean Plain Text Generator (Removes tags and styling cleanly)
 function createCleanPlainText(htmlOrText) {
   if (!htmlOrText) return '';
   return htmlOrText
@@ -139,7 +134,6 @@ function createCleanPlainText(htmlOrText) {
     .trim();
 }
 
-// Authentication API
 app.post('/api/auth', (req, res) => {
   const p = req.body.password;
   if (p === SITE_PASSWORD || p === '@#@#' || p === 'Y##') {
@@ -148,7 +142,6 @@ app.post('/api/auth', (req, res) => {
   return res.status(401).json({ success: false, message: 'Invalid Password' });
 });
 
-// Verification API
 app.post('/api/verify', async (req, res) => {
   const { email, appPassword } = req.body;
   if (!email || !appPassword) {
@@ -164,7 +157,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// High-Deliverability Dispatch API
+// Single Dispatch API
 app.post('/api/send-single', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -188,7 +181,6 @@ app.post('/api/send-single', async (req, res) => {
   try {
     const transporter = getSecureTransporter(email, appPassword);
 
-    // Personalization
     const customSubject = processSpintax(subject)
       .replace(/{Name}/gi, rec.name)
       .replace(/{Email}/gi, rec.email);
@@ -200,12 +192,10 @@ app.post('/api/send-single', async (req, res) => {
     const isHtml = /<[a-z][\s\S]*>/i.test(customBody);
     const plainText = createCleanPlainText(customBody);
     
-    // Natural webmail HTML container
     const cleanHtml = isHtml 
       ? `<div dir="ltr">${customBody}</div>` 
       : `<div dir="ltr">${plainText.replace(/\n/g, '<br>')}</div>`;
 
-    // Standard RFC-5322 Message-ID
     const domainPart = cleanEmail.split('@')[1] || 'gmail.com';
     const messageId = `<${crypto.randomBytes(16).toString('hex')}@${domainPart}>`;
 
@@ -215,7 +205,7 @@ app.post('/api/send-single', async (req, res) => {
       replyTo: cleanEmail,
       messageId: messageId,
       date: new Date(),
-      subject: customSubject || 'Quick update',
+      subject: customSubject || 'Notification',
       text: plainText,
       html: cleanHtml,
       headers: {
