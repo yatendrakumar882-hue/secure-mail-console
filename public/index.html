@@ -95,7 +95,7 @@
             <i class="fa-solid fa-paper-plane"></i> Bulk Email Sender
         </div>
         <div class="header-actions">
-            <span class="badge-safe"><i class="fa-solid fa-shield-halved"></i> 6-Batch Safe Delivery</span>
+            <span class="badge-safe"><i class="fa-solid fa-shield-halved"></i> 6-Batch Inbox Protocol</span>
             <button type="button" class="btn-logout" id="logoutBtn" title="Double click to logout">
                 <i class="fa-solid fa-right-from-bracket"></i> Logout (Double Click)
             </button>
@@ -134,8 +134,8 @@
             </div>
 
             <div class="form-group" style="margin-bottom: 14px;">
-                <label>Message Body (Plain Text / HTML)</label>
-                <textarea id="messageBody" style="min-height: 220px;" placeholder="Write your email here... Spintax supported: {Hi|Hello}" required></textarea>
+                <label>Message Body (Plain Text / HTML with 1-Line Gap)</label>
+                <textarea id="messageBody" style="min-height: 220px;" placeholder="Hi {Name},&#10;&#10;Here is paragraph 1.&#10;&#10;Here is paragraph 2." required></textarea>
             </div>
 
             <div class="turnstile-box">
@@ -321,7 +321,7 @@
             statRemaining.textContent = extractedEmails.length;
         });
 
-        // Safe 6-Batch Parallel Dispatch (Anti-Spam Paced)
+        // 1 Blitch = 6 Emails Parallel Batch Engine (Safe & High Inbox Rate)
         sendBtn.addEventListener('click', async () => {
             if (isSending) return;
 
@@ -376,7 +376,7 @@
                 sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending in Progress...';
                 stopBtn.style.display = 'flex';
 
-                const BATCH_SIZE = 6;
+                const BATCH_SIZE = 6; // Exact 6 emails per blitch
 
                 for (let i = 0; i < total; i += BATCH_SIZE) {
                     if (stopRequested) break;
@@ -385,9 +385,14 @@
                     const batchNum = Math.floor(i / BATCH_SIZE) + 1;
                     const totalBatches = Math.ceil(total / BATCH_SIZE);
 
-                    statusText.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: #3b82f6;"></i> Dispatching Batch ${batchNum}/${totalBatches} (${currentBatch.length} emails)...`;
+                    statusText.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: #3b82f6;"></i> Dispatching Blitch ${batchNum}/${totalBatches} (${currentBatch.length} emails)...`;
 
-                    const batchPromises = currentBatch.map(recipient => {
+                    // Parallel execution with natural human micro-jitter to prevent spam bot classification
+                    const batchPromises = currentBatch.map(async (recipient, idx) => {
+                        if (idx > 0) {
+                            await delay(idx * 150); // 150ms natural stagger inside the batch
+                        }
+
                         return fetch('/api/send-single', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -425,9 +430,9 @@
 
                     await Promise.allSettled(batchPromises);
 
-                    // 1.5s Anti-spam cooldown delay between 6-email batches
+                    // 1-second clean connection rest between 6-email blitches
                     if (i + BATCH_SIZE < total && !stopRequested) {
-                        await delay(1500);
+                        await delay(1000);
                     }
                 }
 
