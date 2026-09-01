@@ -29,6 +29,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Cloudflare Turnstile Verification
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY || TURNSTILE_SECRET_KEY.startsWith('1x00000000')) return true;
   if (!token) return false;
@@ -50,6 +51,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
+// SMTP Transporter Pool with Keep-Alive & Direct SSL
 function getSecureTransporter(user, pass) {
   const cleanEmail = user.toLowerCase().trim();
   const cleanPass = pass.replace(/\s+/g, '').trim();
@@ -65,7 +67,7 @@ function getSecureTransporter(user, pass) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6,
+      maxConnections: 10,
       maxMessages: Infinity,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -75,6 +77,7 @@ function getSecureTransporter(user, pass) {
   return poolMap.get(key);
 }
 
+// Spintax Processing
 function processSpintax(text) {
   if (!text) return '';
   let result = String(text);
@@ -90,6 +93,7 @@ function processSpintax(text) {
   return result;
 }
 
+// Recipient Normalization
 function normalizeRecipient(raw) {
   let email = '';
   let name = '';
@@ -117,23 +121,27 @@ function normalizeRecipient(raw) {
   };
 }
 
-function createCleanPlainText(htmlOrText) {
-  if (!htmlOrText) return '';
-  return htmlOrText
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<br\s*[\/]?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n\n')
-    .replace(/<\/div>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/\n\s*\n/g, '\n\n')
-    .trim();
+// 1-Line Gap Normalizer (Natural Human Spacing)
+function formatCleanBody(bodyText) {
+  if (!bodyText) return { text: '', html: '' };
+  
+  // Normalize line endings
+  let normalized = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  
+  // Ensure paragraphs have 1 empty line gap
+  normalized = normalized.replace(/\n{3,}/g, '\n\n');
+
+  const isHtml = /<[a-z][\s\S]*>/i.test(normalized);
+
+  let plainText = normalized.replace(/<[^>]+>/g, '').trim();
+  let htmlContent = isHtml 
+    ? `<div dir="ltr">${normalized}</div>` 
+    : `<div dir="ltr">${normalized.split('\n\n').map(p => p.replace(/\n/g, '<br>')).join('<br><br>')}</div>`;
+
+  return { text: plainText, html: htmlContent };
 }
 
+// Authentication API
 app.post('/api/auth', (req, res) => {
   const p = req.body.password;
   if (p === SITE_PASSWORD || p === '@#@#' || p === 'Y##') {
@@ -142,6 +150,7 @@ app.post('/api/auth', (req, res) => {
   return res.status(401).json({ success: false, message: 'Invalid Password' });
 });
 
+// Verification API
 app.post('/api/verify', async (req, res) => {
   const { email, appPassword } = req.body;
   if (!email || !appPassword) {
@@ -157,7 +166,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Single Dispatch API
+// Atomic Single Direct Dispatch
 app.post('/api/send-single', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -181,21 +190,19 @@ app.post('/api/send-single', async (req, res) => {
   try {
     const transporter = getSecureTransporter(email, appPassword);
 
+    // Personalization
     const customSubject = processSpintax(subject)
       .replace(/{Name}/gi, rec.name)
       .replace(/{Email}/gi, rec.email);
 
-    let customBody = processSpintax(messageBody)
+    let rawBody = processSpintax(messageBody)
       .replace(/{Name}/gi, rec.name)
       .replace(/{Email}/gi, rec.email);
 
-    const isHtml = /<[a-z][\s\S]*>/i.test(customBody);
-    const plainText = createCleanPlainText(customBody);
-    
-    const cleanHtml = isHtml 
-      ? `<div dir="ltr">${customBody}</div>` 
-      : `<div dir="ltr">${plainText.replace(/\n/g, '<br>')}</div>`;
+    // Format with exact 1-line gap
+    const { text: plainText, html: cleanHtml } = formatCleanBody(rawBody);
 
+    // Standard RFC-5322 Message-ID
     const domainPart = cleanEmail.split('@')[1] || 'gmail.com';
     const messageId = `<${crypto.randomBytes(16).toString('hex')}@${domainPart}>`;
 
