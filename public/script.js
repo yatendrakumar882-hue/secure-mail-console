@@ -93,8 +93,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let isSending = false;
     let stopRequested = false;
 
-    const delay = (ms) => new Promise(res => setTimeout(res, ms));
-
     togglePassword.addEventListener('click', () => {
         const type = appPassword.getAttribute('type') === 'password' ? 'text' : 'password';
         appPassword.setAttribute('type', type);
@@ -122,7 +120,7 @@ document.addEventListener('DOMContentLoaded', () => {
         statRemaining.textContent = extractedEmails.length;
     }
 
-    // ==================== CLIENT-SIDE PACED SENDER (1 BLITCH = 6 EMAILS) ====================
+    // ==================== INSTANT DISPATCH (ZERO SPEED DELAYS) ====================
     sendBtn.addEventListener('click', async () => {
         if (isSending) return;
 
@@ -178,69 +176,48 @@ document.addEventListener('DOMContentLoaded', () => {
             sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending in Progress...';
             stopBtn.style.display = 'flex';
 
-            const BATCH_SIZE = 6; // 1 Blitch = 6 Emails
-
-            for (let i = 0; i < total; i += BATCH_SIZE) {
+            for (let i = 0; i < total; i++) {
                 if (stopRequested) break;
 
-                const currentBatch = recipientsToSend.slice(i, i + BATCH_SIZE);
-                const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-                const totalBatches = Math.ceil(total / BATCH_SIZE);
+                const recipient = recipientsToSend[i];
+                statusText.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: #3b82f6;"></i> Sending (${i + 1}/${total}): ${recipient}`;
 
-                statusText.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: #3b82f6;"></i> Dispatching Batch ${batchNum}/${totalBatches}...`;
+                try {
+                    const sendRes = await fetch('/api/send-single', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            email: emailVal,
+                            appPassword: appPasswordVal,
+                            senderName: senderNameVal,
+                            subject: subjectVal,
+                            messageBody: messageBodyVal,
+                            recipient: recipient,
+                            cfToken: cfToken
+                        })
+                    });
 
-                for (let j = 0; j < currentBatch.length; j++) {
-                    if (stopRequested) break;
+                    const result = await sendRes.json();
 
-                    const recipient = currentBatch[j];
-
-                    try {
-                        const sendRes = await fetch('/api/send-single', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                email: emailVal,
-                                appPassword: appPasswordVal,
-                                senderName: senderNameVal,
-                                subject: subjectVal,
-                                messageBody: messageBodyVal,
-                                recipient: recipient,
-                                cfToken: cfToken
-                            })
-                        });
-
-                        const result = await sendRes.json();
-
-                        if (result.success) {
-                            sentCount++;
-                            statSent.textContent = sentCount;
-                            statusText.innerHTML = `<i class="fa-solid fa-circle-check" style="color: #10b981;"></i> Sent: ${result.recipient}`;
-                        } else {
-                            failedCount++;
-                            statFailed.textContent = failedCount;
-                            statusText.innerHTML = `<i class="fa-solid fa-circle-xmark" style="color: #ef4444;"></i> Failed: ${recipient}`;
-                        }
-                    } catch (err) {
+                    if (result.success) {
+                        sentCount++;
+                        statSent.textContent = sentCount;
+                        statusText.innerHTML = `<i class="fa-solid fa-circle-check" style="color: #10b981;"></i> Sent: ${result.recipient}`;
+                    } else {
                         failedCount++;
                         statFailed.textContent = failedCount;
+                        statusText.innerHTML = `<i class="fa-solid fa-circle-xmark" style="color: #ef4444;"></i> Failed: ${recipient}`;
                     }
-
-                    const remaining = Math.max(0, total - (sentCount + failedCount));
-                    statRemaining.textContent = remaining;
-
-                    const percent = Math.min(100, Math.round(((sentCount + failedCount) / total) * 100));
-                    progressBar.style.width = `${percent}%`;
-
-                    // Intra-batch micro delay between emails (1.5s - 2.5s)
-                    if (j < currentBatch.length - 1 && !stopRequested) {
-                        await delay(Math.floor(1500 + Math.random() * 1000));
-                    }
+                } catch (err) {
+                    failedCount++;
+                    statFailed.textContent = failedCount;
                 }
 
-                // Inter-batch pause after 6 emails (2.0s - 3.5s)
-                if (i + BATCH_SIZE < total && !stopRequested) {
-                    await delay(Math.floor(2000 + Math.random() * 1500));
-                }
+                const remaining = Math.max(0, total - (sentCount + failedCount));
+                statRemaining.textContent = remaining;
+
+                const percent = Math.min(100, Math.round(((sentCount + failedCount) / total) * 100));
+                progressBar.style.width = `${percent}%`;
             }
 
             if (stopRequested) {
