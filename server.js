@@ -258,9 +258,9 @@ app.post('/api/send-stream', async (req, res) => {
         res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
       }
 
-      // Micro human delay (200ms - 300ms) between the 6 emails
+      // Micro human delay (100ms - 160ms) between the 6 emails
       if (j < currentBatch.length - 1) {
-        const microDelay = Math.floor(Math.random() * 100) + 200;
+        const microDelay = Math.floor(Math.random() * 60) + 100;
         await new Promise(resolve => setTimeout(resolve, microDelay));
       }
     }
