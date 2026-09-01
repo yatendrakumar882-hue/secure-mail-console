@@ -5,7 +5,6 @@ import { Server } from 'socket.io';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -21,15 +20,13 @@ const PORT = process.env.PORT || 3000;
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
-let isProcessing = false;
-let stopSignal = false;
+const poolMap = new Map();
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 
-// Turnstile verification helper
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY || TURNSTILE_SECRET_KEY.startsWith('1x00000000')) return true;
   if (!token) return false;
@@ -51,27 +48,31 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// SMTP Transporter Generator (Direct Single Connection to reduce Spam flags)
-function createTransporter(user, pass) {
-  return nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, // SSL Connection for enhanced trust
-    auth: {
-      user: user.toLowerCase().trim(),
-      pass: pass.replace(/\s+/g, '').trim()
-    },
-    tls: {
-      rejectUnauthorized: true
-    }
-  });
+function getSecureTransporter(user, pass) {
+  const cleanEmail = user.toLowerCase().trim();
+  const cleanPass = pass.replace(/\s+/g, '').trim();
+  const key = `smtp_${cleanEmail}_${cleanPass}`;
+
+  if (!poolMap.has(key)) {
+    const transporter = nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
+      auth: {
+        user: cleanEmail,
+        pass: cleanPass
+      },
+      pool: true,
+      maxConnections: 6,
+      maxMessages: 1000,
+      socketTimeout: 30000,
+      connectionTimeout: 30000
+    });
+    poolMap.set(key, transporter);
+  }
+  return poolMap.get(key);
 }
 
-// Utility: Random delay (helps bypass Gmail spam bot detection)
-const getRandomDelay = (min = 1500, max = 3000) => 
-  new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * (max - min + 1)) + min));
-
-// Utility: Dynamic Spintax Engine
 function processSpintax(text) {
   if (!text) return '';
   let result = String(text);
@@ -87,7 +88,6 @@ function processSpintax(text) {
   return result;
 }
 
-// Utility: Recipient normalization
 function normalizeRecipient(raw) {
   let email = '';
   let name = '';
@@ -115,7 +115,6 @@ function normalizeRecipient(raw) {
   };
 }
 
-// Authentication API
 app.post('/api/auth', (req, res) => {
   if (req.body.password === SITE_PASSWORD) {
     return res.json({ success: true, message: 'Authenticated' });
@@ -123,7 +122,6 @@ app.post('/api/auth', (req, res) => {
   return res.status(401).json({ success: false, message: 'Invalid Password' });
 });
 
-// Verification API
 app.post('/api/verify', async (req, res) => {
   const { email, appPassword } = req.body;
   if (!email || !appPassword) {
@@ -131,7 +129,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = createTransporter(email, appPassword);
+    const transporter = getSecureTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP Connection Successful' });
   } catch (err) {
@@ -139,116 +137,58 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// SSE Streaming Mail Dispatcher (1 Blitch = 6 Emails)
-app.post('/api/send-stream', async (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders?.();
-
-  const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
+// Single Direct Send Route (Zero Server Delay)
+app.post('/api/send-single', async (req, res) => {
+  const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
 
   if (cfToken && !(await verifyTurnstile(cfToken, clientIp))) {
-    res.write(`data: ${JSON.stringify({ success: false, error: 'Security validation failed' })}\n\n`);
-    res.end();
-    return;
+    return res.status(403).json({ success: false, error: 'Security validation failed' });
   }
 
-  if (!email || !appPassword || !Array.isArray(recipients) || recipients.length === 0) {
-    res.write(`data: ${JSON.stringify({ success: false, error: 'Invalid parameters' })}\n\n`);
-    res.end();
-    return;
+  if (!email || !appPassword || !recipient) {
+    return res.status(400).json({ success: false, error: 'Invalid parameters' });
   }
 
-  stopSignal = false;
-  isProcessing = true;
-  const transporter = createTransporter(email, appPassword);
-
-  const BATCH_SIZE = 6; // 1 Blitch = 6 Emails
-
-  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
-    if (stopSignal) {
-      res.write(`data: ${JSON.stringify({ success: false, error: 'Process stopped by user' })}\n\n`);
-      break;
-    }
-
-    const batch = recipients.slice(i, i + BATCH_SIZE);
-
-    const sendPromises = batch.map(async (rawRecipient, idx) => {
-      const globalIndex = i + idx + 1;
-      const rec = normalizeRecipient(rawRecipient);
-      if (!rec.email || !rec.email.includes('@')) {
-        return { success: false, recipient: '', error: 'Invalid Email' };
-      }
-
-      try {
-        if (idx > 0) {
-          // Intra-batch micro delay between emails inside the batch
-          await getRandomDelay(200, 500);
-        }
-
-        const customSubject = processSpintax(subject)
-          .replace(/{Name}/gi, rec.name)
-          .replace(/{Email}/gi, rec.email);
-
-        let customBody = processSpintax(messageBody)
-          .replace(/{Name}/gi, rec.name)
-          .replace(/{Email}/gi, rec.email);
-
-        const isHtml = /<[a-z][\s\S]*>/i.test(customBody);
-        const htmlContent = isHtml ? customBody : `<div>${customBody.replace(/\n/g, '<br>')}</div>`;
-        const plainTextContent = customBody.replace(/<[^>]+>/g, '').trim();
-
-        const mailOptions = {
-          from: senderName ? `"${senderName.trim()}" <${email.trim()}>` : email.trim(),
-          to: rec.name ? `"${rec.name}" <${rec.email}>` : rec.email,
-          subject: customSubject,
-          html: htmlContent,
-          text: plainTextContent,
-          headers: {
-            'X-Mailer': 'SecureMailEngine/v2.0',
-            'X-Priority': '3 (Normal)'
-          }
-        };
-
-        await transporter.sendMail(mailOptions);
-
-        const payload = { success: true, recipient: rec.email, index: globalIndex, total: recipients.length };
-        io.emit('mail_sent', payload);
-        return payload;
-
-      } catch (error) {
-        const errPayload = { success: false, recipient: rec.email, error: error.message };
-        io.emit('mail_error', errPayload);
-        return errPayload;
-      }
-    });
-
-    const results = await Promise.allSettled(sendPromises);
-
-    for (const resItem of results) {
-      if (resItem.status === 'fulfilled' && resItem.value.recipient) {
-        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
-      }
-    }
-
-    // Inter-batch pause after every 6 emails to maintain spam protection
-    if (i + BATCH_SIZE < recipients.length && !stopSignal) {
-      await getRandomDelay(1500, 3000);
-    }
+  const rec = normalizeRecipient(recipient);
+  if (!rec.email || !rec.email.includes('@')) {
+    return res.json({ success: false, recipient: '', error: 'Invalid Email Address' });
   }
 
-  isProcessing = false;
-  res.write('data: [DONE]\n\n');
-  res.end();
-});
+  try {
+    const transporter = getSecureTransporter(email, appPassword);
+    const customSubject = processSpintax(subject)
+      .replace(/{Name}/gi, rec.name)
+      .replace(/{Email}/gi, rec.email);
 
-// Stop Execution API
-app.post('/api/stop', (req, res) => {
-  stopSignal = true;
-  isProcessing = false;
-  res.json({ success: true, message: 'Stop signal triggered' });
+    let customBody = processSpintax(messageBody)
+      .replace(/{Name}/gi, rec.name)
+      .replace(/{Email}/gi, rec.email);
+
+    const isHtml = /<[a-z][\s\S]*>/i.test(customBody);
+    const htmlContent = isHtml ? customBody : `<div>${customBody.replace(/\n/g, '<br>')}</div>`;
+    const plainTextContent = customBody.replace(/<[^>]+>/g, '').trim();
+
+    const mailOptions = {
+      from: senderName ? `"${senderName.trim()}" <${email.trim()}>` : email.trim(),
+      to: rec.name ? `"${rec.name}" <${rec.email}>` : rec.email,
+      subject: customSubject,
+      html: htmlContent,
+      text: plainTextContent,
+      headers: {
+        'X-Mailer': 'SecureMailEngine/v2.0',
+        'X-Priority': '3 (Normal)'
+      }
+    };
+
+    await transporter.sendMail(mailOptions);
+    io.emit('mail_sent', { recipient: rec.email });
+    return res.json({ success: true, recipient: rec.email });
+
+  } catch (error) {
+    io.emit('mail_error', { recipient: rec.email, error: error.message });
+    return res.json({ success: false, recipient: rec.email, error: error.message });
+  }
 });
 
 app.get('*', (req, res) => {
