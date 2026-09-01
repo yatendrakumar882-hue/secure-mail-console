@@ -265,7 +265,7 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Organic Inter-Batch Cooldown (1.5s - 2.5s) after every 2 emails
+    // Organic Inter-Batch Cooldown (1.5s - 2.5s) after every 6 emails
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
       const batchCooldown = Math.floor(Math.random() * 1000) + 1500;
       await new Promise(resolve => setTimeout(resolve, batchCooldown));
