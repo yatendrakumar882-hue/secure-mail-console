@@ -60,8 +60,8 @@ function getDirectTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 1,
-      maxMessages: 100
+      maxConnections: 5,
+      maxMessages: 4000
     });
     poolMap.set(key, transporter);
   }
