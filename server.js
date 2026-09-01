@@ -5,7 +5,6 @@ import { Server } from 'socket.io';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -29,6 +28,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Cloudflare Turnstile Verification
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY || TURNSTILE_SECRET_KEY.startsWith('1x00000000')) return true;
   if (!token) return false;
@@ -50,35 +50,31 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Ultra-High Concurrency Transporter Pool (Max Parallel Speed)
-function getFastTransporter(user, pass) {
+// Authentic Single-Pool Transporter (Pure Google Handshake)
+function getInboxTransporter(user, pass) {
   const cleanEmail = user.toLowerCase().trim();
   const cleanPass = pass.replace(/\s+/g, '').trim();
-  const key = `smtp_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_pool_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,
+      service: 'gmail',
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 20, // High-speed parallel connection pipe
-      maxMessages: Infinity,
-      socketTimeout: 20000,
-      connectionTimeout: 20000,
-      tls: {
-        rejectUnauthorized: true
-      }
+      maxConnections: 5,
+      maxMessages: 500,
+      socketTimeout: 30000,
+      connectionTimeout: 30000
     });
     poolMap.set(key, transporter);
   }
   return poolMap.get(key);
 }
 
+// Spintax Processing
 function processSpintax(text) {
   if (!text) return '';
   let result = String(text);
@@ -94,6 +90,7 @@ function processSpintax(text) {
   return result;
 }
 
+// Recipient Normalization
 function normalizeRecipient(raw) {
   let email = '';
   let name = '';
@@ -128,11 +125,11 @@ function normalizeRecipient(raw) {
   };
 }
 
-// 1:1 Clean Direct Webmail Layout (Zero Junk Tags)
+// 1:1 Clean Body Normalizer (Raw Webmail Signature format)
 function buildCleanBody(bodyText) {
   if (!bodyText) return { text: '', html: '' };
   
-  const cleanText = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const cleanText = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   const isHtml = /<[a-z][\s\S]*>/i.test(cleanText);
 
   const plainText = cleanText.replace(/<[^>]+>/g, '').trim();
@@ -143,6 +140,7 @@ function buildCleanBody(bodyText) {
   return { text: plainText, html: htmlContent };
 }
 
+// Authentication API
 app.post('/api/auth', (req, res) => {
   const p = req.body.password;
   if (p === SITE_PASSWORD || p === '@#@#' || p === 'Y##') {
@@ -151,6 +149,7 @@ app.post('/api/auth', (req, res) => {
   return res.status(401).json({ success: false, message: 'Invalid Password' });
 });
 
+// Verification API
 app.post('/api/verify', async (req, res) => {
   const { email, appPassword } = req.body;
   if (!email || !appPassword) {
@@ -158,7 +157,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = getFastTransporter(email, appPassword);
+    const transporter = getInboxTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP Connection Successful' });
   } catch (err) {
@@ -166,7 +165,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Instant High-Speed Dispatch API
+// Native Envelope Dispatcher (Google Auto-Signs DKIM/SPF)
 app.post('/api/send-single', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -188,7 +187,7 @@ app.post('/api/send-single', async (req, res) => {
   const cleanSenderName = (senderName || '').replace(/["\r\n]/g, '').trim();
 
   try {
-    const transporter = getFastTransporter(email, appPassword);
+    const transporter = getInboxTransporter(email, appPassword);
 
     const customSubject = processSpintax(subject)
       .replace(/{Name}/gi, rec.name || rec.firstName)
@@ -202,16 +201,11 @@ app.post('/api/send-single', async (req, res) => {
 
     const { text: plainText, html: cleanHtml } = buildCleanBody(rawBody);
 
-    // Authentic Native Domain Message-ID
-    const domainPart = cleanEmail.split('@')[1] || 'gmail.com';
-    const messageId = `<${crypto.randomBytes(16).toString('hex')}@${domainPart}>`;
-
+    // No custom Message-ID or fake X-headers (Google signs naturally)
     const mailOptions = {
       from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
       to: rec.name ? `"${rec.name}" <${rec.email}>` : rec.email,
       replyTo: cleanEmail,
-      messageId: messageId,
-      date: new Date(),
       subject: customSubject || 'Update',
       text: plainText,
       html: cleanHtml
