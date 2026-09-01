@@ -51,7 +51,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Ultra-Clean TLS Connection Pool
+// Persistent SSL SMTP Transporter Pool
 function getSecureTransporter(user, pass) {
   const cleanEmail = user.toLowerCase().trim();
   const cleanPass = pass.replace(/\s+/g, '').trim();
@@ -67,7 +67,7 @@ function getSecureTransporter(user, pass) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6,
+      maxConnections: 10,
       maxMessages: Infinity,
       socketTimeout: 30000,
       connectionTimeout: 30000,
@@ -80,7 +80,7 @@ function getSecureTransporter(user, pass) {
   return poolMap.get(key);
 }
 
-// Spintax Processing Engine
+// Recursive Spintax Parser
 function processSpintax(text) {
   if (!text) return '';
   let result = String(text);
@@ -96,7 +96,7 @@ function processSpintax(text) {
   return result;
 }
 
-// Recipient Data Normalization
+// Recipient Normalizer
 function normalizeRecipient(raw) {
   let email = '';
   let name = '';
@@ -131,7 +131,7 @@ function normalizeRecipient(raw) {
   };
 }
 
-// 1-Line Natural Paragraph Gap Formatter
+// 1-Line Gap Normalizer
 function formatCleanBody(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
@@ -139,10 +139,9 @@ function formatCleanBody(bodyText) {
   normalized = normalized.replace(/\n{3,}/g, '\n\n');
 
   const isHtml = /<[a-z][\s\S]*>/i.test(normalized);
+  const plainText = normalized.replace(/<[^>]+>/g, '').trim();
 
-  let plainText = normalized.replace(/<[^>]+>/g, '').trim();
-
-  let htmlContent = isHtml
+  const htmlContent = isHtml
     ? `<div dir="ltr">${normalized}</div>`
     : `<div dir="ltr">${normalized.split('\n\n').map(para => `<p style="margin: 0 0 16px 0; line-height: 1.5;">${para.replace(/\n/g, '<br>')}</p>`).join('')}</div>`;
 
@@ -174,7 +173,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Single Direct Dispatch (Zero Fake Headers + Exact Delivery)
+// Atomic Single Email Dispatch
 app.post('/api/send-single', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -198,21 +197,18 @@ app.post('/api/send-single', async (req, res) => {
   try {
     const transporter = getSecureTransporter(email, appPassword);
 
-    // Personalization Variables
     const customSubject = processSpintax(subject)
       .replace(/{Name}/gi, rec.name || rec.firstName)
       .replace(/{FirstName}/gi, rec.firstName)
       .replace(/{Email}/gi, rec.email);
 
-    let rawBody = processSpintax(messageBody)
+    const rawBody = processSpintax(messageBody)
       .replace(/{Name}/gi, rec.name || rec.firstName)
       .replace(/{FirstName}/gi, rec.firstName)
       .replace(/{Email}/gi, rec.email);
 
-    // 1-Line Gap Structure
     const { text: plainText, html: cleanHtml } = formatCleanBody(rawBody);
 
-    // Dynamic RFC-5322 Message-ID
     const domainPart = cleanEmail.split('@')[1] || 'gmail.com';
     const messageId = `<${crypto.randomBytes(16).toString('hex')}@${domainPart}>`;
 
