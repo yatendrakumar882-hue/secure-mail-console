@@ -50,24 +50,26 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Enterprise High-Trust SSL Transporter Pool
-function getSecureTransporter(user, pass) {
+// 100% High-Trust Gmail Transporter (Direct TLS Protocol)
+function getInboxTransporter(user, pass) {
   const cleanEmail = user.toLowerCase().trim();
   const cleanPass = pass.replace(/\s+/g, '').trim();
-  const key = `secure_pool_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_ssl_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
-      secure: true, // Direct SSL handshake for maximum trust
+      secure: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6,
-      maxMessages: Infinity,
+      maxConnections: 10,
+      maxMessages: 500,
+      rateDelta: 1000,
+      rateLimit: 10,
       socketTimeout: 30000,
       connectionTimeout: 30000,
       tls: {
@@ -80,7 +82,7 @@ function getSecureTransporter(user, pass) {
   return poolMap.get(key);
 }
 
-// Spintax Processing Engine
+// Dynamic Spintax Engine
 function processSpintax(text) {
   if (!text) return '';
   let result = String(text);
@@ -96,7 +98,7 @@ function processSpintax(text) {
   return result;
 }
 
-// Recipient Normalization
+// Clean Recipient Normalization
 function normalizeRecipient(raw) {
   let email = '';
   let name = '';
@@ -131,17 +133,19 @@ function normalizeRecipient(raw) {
   };
 }
 
-// 1:1 Clean Body Normalizer (Raw Webmail Output)
-function buildCleanBody(bodyText) {
+// Organic 1-on-1 Webmail Formatting
+function buildOrganicEmail(bodyText) {
   if (!bodyText) return { text: '', html: '' };
-  
-  const cleanText = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-  const isHtml = /<[a-z][\s\S]*>/i.test(cleanText);
 
-  const plainText = cleanText.replace(/<[^>]+>/g, '').trim();
-  const htmlContent = isHtml 
-    ? `<div dir="ltr">${cleanText}</div>` 
-    : `<div dir="ltr">${cleanText.replace(/\n/g, '<br>')}</div>`;
+  const rawClean = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  const isHtml = /<[a-z][\s\S]*>/i.test(rawClean);
+
+  const plainText = rawClean.replace(/<[^>]+>/g, '').trim();
+
+  // Natural Webmail Structure
+  const htmlContent = isHtml
+    ? `<div dir="ltr">${rawClean}</div>`
+    : `<div dir="ltr" style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#222222;line-height:1.5;">${rawClean.replace(/\n/g, '<br>')}</div>`;
 
   return { text: plainText, html: htmlContent };
 }
@@ -163,7 +167,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = getSecureTransporter(email, appPassword);
+    const transporter = getInboxTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP Connection Successful' });
   } catch (err) {
@@ -171,7 +175,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Single Direct Dispatch (Zero Spoofing Flags + Natural DKIM Signing)
+// Ultra-Pure Direct Dispatch API (Maximum Inbox Deliverability)
 app.post('/api/send-single', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -193,8 +197,9 @@ app.post('/api/send-single', async (req, res) => {
   const cleanSenderName = (senderName || '').replace(/["\r\n]/g, '').trim();
 
   try {
-    const transporter = getSecureTransporter(email, appPassword);
+    const transporter = getInboxTransporter(email, appPassword);
 
+    // Dynamic Spintax Replacement
     const customSubject = processSpintax(subject)
       .replace(/{Name}/gi, rec.name || rec.firstName)
       .replace(/{FirstName}/gi, rec.firstName)
@@ -205,14 +210,14 @@ app.post('/api/send-single', async (req, res) => {
       .replace(/{FirstName}/gi, rec.firstName)
       .replace(/{Email}/gi, rec.email);
 
-    const { text: plainText, html: cleanHtml } = buildCleanBody(rawBody);
+    const { text: plainText, html: cleanHtml } = buildOrganicEmail(rawBody);
 
+    // Native Clean Envelope (Allows Google to naturally generate DKIM/ARC/SPF)
     const mailOptions = {
       from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
       to: rec.name ? `"${rec.name}" <${rec.email}>` : rec.email,
       replyTo: cleanEmail,
-      date: new Date(),
-      subject: customSubject || 'Update',
+      subject: customSubject || 'Important update',
       text: plainText,
       html: cleanHtml
     };
