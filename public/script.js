@@ -141,6 +141,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const recipientsToSend = [...extractedEmails];
+        const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]')?.value || "";
+
         sendBtn.disabled = true;
         sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
 
@@ -149,7 +151,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const verifyRes = await fetch('/api/verify', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: emailVal, appPassword: appPasswordVal })
+                body: JSON.stringify({ email: emailVal, appPassword: appPasswordVal, cfToken: turnstileResponse })
             });
 
             const verifyResult = await verifyRes.json();
@@ -185,7 +187,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     senderName: senderNameVal,
                     subject: subjectVal,
                     messageBody: messageBodyVal,
-                    recipients: recipientsToSend
+                    recipients: recipientsToSend,
+                    cfToken: turnstileResponse
                 })
             });
 
@@ -266,5 +269,9 @@ document.addEventListener('DOMContentLoaded', () => {
         sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send All';
         stopBtn.style.display = 'none';
         stopBtn.disabled = false;
+
+        if (window.turnstile) {
+            try { window.turnstile.reset(); } catch (e) {}
+        }
     }
 });
