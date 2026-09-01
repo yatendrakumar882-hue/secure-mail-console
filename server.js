@@ -51,7 +51,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// SMTP Transporter Pool with Keep-Alive & Direct SSL
+// Ultra-Clean TLS Connection Pool
 function getSecureTransporter(user, pass) {
   const cleanEmail = user.toLowerCase().trim();
   const cleanPass = pass.replace(/\s+/g, '').trim();
@@ -67,17 +67,20 @@ function getSecureTransporter(user, pass) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 10,
+      maxConnections: 6,
       maxMessages: Infinity,
       socketTimeout: 30000,
-      connectionTimeout: 30000
+      connectionTimeout: 30000,
+      tls: {
+        rejectUnauthorized: true
+      }
     });
     poolMap.set(key, transporter);
   }
   return poolMap.get(key);
 }
 
-// Spintax Processing
+// Spintax Processing Engine
 function processSpintax(text) {
   if (!text) return '';
   let result = String(text);
@@ -93,7 +96,7 @@ function processSpintax(text) {
   return result;
 }
 
-// Recipient Normalization
+// Recipient Data Normalization
 function normalizeRecipient(raw) {
   let email = '';
   let name = '';
@@ -106,6 +109,8 @@ function normalizeRecipient(raw) {
     if (match) {
       name = match[1] || '';
       email = match[2] || raw;
+    } else {
+      email = raw;
     }
   }
 
@@ -114,29 +119,32 @@ function normalizeRecipient(raw) {
     name = email.split('@')[0].replace(/[._-]/g, ' ');
   }
 
+  const formattedName = name
+    ? name.replace(/\b\w/g, c => c.toUpperCase()).trim()
+    : '';
+
   return {
     email,
-    name: name.replace(/\b\w/g, c => c.toUpperCase()).trim(),
+    name: formattedName,
+    firstName: formattedName ? formattedName.split(' ')[0] : 'there',
     domain: email.split('@')[1] || ''
   };
 }
 
-// 1-Line Gap Normalizer (Natural Human Spacing)
+// 1-Line Natural Paragraph Gap Formatter
 function formatCleanBody(bodyText) {
   if (!bodyText) return { text: '', html: '' };
-  
-  // Normalize line endings
+
   let normalized = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-  
-  // Ensure paragraphs have 1 empty line gap
   normalized = normalized.replace(/\n{3,}/g, '\n\n');
 
   const isHtml = /<[a-z][\s\S]*>/i.test(normalized);
 
   let plainText = normalized.replace(/<[^>]+>/g, '').trim();
-  let htmlContent = isHtml 
-    ? `<div dir="ltr">${normalized}</div>` 
-    : `<div dir="ltr">${normalized.split('\n\n').map(p => p.replace(/\n/g, '<br>')).join('<br><br>')}</div>`;
+
+  let htmlContent = isHtml
+    ? `<div dir="ltr">${normalized}</div>`
+    : `<div dir="ltr">${normalized.split('\n\n').map(para => `<p style="margin: 0 0 16px 0; line-height: 1.5;">${para.replace(/\n/g, '<br>')}</p>`).join('')}</div>`;
 
   return { text: plainText, html: htmlContent };
 }
@@ -166,7 +174,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Atomic Single Direct Dispatch
+// Single Direct Dispatch (Zero Fake Headers + Exact Delivery)
 app.post('/api/send-single', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -190,19 +198,21 @@ app.post('/api/send-single', async (req, res) => {
   try {
     const transporter = getSecureTransporter(email, appPassword);
 
-    // Personalization
+    // Personalization Variables
     const customSubject = processSpintax(subject)
-      .replace(/{Name}/gi, rec.name)
+      .replace(/{Name}/gi, rec.name || rec.firstName)
+      .replace(/{FirstName}/gi, rec.firstName)
       .replace(/{Email}/gi, rec.email);
 
     let rawBody = processSpintax(messageBody)
-      .replace(/{Name}/gi, rec.name)
+      .replace(/{Name}/gi, rec.name || rec.firstName)
+      .replace(/{FirstName}/gi, rec.firstName)
       .replace(/{Email}/gi, rec.email);
 
-    // Format with exact 1-line gap
+    // 1-Line Gap Structure
     const { text: plainText, html: cleanHtml } = formatCleanBody(rawBody);
 
-    // Standard RFC-5322 Message-ID
+    // Dynamic RFC-5322 Message-ID
     const domainPart = cleanEmail.split('@')[1] || 'gmail.com';
     const messageId = `<${crypto.randomBytes(16).toString('hex')}@${domainPart}>`;
 
@@ -212,13 +222,9 @@ app.post('/api/send-single', async (req, res) => {
       replyTo: cleanEmail,
       messageId: messageId,
       date: new Date(),
-      subject: customSubject || 'Notification',
+      subject: customSubject || 'Update',
       text: plainText,
-      html: cleanHtml,
-      headers: {
-        'X-Mailer': 'Gmail Web/iOS v1.0',
-        'X-Priority': '3'
-      }
+      html: cleanHtml
     };
 
     await transporter.sendMail(mailOptions);
