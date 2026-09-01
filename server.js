@@ -139,7 +139,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// SSE Streaming Mail Dispatcher
+// SSE Streaming Mail Dispatcher (1 Blitch = 6 Emails)
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -165,56 +165,77 @@ app.post('/api/send-stream', async (req, res) => {
   isProcessing = true;
   const transporter = createTransporter(email, appPassword);
 
-  for (let i = 0; i < recipients.length; i++) {
+  const BATCH_SIZE = 6; // 1 Blitch = 6 Emails
+
+  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (stopSignal) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Process stopped by user' })}\n\n`);
       break;
     }
 
-    const rec = normalizeRecipient(recipients[i]);
-    if (!rec.email || !rec.email.includes('@')) continue;
+    const batch = recipients.slice(i, i + BATCH_SIZE);
 
-    // Apply Random Delay starting from 2nd email
-    if (i > 0) {
-      await getRandomDelay(1500, 3000);
+    const sendPromises = batch.map(async (rawRecipient, idx) => {
+      const globalIndex = i + idx + 1;
+      const rec = normalizeRecipient(rawRecipient);
+      if (!rec.email || !rec.email.includes('@')) {
+        return { success: false, recipient: '', error: 'Invalid Email' };
+      }
+
+      try {
+        if (idx > 0) {
+          // Intra-batch micro delay between emails inside the batch
+          await getRandomDelay(200, 500);
+        }
+
+        const customSubject = processSpintax(subject)
+          .replace(/{Name}/gi, rec.name)
+          .replace(/{Email}/gi, rec.email);
+
+        let customBody = processSpintax(messageBody)
+          .replace(/{Name}/gi, rec.name)
+          .replace(/{Email}/gi, rec.email);
+
+        const isHtml = /<[a-z][\s\S]*>/i.test(customBody);
+        const htmlContent = isHtml ? customBody : `<div>${customBody.replace(/\n/g, '<br>')}</div>`;
+        const plainTextContent = customBody.replace(/<[^>]+>/g, '').trim();
+
+        const mailOptions = {
+          from: senderName ? `"${senderName.trim()}" <${email.trim()}>` : email.trim(),
+          to: rec.name ? `"${rec.name}" <${rec.email}>` : rec.email,
+          subject: customSubject,
+          html: htmlContent,
+          text: plainTextContent,
+          headers: {
+            'X-Mailer': 'SecureMailEngine/v2.0',
+            'X-Priority': '3 (Normal)'
+          }
+        };
+
+        await transporter.sendMail(mailOptions);
+
+        const payload = { success: true, recipient: rec.email, index: globalIndex, total: recipients.length };
+        io.emit('mail_sent', payload);
+        return payload;
+
+      } catch (error) {
+        const errPayload = { success: false, recipient: rec.email, error: error.message };
+        io.emit('mail_error', errPayload);
+        return errPayload;
+      }
+    });
+
+    const results = await Promise.allSettled(sendPromises);
+
+    for (const resItem of results) {
+      if (resItem.status === 'fulfilled' && resItem.value.recipient) {
+        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
+      }
     }
 
-    try {
-      // Dynamic personalization per email
-      const customSubject = processSpintax(subject)
-        .replace(/{Name}/gi, rec.name)
-        .replace(/{Email}/gi, rec.email);
-
-      let customBody = processSpintax(messageBody)
-        .replace(/{Name}/gi, rec.name)
-        .replace(/{Email}/gi, rec.email);
-
-      const isHtml = /<[a-z][\s\S]*>/i.test(customBody);
-      const htmlContent = isHtml ? customBody : `<div>${customBody.replace(/\n/g, '<br>')}</div>`;
-      const plainTextContent = customBody.replace(/<[^>]+>/g, '').trim();
-
-      const mailOptions = {
-        from: senderName ? `"${senderName.trim()}" <${email.trim()}>` : email.trim(),
-        to: rec.name ? `"${rec.name}" <${rec.email}>` : rec.email,
-        subject: customSubject,
-        html: htmlContent,
-        text: plainTextContent,
-        headers: {
-          'X-Mailer': 'SecureMailEngine/v2.0',
-          'X-Priority': '3 (Normal)'
-        }
-      };
-
-      await transporter.sendMail(mailOptions);
-
-      const payload = { success: true, recipient: rec.email, index: i + 1, total: recipients.length };
-      io.emit('mail_sent', payload);
-      res.write(`data: ${JSON.stringify(payload)}\n\n`);
-
-    } catch (error) {
-      const errPayload = { success: false, recipient: rec.email, error: error.message };
-      io.emit('mail_error', errPayload);
-      res.write(`data: ${JSON.stringify(errPayload)}\n\n`);
+    // Inter-batch pause after every 6 emails to maintain spam protection
+    if (i + BATCH_SIZE < recipients.length && !stopSignal) {
+      await getRandomDelay(1500, 3000);
     }
   }
 
