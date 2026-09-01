@@ -258,16 +258,16 @@ app.post('/api/send-stream', async (req, res) => {
         res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
       }
 
-      // Micro human delay (500ms - 900ms) between the 2 emails
+      // Micro human delay (200ms - 300ms) between the 2 emails
       if (j < currentBatch.length - 1) {
-        const microDelay = Math.floor(Math.random() * 400) + 500;
+        const microDelay = Math.floor(Math.random() * 100) + 200;
         await new Promise(resolve => setTimeout(resolve, microDelay));
       }
     }
 
-    // Organic Inter-Batch Cooldown (2.5s - 4.5s) after every 2 emails
+    // Organic Inter-Batch Cooldown (1.5s - 2.5s) after every 2 emails
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const batchCooldown = Math.floor(Math.random() * 2000) + 2500;
+      const batchCooldown = Math.floor(Math.random() * 1000) + 1500;
       await new Promise(resolve => setTimeout(resolve, batchCooldown));
     }
   }
