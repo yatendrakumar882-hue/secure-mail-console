@@ -50,37 +50,43 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Authentic Single-Pool Transporter (Pure Google Handshake)
-function getInboxTransporter(user, pass) {
+// Enterprise High-Trust SSL Transporter Pool
+function getSecureTransporter(user, pass) {
   const cleanEmail = user.toLowerCase().trim();
   const cleanPass = pass.replace(/\s+/g, '').trim();
-  const key = `inbox_pool_${cleanEmail}_${cleanPass}`;
+  const key = `secure_pool_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true, // Direct SSL handshake for maximum trust
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5,
-      maxMessages: 500,
+      maxConnections: 6,
+      maxMessages: Infinity,
       socketTimeout: 30000,
-      connectionTimeout: 30000
+      connectionTimeout: 30000,
+      tls: {
+        rejectUnauthorized: true,
+        minVersion: 'TLSv1.2'
+      }
     });
     poolMap.set(key, transporter);
   }
   return poolMap.get(key);
 }
 
-// Spintax Processing
+// Spintax Processing Engine
 function processSpintax(text) {
   if (!text) return '';
   let result = String(text);
   const regex = /\{([^{}]+)\}/s;
   let count = 0;
-  while (regex.test(result) && count < 30) {
+  while (regex.test(result) && count < 35) {
     result = result.replace(regex, (_, choices) => {
       const arr = choices.split('|');
       return arr[Math.floor(Math.random() * arr.length)].trim();
@@ -125,7 +131,7 @@ function normalizeRecipient(raw) {
   };
 }
 
-// 1:1 Clean Body Normalizer (Raw Webmail Signature format)
+// 1:1 Clean Body Normalizer (Raw Webmail Output)
 function buildCleanBody(bodyText) {
   if (!bodyText) return { text: '', html: '' };
   
@@ -157,7 +163,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = getInboxTransporter(email, appPassword);
+    const transporter = getSecureTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP Connection Successful' });
   } catch (err) {
@@ -165,7 +171,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Native Envelope Dispatcher (Google Auto-Signs DKIM/SPF)
+// Single Direct Dispatch (Zero Spoofing Flags + Natural DKIM Signing)
 app.post('/api/send-single', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -187,7 +193,7 @@ app.post('/api/send-single', async (req, res) => {
   const cleanSenderName = (senderName || '').replace(/["\r\n]/g, '').trim();
 
   try {
-    const transporter = getInboxTransporter(email, appPassword);
+    const transporter = getSecureTransporter(email, appPassword);
 
     const customSubject = processSpintax(subject)
       .replace(/{Name}/gi, rec.name || rec.firstName)
@@ -201,11 +207,11 @@ app.post('/api/send-single', async (req, res) => {
 
     const { text: plainText, html: cleanHtml } = buildCleanBody(rawBody);
 
-    // No custom Message-ID or fake X-headers (Google signs naturally)
     const mailOptions = {
       from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
       to: rec.name ? `"${rec.name}" <${rec.email}>` : rec.email,
       replyTo: cleanEmail,
+      date: new Date(),
       subject: customSubject || 'Update',
       text: plainText,
       html: cleanHtml
