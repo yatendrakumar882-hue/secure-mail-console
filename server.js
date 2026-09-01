@@ -26,6 +26,7 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(process.cwd(), 'public')));
+app.use(express.static(path.join(__dirname, 'public')));
 
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY || TURNSTILE_SECRET_KEY.startsWith('1x00000000')) return true;
@@ -137,7 +138,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Single Direct Send Route (Zero Server Delay)
+// Direct Atomic Dispatcher (Zero Server Delays)
 app.post('/api/send-single', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -192,7 +193,11 @@ app.post('/api/send-single', async (req, res) => {
 });
 
 app.get('*', (req, res) => {
-  res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
+  const filePath1 = path.join(process.cwd(), 'public', 'index.html');
+  const filePath2 = path.join(__dirname, 'public', 'index.html');
+  if (fs.existsSync(filePath1)) return res.sendFile(filePath1);
+  if (fs.existsSync(filePath2)) return res.sendFile(filePath2);
+  return res.status(200).send('<h1>Server Running</h1>');
 });
 
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
