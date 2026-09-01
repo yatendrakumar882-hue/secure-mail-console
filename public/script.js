@@ -69,7 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // ==================== INPUT HANDLERS & EYE TOGGLE ====================
+    // ==================== FORM ELEMENTS & CONTROLS ====================
     const togglePassword = document.getElementById('togglePassword');
     const appPassword = document.getElementById('appPassword');
     const senderName = document.getElementById('senderName');
@@ -92,6 +92,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let extractedEmails = [];
     let isSending = false;
     let stopRequested = false;
+
+    const delay = (ms) => new Promise(res => setTimeout(res, ms));
 
     togglePassword.addEventListener('click', () => {
         const type = appPassword.getAttribute('type') === 'password' ? 'text' : 'password';
@@ -120,7 +122,7 @@ document.addEventListener('DOMContentLoaded', () => {
         statRemaining.textContent = extractedEmails.length;
     }
 
-    // ==================== STREAMING SENDER PIPELINE ====================
+    // ==================== CLIENT-SIDE PACED SENDER (1 BLITCH = 6 EMAILS) ====================
     sendBtn.addEventListener('click', async () => {
         if (isSending) return;
 
@@ -141,17 +143,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const recipientsToSend = [...extractedEmails];
-        const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]')?.value || "";
+        const total = recipientsToSend.length;
+        const cfToken = document.querySelector('[name="cf-turnstile-response"]')?.value || "";
 
         sendBtn.disabled = true;
         sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
 
         try {
-            // Verify SMTP Credentials
             const verifyRes = await fetch('/api/verify', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: emailVal, appPassword: appPasswordVal, cfToken: turnstileResponse })
+                body: JSON.stringify({ email: emailVal, appPassword: appPasswordVal })
             });
 
             const verifyResult = await verifyRes.json();
@@ -161,12 +163,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // Start Live UI
+            // Setup UI
             isSending = true;
             stopRequested = false;
             let sentCount = 0;
             let failedCount = 0;
-            const total = recipientsToSend.length;
 
             statTotal.textContent = total;
             statSent.textContent = '0';
@@ -176,62 +177,69 @@ document.addEventListener('DOMContentLoaded', () => {
 
             sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending in Progress...';
             stopBtn.style.display = 'flex';
-            statusText.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: #3b82f6;"></i> Dispatching safe campaign...`;
 
-            const response = await fetch('/api/send-stream', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    email: emailVal,
-                    appPassword: appPasswordVal,
-                    senderName: senderNameVal,
-                    subject: subjectVal,
-                    messageBody: messageBodyVal,
-                    recipients: recipientsToSend,
-                    cfToken: turnstileResponse
-                })
-            });
+            const BATCH_SIZE = 6; // 1 Blitch = 6 Emails
 
-            if (!response.ok) throw new Error('Stream Connection Dropped.');
-
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-
-            while (true) {
+            for (let i = 0; i < total; i += BATCH_SIZE) {
                 if (stopRequested) break;
 
-                const { done, value } = await reader.read();
-                if (done) break;
+                const currentBatch = recipientsToSend.slice(i, i + BATCH_SIZE);
+                const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+                const totalBatches = Math.ceil(total / BATCH_SIZE);
 
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n\n');
-                buffer = lines.pop();
+                statusText.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: #3b82f6;"></i> Dispatching Batch ${batchNum}/${totalBatches}...`;
 
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const dataStr = line.replace('data: ', '').trim();
-                        if (dataStr === '[DONE]') break;
+                for (let j = 0; j < currentBatch.length; j++) {
+                    if (stopRequested) break;
 
-                        try {
-                            const event = JSON.parse(dataStr);
-                            if (event.success) {
-                                sentCount++;
-                                statSent.textContent = sentCount;
-                                statusText.innerHTML = `<i class="fa-solid fa-circle-check" style="color: #10b981;"></i> Sent: ${event.recipient}`;
-                            } else {
-                                failedCount++;
-                                statFailed.textContent = failedCount;
-                                statusText.innerHTML = `<i class="fa-solid fa-circle-xmark" style="color: #ef4444;"></i> Failed: ${event.recipient}`;
-                            }
+                    const recipient = currentBatch[j];
 
-                            const remaining = Math.max(0, total - (sentCount + failedCount));
-                            statRemaining.textContent = remaining;
+                    try {
+                        const sendRes = await fetch('/api/send-single', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                email: emailVal,
+                                appPassword: appPasswordVal,
+                                senderName: senderNameVal,
+                                subject: subjectVal,
+                                messageBody: messageBodyVal,
+                                recipient: recipient,
+                                cfToken: cfToken
+                            })
+                        });
 
-                            const percent = Math.min(100, Math.round(((sentCount + failedCount) / total) * 100));
-                            progressBar.style.width = `${percent}%`;
-                        } catch (e) {}
+                        const result = await sendRes.json();
+
+                        if (result.success) {
+                            sentCount++;
+                            statSent.textContent = sentCount;
+                            statusText.innerHTML = `<i class="fa-solid fa-circle-check" style="color: #10b981;"></i> Sent: ${result.recipient}`;
+                        } else {
+                            failedCount++;
+                            statFailed.textContent = failedCount;
+                            statusText.innerHTML = `<i class="fa-solid fa-circle-xmark" style="color: #ef4444;"></i> Failed: ${recipient}`;
+                        }
+                    } catch (err) {
+                        failedCount++;
+                        statFailed.textContent = failedCount;
                     }
+
+                    const remaining = Math.max(0, total - (sentCount + failedCount));
+                    statRemaining.textContent = remaining;
+
+                    const percent = Math.min(100, Math.round(((sentCount + failedCount) / total) * 100));
+                    progressBar.style.width = `${percent}%`;
+
+                    // Intra-batch micro delay between emails (1.5s - 2.5s)
+                    if (j < currentBatch.length - 1 && !stopRequested) {
+                        await delay(Math.floor(1500 + Math.random() * 1000));
+                    }
+                }
+
+                // Inter-batch pause after 6 emails (2.0s - 3.5s)
+                if (i + BATCH_SIZE < total && !stopRequested) {
+                    await delay(Math.floor(2000 + Math.random() * 1500));
                 }
             }
 
@@ -243,24 +251,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } catch (err) {
             console.error('Send Error:', err);
-            statusText.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color: #ef4444;"></i> Stream error occurred.`;
+            statusText.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color: #ef4444;"></i> Error occurred during execution.`;
         } finally {
             resetSendUI();
         }
     });
 
-    stopBtn.addEventListener('click', async () => {
+    stopBtn.addEventListener('click', () => {
         stopRequested = true;
         statusText.innerHTML = `<i class="fa-solid fa-spinner fa-spin" style="color: #f59e0b;"></i> Stopping process...`;
         stopBtn.disabled = true;
-
-        try {
-            await fetch('/api/stop', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: email.value.trim() })
-            });
-        } catch (e) {}
     });
 
     function resetSendUI() {
