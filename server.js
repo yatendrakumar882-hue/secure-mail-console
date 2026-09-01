@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const SITE_PASSWORD = process.env.SITE_PASSWORD || '####@';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || '##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const globalSession = { stopRequested: false };
@@ -21,7 +21,7 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
-/* ---------------- 1. TURNSTILE BOT SHIELD ---------------- */
+/* ---------------- 1. TURNSTILE BOT PROTECTION ---------------- */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
 
@@ -43,27 +43,25 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-/* ---------------- 2. DIRECT GMAIL SSL TRANSPORTER ---------------- */
+/* ---------------- 2. DIRECT GMAIL TLS TRANSPORTER ---------------- */
 function getDirectTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '');
-  const key = `inbox_ssl_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_clean_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,
+      port: 587,
+      secure: false,
+      requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
       maxConnections: 1,
-      maxMessages: 100,
-      tls: {
-        rejectUnauthorized: true
-      }
+      maxMessages: 100
     });
     poolMap.set(key, transporter);
   }
@@ -152,33 +150,6 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-function appendUniqueEntropy(text) {
-  const invisibleChars = ['\u200B', '\u200C', '\u200D', '\uFEFF'];
-  const count = Math.floor(Math.random() * 4) + 2;
-  let entropy = '';
-  for (let i = 0; i < count; i++) {
-    entropy += invisibleChars[Math.floor(Math.random() * invisibleChars.length)];
-  }
-  return text + entropy;
-}
-
-function createPlainTextFromHtml(html) {
-  if (!html) return "";
-  return html
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<br\s*[\/]?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n\n')
-    .replace(/<\/div>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/\n\s*\n/g, '\n\n')
-    .trim();
-}
-
 /* ---------------- 4. API ROUTES ---------------- */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -210,7 +181,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ---------------- 5. 6-EMAIL BATCH DISPATCH STREAM ---------------- */
+/* ---------------- 5. 2-EMAIL BATCH DISPATCH STREAM ---------------- */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -244,7 +215,9 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getDirectTransporter(email, appPassword);
-  const BATCH_SIZE = 6;
+  
+  // Exactly 2 emails per glitch/batch
+  const BATCH_SIZE = 2;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -267,21 +240,15 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         const personalizedSubject = personalizeContent(subject, recipient);
-        let personalizedBody = personalizeContent(messageBody, recipient);
-        personalizedBody = appendUniqueEntropy(personalizedBody);
+        const personalizedBody = personalizeContent(messageBody, recipient);
 
-        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
-        
-        // Outlook Inline Force-Inheritance Wrapper to prevent quote font shrinking on replies
-        const formattedContent = isHtml ? personalizedBody : personalizedBody.replace(/\r?\n/g, '<br>');
-        const finalHtmlWrapper = `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; line-height: 1.5; color: #111111; mso-line-height-rule: exactly;"><span style="font-size: 11pt; font-family: Arial, Helvetica, sans-serif; color: #111111;">${formattedContent}</span></div>`;
-
+        // Pure RFC 5322 Native Plain-Text Mail (Zero HTML/Zero Spam Obfuscation Tags)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+          replyTo: cleanEmail,
           subject: personalizedSubject,
-          html: finalHtmlWrapper,
-          text: createPlainTextFromHtml(personalizedBody)
+          text: personalizedBody
         };
 
         await transporter.sendMail(mailOptions);
@@ -291,16 +258,16 @@ app.post('/api/send-stream', async (req, res) => {
         res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
       }
 
-      // Micro human delay (400ms - 800ms) between individual batch items
+      // Micro human delay (500ms - 900ms) between the 2 emails
       if (j < currentBatch.length - 1) {
-        const microDelay = Math.floor(Math.random() * 400) + 400;
+        const microDelay = Math.floor(Math.random() * 400) + 500;
         await new Promise(resolve => setTimeout(resolve, microDelay));
       }
     }
 
-    // Natural batch cooldown (3.5s - 5.5s) after every 6 emails
+    // Organic Inter-Batch Cooldown (2.5s - 4.5s) after every 2 emails
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const batchCooldown = Math.floor(Math.random() * 2000) + 3500;
+      const batchCooldown = Math.floor(Math.random() * 2000) + 2500;
       await new Promise(resolve => setTimeout(resolve, batchCooldown));
     }
   }
