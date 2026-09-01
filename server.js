@@ -43,11 +43,11 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-/* ---------------- 2. DIRECT GMAIL MULTI-SOCKET POOL ---------------- */
+/* ---------------- 2. OPTIMIZED 6-SOCKET GMAIL POOL ---------------- */
 function getParallelTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '');
-  const key = `inbox_parallel_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_parallel_clean_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -59,7 +59,7 @@ function getParallelTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6, // 6 concurrent sockets ek sath 6 emails fire karne ke liye
+      maxConnections: 6,
       maxMessages: 100,
       tls: {
         rejectUnauthorized: true
@@ -70,7 +70,7 @@ function getParallelTransporter(email, appPassword) {
   return poolMap.get(key);
 }
 
-/* ---------------- 3. RECIPIENT DATA & SPINTAX ---------------- */
+/* ---------------- 3. RECIPIENT DATA & SPINTAX ENGINE ---------------- */
 function parseRecipientData(input) {
   let email = "";
   let rawName = "";
@@ -180,7 +180,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ---------------- 5. 6-EMAIL CONCURRENT PARALLEL DISPATCH ---------------- */
+/* ---------------- 5. CONCURRENT 6-EMAIL BATCH DISPATCH ---------------- */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -216,7 +216,6 @@ app.post('/api/send-stream', async (req, res) => {
   const transporter = getParallelTransporter(email, appPassword);
   const BATCH_SIZE = 6;
 
-  // Har iteration mein theek 6 emails ek sath fire honge
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: "Stopped by User" })}\n\n`);
@@ -225,7 +224,7 @@ app.post('/api/send-stream', async (req, res) => {
 
     const currentBatch = recipients.slice(i, i + BATCH_SIZE);
 
-    // 6 emails parallel trigger ho rahe hain
+    // 6 emails execute concurrently in a single glitch/tick
     const sendBatchPromises = currentBatch.map(async (rawRecipient) => {
       const recipient = parseRecipientData(rawRecipient);
 
@@ -237,13 +236,14 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedSubject = personalizeContent(subject, recipient);
         const personalizedBody = personalizeContent(messageBody, recipient);
 
-        // Native Plain-Text Envelope
+        // Native 1-on-1 pure RFC format (Inbox optimized)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           subject: personalizedSubject,
-          text: personalizedBody
+          text: personalizedBody,
+          date: new Date()
         };
 
         await transporter.sendMail(mailOptions);
@@ -254,7 +254,6 @@ app.post('/api/send-stream', async (req, res) => {
       }
     });
 
-    // 6 emails ek sath resolve honge
     const results = await Promise.allSettled(sendBatchPromises);
 
     for (const resItem of results) {
@@ -263,9 +262,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Har 6-email batch ke baad cooldown taaki Google drop na kare
+    // Inter-batch rest period (3.0s - 4.5s) to ensure Google rate limits do not drop inbox score
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const batchCooldown = Math.floor(Math.random() * 1000) + 2500; // 2.5s - 3.5s
+      const batchCooldown = Math.floor(Math.random() * 1500) + 3000;
       await new Promise(resolve => setTimeout(resolve, batchCooldown));
     }
   }
