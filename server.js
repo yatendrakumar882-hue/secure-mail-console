@@ -21,7 +21,7 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
-/* ---------------- 1. BOT PROTECTION ---------------- */
+/* ---------------- 1. TURNSTILE BOT SHIELD ---------------- */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
 
@@ -43,11 +43,11 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-/* ---------------- 2. DIRECT GMAIL NATIVE TRANSPORTER ---------------- */
-function getDirectTransporter(email, appPassword) {
+/* ---------------- 2. DIRECT GMAIL MULTI-SOCKET POOL ---------------- */
+function getParallelTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '');
-  const key = `inbox_clean_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_parallel_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -59,15 +59,18 @@ function getDirectTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 1, // Single connection limits burst flags
-      maxMessages: 100
+      maxConnections: 6, // 6 concurrent sockets ek sath 6 emails fire karne ke liye
+      maxMessages: 100,
+      tls: {
+        rejectUnauthorized: true
+      }
     });
     poolMap.set(key, transporter);
   }
   return poolMap.get(key);
 }
 
-/* ---------------- 3. RECIPIENT & SPINTAX ENGINE ---------------- */
+/* ---------------- 3. RECIPIENT DATA & SPINTAX ---------------- */
 function parseRecipientData(input) {
   let email = "";
   let rawName = "";
@@ -169,7 +172,7 @@ app.post("/api/verify", async (req, res) => {
   }
 
   try {
-    const transporter = getDirectTransporter(email, appPassword);
+    const transporter = getParallelTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: "SMTP verified successfully" });
   } catch (error) {
@@ -177,7 +180,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ---------------- 5. 6-EMAIL BATCH DISPATCH STREAM ---------------- */
+/* ---------------- 5. 6-EMAIL CONCURRENT PARALLEL DISPATCH ---------------- */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -210,11 +213,10 @@ app.post('/api/send-stream', async (req, res) => {
     res.write(': keep-alive\n\n');
   }, 4000);
 
-  const transporter = getDirectTransporter(email, appPassword);
-  
-  // Exactly 6 emails per batch
+  const transporter = getParallelTransporter(email, appPassword);
   const BATCH_SIZE = 6;
 
+  // Har iteration mein theek 6 emails ek sath fire honge
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: "Stopped by User" })}\n\n`);
@@ -223,22 +225,19 @@ app.post('/api/send-stream', async (req, res) => {
 
     const currentBatch = recipients.slice(i, i + BATCH_SIZE);
 
-    for (let j = 0; j < currentBatch.length; j++) {
-      if (globalSession.stopRequested) break;
-
-      const rawRecipient = currentBatch[j];
+    // 6 emails parallel trigger ho rahe hain
+    const sendBatchPromises = currentBatch.map(async (rawRecipient) => {
       const recipient = parseRecipientData(rawRecipient);
 
       if (!recipient.email) {
-        res.write(`data: ${JSON.stringify({ success: false, recipient: "", error: "Invalid Email" })}\n\n`);
-        continue;
+        return { success: false, recipient: "", error: "Invalid Email" };
       }
 
       try {
         const personalizedSubject = personalizeContent(subject, recipient);
         const personalizedBody = personalizeContent(messageBody, recipient);
 
-        // PURE NATIVE PLAIN TEXT - 100% INBOX GUARANTEE (No HTML wrappers allowed)
+        // Native Plain-Text Envelope
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -248,22 +247,25 @@ app.post('/api/send-stream', async (req, res) => {
         };
 
         await transporter.sendMail(mailOptions);
-        res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email, name: recipient.name })}\n\n`);
+        return { success: true, recipient: recipient.email, name: recipient.name };
 
       } catch (err) {
-        res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
+        return { success: false, recipient: recipient.email, error: err.message };
       }
+    });
 
-      // Fast firing within the 6-email batch (300ms - 600ms)
-      if (j < currentBatch.length - 1) {
-        const fastDelay = Math.floor(Math.random() * 300) + 300;
-        await new Promise(resolve => setTimeout(resolve, fastDelay));
+    // 6 emails ek sath resolve honge
+    const results = await Promise.allSettled(sendBatchPromises);
+
+    for (const resItem of results) {
+      if (resItem.status === 'fulfilled' && resItem.value.recipient) {
+        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
       }
     }
 
-    // Crucial Batch Cooldown (4.0s - 6.0s) to reset Gmail's Spam Burst Trigger
+    // Har 6-email batch ke baad cooldown taaki Google drop na kare
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const batchCooldown = Math.floor(Math.random() * 2000) + 4000;
+      const batchCooldown = Math.floor(Math.random() * 1000) + 2500; // 2.5s - 3.5s
       await new Promise(resolve => setTimeout(resolve, batchCooldown));
     }
   }
