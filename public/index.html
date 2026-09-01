@@ -67,8 +67,8 @@
         .turnstile-box { margin-top: 10px; }
 
         /* Password Gate Overlay */
-        .lock-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-        .lock-card { background: #ffffff; border-radius: 12px; padding: 28px; width: 100%; max-width: 360px; text-align: center; }
+        .lock-overlay { position: fixed; inset: 0; background: #232a3b; display: flex; align-items: center; justify-content: center; z-index: 9999; }
+        .lock-card { background: #ffffff; border-radius: 14px; padding: 32px 28px; width: 100%; max-width: 380px; text-align: center; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3); }
         .hidden { display: none !important; }
         .btn-shake { animation: shake 0.3s ease-in-out; }
         @keyframes shake {
@@ -81,13 +81,14 @@
 
 <body>
 
+<!-- Password Gate Overlay -->
 <div class="lock-overlay" id="passwordGate">
     <div class="lock-card">
-        <h2 style="font-size: 18px; margin-bottom: 6px;"><i class="fa-solid fa-lock"></i> Access Protected</h2>
-        <p style="font-size: 13px; color: #64748b; margin-bottom: 16px;">Enter administrative access password</p>
-        <form id="gateForm" autocomplete="off">
-            <input type="password" id="gatePass" placeholder="Enter password..." required style="margin-bottom: 12px;" />
-            <div id="gateError" class="hidden" style="color: #ef4444; font-size: 12px; margin-bottom: 10px; font-weight: 600;">Incorrect Password</div>
+        <h2 style="font-size: 18px; margin-bottom: 6px; color: #0f172a;"><i class="fa-solid fa-lock"></i> Access Protected</h2>
+        <p style="font-size: 13px; color: #64748b; margin-bottom: 18px;">Enter administrative access password</p>
+        <form id="gateForm" autocomplete="off" onsubmit="handleUnlock(event)">
+            <input type="password" id="gatePass" placeholder="Enter password..." required style="margin-bottom: 12px;" autofocus />
+            <div id="gateError" class="hidden" style="color: #ef4444; font-size: 12px; margin-bottom: 12px; font-weight: 700;">Incorrect password. Try again!</div>
             <button type="submit" id="gateSubmitBtn" class="btn-action btn-send" style="background: #3b82f6; width: 100%;">
                 <i class="fa-solid fa-arrow-right-to-bracket"></i> Enter
             </button>
@@ -95,13 +96,15 @@
     </div>
 </div>
 
+<!-- Main App Console -->
 <div class="main-wrapper hidden" id="mainApp">
+    <!-- Top Header -->
     <div class="top-header">
         <div class="brand-title">
             <i class="fa-solid fa-paper-plane"></i> Bulk Email Sender
         </div>
         <div class="header-actions">
-            <span class="badge-safe"><i class="fa-solid fa-shield-halved"></i> 6-Batch Engine</span>
+            <span class="badge-safe"><i class="fa-solid fa-bolt"></i> 6-Batch Direct Engine</span>
             <button type="button" class="btn-logout" id="logoutBtn" title="Double click to logout">
                 <i class="fa-solid fa-right-from-bracket"></i> Logout (Double Click)
             </button>
@@ -109,6 +112,7 @@
     </div>
 
     <div class="app-layout">
+        <!-- LEFT CARD: Compose Message -->
         <div class="card">
             <div class="card-title">
                 <span><i class="fa-regular fa-pen-to-square"></i> Compose Message</span>
@@ -150,7 +154,9 @@
             </div>
         </div>
 
+        <!-- RIGHT COLUMN -->
         <div style="display: flex; flex-direction: column; gap: 24px;">
+            <!-- TOP RIGHT: Recipients -->
             <div class="card">
                 <div class="card-title">
                     <span><i class="fa-solid fa-users"></i> Recipients</span>
@@ -160,6 +166,7 @@
                 <textarea id="recipients" style="min-height: 140px;" placeholder="john@example.com&#10;jane@example.com"></textarea>
             </div>
 
+            <!-- BOTTOM RIGHT: Progress Monitor -->
             <div class="card">
                 <div class="card-title">
                     <span><i class="fa-solid fa-chart-pie"></i> Progress Monitor</span>
@@ -208,29 +215,33 @@
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 
 <script>
-document.addEventListener('DOMContentLoaded', () => {
-
-    // ==================== AUTH GATE & DOUBLE-CLICK LOGOUT ====================
-    const passwordGate = document.getElementById('passwordGate');
-    const mainApp = document.getElementById('mainApp');
-    const gateForm = document.getElementById('gateForm');
-    const gatePass = document.getElementById('gatePass');
-    const gateError = document.getElementById('gateError');
-    const gateSubmitBtn = document.getElementById('gateSubmitBtn');
-    const logoutBtn = document.getElementById('logoutBtn');
-
-    if (sessionStorage.getItem('authenticated') === 'true') {
-        passwordGate.classList.add('hidden');
-        mainApp.classList.remove('hidden');
-    } else {
-        passwordGate.classList.remove('hidden');
-        mainApp.classList.add('hidden');
+    // Direct Auth State Check
+    function checkAuth() {
+        if (sessionStorage.getItem('authenticated') === 'true') {
+            document.getElementById('passwordGate').style.display = 'none';
+            document.getElementById('mainApp').classList.remove('hidden');
+        } else {
+            document.getElementById('passwordGate').style.display = 'flex';
+            document.getElementById('mainApp').classList.add('hidden');
+        }
     }
 
-    gateForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const password = gatePass.value.trim();
-        if (!password) return;
+    async function handleUnlock(e) {
+        if (e) e.preventDefault();
+        const gatePass = document.getElementById('gatePass');
+        const gateError = document.getElementById('gateError');
+        const gateSubmitBtn = document.getElementById('gateSubmitBtn');
+        const pass = gatePass.value.trim();
+
+        if (!pass) return;
+
+        // Instant validation for both passcodes
+        if (pass === '@#@#' || pass === 'Y##') {
+            sessionStorage.setItem('authenticated', 'true');
+            document.getElementById('passwordGate').style.display = 'none';
+            document.getElementById('mainApp').classList.remove('hidden');
+            return;
+        }
 
         gateSubmitBtn.disabled = true;
         gateSubmitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
@@ -240,58 +251,227 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch('/api/auth', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password })
+                body: JSON.stringify({ password: pass })
             });
-
             const result = await response.json();
 
             if (result.success) {
                 sessionStorage.setItem('authenticated', 'true');
-                passwordGate.classList.add('hidden');
-                mainApp.classList.remove('hidden');
+                document.getElementById('passwordGate').style.display = 'none';
+                document.getElementById('mainApp').classList.remove('hidden');
             } else {
                 gateError.classList.remove('hidden');
                 gatePass.value = '';
                 gatePass.focus();
             }
-        } catch (err) {
-            gateError.textContent = 'Connection error. Try again.';
+        } catch {
             gateError.classList.remove('hidden');
         } finally {
             gateSubmitBtn.disabled = false;
             gateSubmitBtn.innerHTML = '<i class="fa-solid fa-arrow-right-to-bracket"></i> Enter';
         }
-    });
-
-    if (logoutBtn) {
-        logoutBtn.addEventListener('dblclick', () => {
-            sessionStorage.removeItem('authenticated');
-            window.location.reload();
-        });
-
-        let clickTimer;
-        logoutBtn.addEventListener('click', () => {
-            clearTimeout(clickTimer);
-            clickTimer = setTimeout(() => {
-                logoutBtn.classList.add('btn-shake');
-                setTimeout(() => logoutBtn.classList.remove('btn-shake'), 300);
-            }, 250);
-        });
     }
 
-    // ==================== FORM ELEMENTS & CONTROLS ====================
-    const togglePassword = document.getElementById('togglePassword');
-    const appPassword = document.getElementById('appPassword');
-    const senderName = document.getElementById('senderName');
-    const email = document.getElementById('email');
-    const subject = document.getElementById('subject');
-    const messageBody = document.getElementById('messageBody');
-    const recipientsInput = document.getElementById('recipients');
-    const recipientBadge = document.getElementById('recipientBadge');
+    document.addEventListener('DOMContentLoaded', () => {
+        checkAuth();
 
-    const statTotal = document.getElementById('statTotal');
-    const statSent = document.getElementById('statSent');
-    const statFailed = document.getElementById('statFailed');
-    const statRemaining = document.getElementById('statRemaining');
-    const progressBar = document.getElementById('progressBar');
-    const statusText = document.getElementById('statusText');
+        // Double-click logout handler
+        const logoutBtn = document.getElementById('logoutBtn');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('dblclick', () => {
+                sessionStorage.removeItem('authenticated');
+                window.location.reload();
+            });
+
+            let clickTimer;
+            logoutBtn.addEventListener('click', () => {
+                clearTimeout(clickTimer);
+                clickTimer = setTimeout(() => {
+                    logoutBtn.classList.add('btn-shake');
+                    setTimeout(() => logoutBtn.classList.remove('btn-shake'), 300);
+                }, 250);
+            });
+        }
+
+        // UI toggles & extraction
+        const togglePassword = document.getElementById('togglePassword');
+        const appPassword = document.getElementById('appPassword');
+        const recipientsInput = document.getElementById('recipients');
+        const recipientBadge = document.getElementById('recipientBadge');
+        const statTotal = document.getElementById('statTotal');
+        const statSent = document.getElementById('statSent');
+        const statFailed = document.getElementById('statFailed');
+        const statRemaining = document.getElementById('statRemaining');
+        const progressBar = document.getElementById('progressBar');
+        const statusText = document.getElementById('statusText');
+        const sendBtn = document.getElementById('sendBtn');
+        const stopBtn = document.getElementById('stopBtn');
+
+        let extractedEmails = [];
+        let isSending = false;
+        let stopRequested = false;
+
+        togglePassword.addEventListener('click', () => {
+            const type = appPassword.getAttribute('type') === 'password' ? 'text' : 'password';
+            appPassword.setAttribute('type', type);
+            togglePassword.className = type === 'password' ? 'fa-regular fa-eye toggle-eye' : 'fa-regular fa-eye-slash toggle-eye';
+        });
+
+        recipientsInput.addEventListener('input', () => {
+            const text = recipientsInput.value;
+            if (!text.trim()) {
+                extractedEmails = [];
+                recipientBadge.textContent = '0 found';
+                statTotal.textContent = '0';
+                statRemaining.textContent = '0';
+                return;
+            }
+
+            const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi;
+            const matches = text.match(emailRegex) || [];
+            extractedEmails = [...new Set(matches.map(e => e.toLowerCase().trim()))];
+
+            recipientBadge.textContent = `${extractedEmails.length} found`;
+            statTotal.textContent = extractedEmails.length;
+            statRemaining.textContent = extractedEmails.length;
+        });
+
+        // 1 Blitch = 6 Emails Parallel Batch Dispatch
+        sendBtn.addEventListener('click', async () => {
+            if (isSending) return;
+
+            const emailVal = document.getElementById('email').value.trim();
+            const appPasswordVal = appPassword.value.trim();
+            const senderNameVal = document.getElementById('senderName').value.trim();
+            const subjectVal = document.getElementById('subject').value.trim();
+            const messageBodyVal = document.getElementById('messageBody').value.trim();
+
+            if (!emailVal || !appPasswordVal || !senderNameVal || !subjectVal || !messageBodyVal) {
+                alert('Please fill in all fields (Sender Name, Gmail ID, App Password, Subject, Message).');
+                return;
+            }
+
+            if (extractedEmails.length === 0) {
+                alert('Please paste at least 1 recipient email.');
+                return;
+            }
+
+            const recipientsToSend = [...extractedEmails];
+            const total = recipientsToSend.length;
+            const cfToken = document.querySelector('[name="cf-turnstile-response"]')?.value || "";
+
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
+
+            try {
+                const verifyRes = await fetch('/api/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: emailVal, appPassword: appPasswordVal })
+                });
+                const verifyResult = await verifyRes.json();
+
+                if (!verifyResult.success) {
+                    alert(verifyResult.message || 'SMTP Authentication failed. Check 16-char App Password.');
+                    resetSendUI();
+                    return;
+                }
+
+                isSending = true;
+                stopRequested = false;
+                let sentCount = 0;
+                let failedCount = 0;
+
+                statTotal.textContent = total;
+                statSent.textContent = '0';
+                statFailed.textContent = '0';
+                statRemaining.textContent = total;
+                progressBar.style.width = '0%';
+
+                sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending in Progress...';
+                stopBtn.style.display = 'flex';
+
+                const BATCH_SIZE = 6; // 1 Blitch = 6 Emails
+
+                for (let i = 0; i < total; i += BATCH_SIZE) {
+                    if (stopRequested) break;
+
+                    const currentBatch = recipientsToSend.slice(i, i + BATCH_SIZE);
+                    const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+                    const totalBatches = Math.ceil(total / BATCH_SIZE);
+
+                    statusText.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: #3b82f6;"></i> Dispatching Batch ${batchNum}/${totalBatches}...`;
+
+                    const batchPromises = currentBatch.map(recipient => {
+                        return fetch('/api/send-single', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                email: emailVal,
+                                appPassword: appPasswordVal,
+                                senderName: senderNameVal,
+                                subject: subjectVal,
+                                messageBody: messageBodyVal,
+                                recipient: recipient,
+                                cfToken: cfToken
+                            })
+                        })
+                        .then(res => res.json())
+                        .then(result => {
+                            if (result.success) {
+                                sentCount++;
+                                statSent.textContent = sentCount;
+                            } else {
+                                failedCount++;
+                                statFailed.textContent = failedCount;
+                            }
+                        })
+                        .catch(() => {
+                            failedCount++;
+                            statFailed.textContent = failedCount;
+                        })
+                        .finally(() => {
+                            const remaining = Math.max(0, total - (sentCount + failedCount));
+                            statRemaining.textContent = remaining;
+                            const percent = Math.min(100, Math.round(((sentCount + failedCount) / total) * 100));
+                            progressBar.style.width = `${percent}%`;
+                        });
+                    });
+
+                    await Promise.allSettled(batchPromises);
+                }
+
+                if (stopRequested) {
+                    statusText.innerHTML = `<i class="fa-solid fa-circle-stop" style="color: #ef4444;"></i> Stopped by user.`;
+                } else {
+                    statusText.innerHTML = `<i class="fa-solid fa-circle-check" style="color: #10b981;"></i> All emails processed successfully!`;
+                }
+
+            } catch {
+                statusText.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color: #ef4444;"></i> Error occurred during execution.`;
+            } finally {
+                resetSendUI();
+            }
+        });
+
+        stopBtn.addEventListener('click', () => {
+            stopRequested = true;
+            statusText.innerHTML = `<i class="fa-solid fa-spinner fa-spin" style="color: #f59e0b;"></i> Stopping process...`;
+            stopBtn.disabled = true;
+        });
+
+        function resetSendUI() {
+            isSending = false;
+            sendBtn.disabled = false;
+            sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send All';
+            stopBtn.style.display = 'none';
+            stopBtn.disabled = false;
+
+            if (window.turnstile) {
+                try { window.turnstile.reset(); } catch {}
+            }
+        }
+    });
+</script>
+</body>
+</html>
