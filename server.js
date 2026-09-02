@@ -20,6 +20,8 @@ const PORT = process.env.PORT || 3000;
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
+const poolMap = new Map();
+
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -47,26 +49,34 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Clean Direct SSL Connection (No Shared Pool Fingerprinting)
-function createDirectTransporter(user, pass) {
+// Organic Gmail Stream Transporter
+function getInboxTransporter(user, pass) {
   const cleanEmail = user.toLowerCase().trim();
   const cleanPass = pass.replace(/\s+/g, '').trim();
+  const key = `inbox_clean_${cleanEmail}_${cleanPass}`;
 
-  return nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: {
-      user: cleanEmail,
-      pass: cleanPass
-    },
-    socketTimeout: 30000,
-    connectionTimeout: 30000,
-    tls: {
-      rejectUnauthorized: true,
-      minVersion: 'TLSv1.2'
-    }
-  });
+  if (!poolMap.has(key)) {
+    const transporter = nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
+      auth: {
+        user: cleanEmail,
+        pass: cleanPass
+      },
+      pool: true,
+      maxConnections: 1, // Single trusted thread (Human Simulation)
+      maxMessages: 100,
+      socketTimeout: 30000,
+      connectionTimeout: 30000,
+      tls: {
+        rejectUnauthorized: true,
+        minVersion: 'TLSv1.2'
+      }
+    });
+    poolMap.set(key, transporter);
+  }
+  return poolMap.get(key);
 }
 
 function processSpintax(text) {
@@ -118,7 +128,6 @@ function normalizeRecipient(raw) {
   };
 }
 
-// Natural Typography Container (Fixes Font Shrink & Spam Traps)
 function buildCanonicalEmail(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
@@ -152,7 +161,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = createDirectTransporter(email, appPassword);
+    const transporter = getInboxTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP Connection Successful' });
   } catch (err) {
@@ -160,7 +169,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Direct Send Route (Native Envelope Handshake)
+// Single Direct Send (Strict Envelope Alignment & Google Native Signing)
 app.post('/api/send-single', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -182,7 +191,7 @@ app.post('/api/send-single', async (req, res) => {
   const cleanSenderName = (senderName || '').replace(/["\r\n]/g, '').trim();
 
   try {
-    const transporter = createDirectTransporter(email, appPassword);
+    const transporter = getInboxTransporter(email, appPassword);
 
     const customSubject = processSpintax(subject)
       .replace(/{Name}/gi, rec.name || rec.firstName)
