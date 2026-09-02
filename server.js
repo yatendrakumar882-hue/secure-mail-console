@@ -47,7 +47,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Single Dedicated Handshake (No Connection Pool Fingerprinting)
+// Clean Direct SSL Connection (No Shared Pool Fingerprinting)
 function createDirectTransporter(user, pass) {
   const cleanEmail = user.toLowerCase().trim();
   const cleanPass = pass.replace(/\s+/g, '').trim();
@@ -118,7 +118,7 @@ function normalizeRecipient(raw) {
   };
 }
 
-// Clean 1-on-1 Typography (Prevents Quote Shrinking & Spam Filter Flags)
+// Natural Typography Container (Fixes Font Shrink & Spam Traps)
 function buildCanonicalEmail(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
@@ -160,7 +160,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Direct Send Route (Strict Envelope & No Fake Fingerprints)
+// Direct Send Route (Native Envelope Handshake)
 app.post('/api/send-single', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
