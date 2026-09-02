@@ -5,6 +5,7 @@ import { Server } from 'socket.io';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -50,11 +51,11 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// 10-Batch High-Trust Direct Gmail Transporter Pool
+// 10-Batch Clean SSL Transporter Pool (Strict Native Handshake)
 function getInboxTransporter(user, pass) {
   const cleanEmail = user.toLowerCase().trim();
   const cleanPass = pass.replace(/\s+/g, '').trim();
-  const key = `inbox_ssl_${cleanEmail}_${cleanPass}`;
+  const key = `native_ssl_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -66,7 +67,7 @@ function getInboxTransporter(user, pass) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 12, // Optimized for 10 parallel emails without queue choke
+      maxConnections: 12, // Easily handles 10 parallel emails per blitch
       maxMessages: Infinity,
       socketTimeout: 30000,
       connectionTimeout: 30000,
@@ -96,32 +97,7 @@ function processSpintax(text) {
   return result;
 }
 
-// Keyword-Shield: Prevents Spam Flags for Trigger Words
-function sanitizeSpamKeywords(text) {
-  if (!text) return '';
-
-  const triggerWords = [
-    'quote', 'site', 'details', 'information', 'screenshot', 
-    'error', 'bug', 'problem', 'urgent', 'invoice', 'payment', 
-    'verify', 'action required', 'bank', 'password', 'free', 'offer'
-  ];
-
-  let cleanText = text;
-
-  triggerWords.forEach((word) => {
-    const regex = new RegExp(`\\b(${word})\\b`, 'gi');
-    cleanText = cleanText.replace(regex, (match) => {
-      if (match.length > 2) {
-        return match.slice(0, 2) + '\u200B' + match.slice(2);
-      }
-      return match;
-    });
-  });
-
-  return cleanText;
-}
-
-// Recipient Normalization
+// Recipient Normalizer
 function normalizeRecipient(raw) {
   let email = '';
   let name = '';
@@ -156,17 +132,19 @@ function normalizeRecipient(raw) {
   };
 }
 
-// Organic 1-on-1 Webmail Formatting
-function buildOrganicEmail(bodyText) {
+// 1:1 Natural Webmail Layout (Zero Suspicious Formatting)
+function buildCleanMime(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
   const rawClean = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   const isHtml = /<[a-z][\s\S]*>/i.test(rawClean);
 
   const plainText = rawClean.replace(/<[^>]+>/g, '').trim();
+
+  // Natural typography identical to desktop Gmail / Outlook Web
   const htmlContent = isHtml
     ? `<div dir="ltr">${rawClean}</div>`
-    : `<div dir="ltr" style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#222222;line-height:1.5;">${rawClean.replace(/\n/g, '<br>')}</div>`;
+    : `<div dir="ltr" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#1a1a1a;line-height:1.6;">${rawClean.replace(/\n/g, '<br>')}</div>`;
 
   return { text: plainText, html: htmlContent };
 }
@@ -196,7 +174,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Instant Atomic Send (Zero Artificial Delays, Max Speed)
+// Direct Send Single (Native RFC-5322 Envelope)
 app.post('/api/send-single', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -230,19 +208,20 @@ app.post('/api/send-single', async (req, res) => {
       .replace(/{FirstName}/gi, rec.firstName)
       .replace(/{Email}/gi, rec.email);
 
-    // Apply Keyword Shielding to bypass spam filter word traps
-    customSubject = sanitizeSpamKeywords(customSubject);
-    rawBody = sanitizeSpamKeywords(rawBody);
+    const { text: plainText, html: cleanHtml } = buildCleanMime(rawBody);
 
-    const { text: plainText, html: cleanHtml } = buildOrganicEmail(rawBody);
-
+    // Natural Clean RFC Headers (No fake X-Mailer or obfuscation flags)
     const mailOptions = {
       from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
       to: rec.name ? `"${rec.name}" <${rec.email}>` : rec.email,
       replyTo: cleanEmail,
-      subject: customSubject || 'Important update',
+      subject: customSubject || 'Update',
       text: plainText,
-      html: cleanHtml
+      html: cleanHtml,
+      headers: {
+        'MIME-Version': '1.0',
+        'X-Priority': '3 (Normal)'
+      }
     };
 
     await transporter.sendMail(mailOptions);
