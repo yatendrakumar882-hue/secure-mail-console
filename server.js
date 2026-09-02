@@ -50,7 +50,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// 100% Native Gmail SSL Pool
+// 10-Batch High-Trust Direct Gmail Transporter Pool
 function getInboxTransporter(user, pass) {
   const cleanEmail = user.toLowerCase().trim();
   const cleanPass = pass.replace(/\s+/g, '').trim();
@@ -66,8 +66,8 @@ function getInboxTransporter(user, pass) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 10,
-      maxMessages: 500,
+      maxConnections: 12, // Optimized for 10 parallel emails without queue choke
+      maxMessages: Infinity,
       socketTimeout: 30000,
       connectionTimeout: 30000,
       tls: {
@@ -96,7 +96,7 @@ function processSpintax(text) {
   return result;
 }
 
-// ANTI-KEYWORD SCANNER (Bypasses Quote, site, details, screenshot, error, bug, problem etc.)
+// Keyword-Shield: Prevents Spam Flags for Trigger Words
 function sanitizeSpamKeywords(text) {
   if (!text) return '';
 
@@ -111,8 +111,6 @@ function sanitizeSpamKeywords(text) {
   triggerWords.forEach((word) => {
     const regex = new RegExp(`\\b(${word})\\b`, 'gi');
     cleanText = cleanText.replace(regex, (match) => {
-      // Splits the keyword with an invisible zero-width character
-      // Recipient sees exact same word, but AI Bot scanner sees broken characters
       if (match.length > 2) {
         return match.slice(0, 2) + '\u200B' + match.slice(2);
       }
@@ -158,7 +156,7 @@ function normalizeRecipient(raw) {
   };
 }
 
-// 1:1 Natural Email Formatter
+// Organic 1-on-1 Webmail Formatting
 function buildOrganicEmail(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
@@ -198,7 +196,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Ultra-Pure Direct Dispatch API (Keyword-Shielded)
+// Instant Atomic Send (Zero Artificial Delays, Max Speed)
 app.post('/api/send-single', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -222,7 +220,6 @@ app.post('/api/send-single', async (req, res) => {
   try {
     const transporter = getInboxTransporter(email, appPassword);
 
-    // 1. Spintax Parse
     let customSubject = processSpintax(subject)
       .replace(/{Name}/gi, rec.name || rec.firstName)
       .replace(/{FirstName}/gi, rec.firstName)
@@ -233,11 +230,10 @@ app.post('/api/send-single', async (req, res) => {
       .replace(/{FirstName}/gi, rec.firstName)
       .replace(/{Email}/gi, rec.email);
 
-    // 2. Keyword Shield Protection (Removes spam filters from Words)
+    // Apply Keyword Shielding to bypass spam filter word traps
     customSubject = sanitizeSpamKeywords(customSubject);
     rawBody = sanitizeSpamKeywords(rawBody);
 
-    // 3. Build Organic 1-on-1 Content
     const { text: plainText, html: cleanHtml } = buildOrganicEmail(rawBody);
 
     const mailOptions = {
