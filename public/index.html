@@ -75,6 +75,7 @@
 
 <body>
 
+<!-- Password Gate Overlay -->
 <div class="lock-overlay" id="passwordGate">
     <div class="lock-card">
         <h2 style="font-size: 18px; margin-bottom: 6px; color: #0f172a;"><i class="fa-solid fa-lock"></i> Access Protected</h2>
@@ -89,13 +90,14 @@
     </div>
 </div>
 
+<!-- Main App Console -->
 <div class="main-wrapper hidden" id="mainApp">
     <div class="top-header">
         <div class="brand-title">
             <i class="fa-solid fa-paper-plane"></i> Bulk Email Sender
         </div>
         <div class="header-actions">
-            <span class="badge-safe"><i class="fa-solid fa-bolt"></i> 6-Batch Engine (1 Blitch = 6)</span>
+            <span class="badge-safe"><i class="fa-solid fa-bolt"></i> 10-Batch Parallel Protocol</span>
             <button type="button" class="btn-logout" id="logoutBtn" title="Double click to logout">
                 <i class="fa-solid fa-right-from-bracket"></i> Logout (Double Click)
             </button>
@@ -103,6 +105,7 @@
     </div>
 
     <div class="app-layout">
+        <!-- LEFT CARD: Compose Message -->
         <div class="card">
             <div class="card-title">
                 <span><i class="fa-regular fa-pen-to-square"></i> Compose Message</span>
@@ -144,7 +147,9 @@
             </div>
         </div>
 
+        <!-- RIGHT COLUMN -->
         <div style="display: flex; flex-direction: column; gap: 24px;">
+            <!-- TOP RIGHT: Recipients -->
             <div class="card">
                 <div class="card-title">
                     <span><i class="fa-solid fa-users"></i> Recipients</span>
@@ -154,6 +159,7 @@
                 <textarea id="recipients" style="min-height: 140px;" placeholder="john@example.com&#10;jane@example.com"></textarea>
             </div>
 
+            <!-- BOTTOM RIGHT: Progress Monitor -->
             <div class="card">
                 <div class="card-title">
                     <span><i class="fa-solid fa-chart-pie"></i> Progress Monitor</span>
@@ -321,7 +327,7 @@
             statRemaining.textContent = extractedEmails.length;
         });
 
-        // 1 Blitch = 6 Emails Parallel Batch Dispatch
+        // 1 BLITCH = EXACT 10 EMAILS PARALLEL DISPATCH
         sendBtn.addEventListener('click', async () => {
             if (isSending) return;
 
@@ -376,7 +382,7 @@
                 sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending in Progress...';
                 stopBtn.style.display = 'flex';
 
-                const BATCH_SIZE = 6;
+                const BATCH_SIZE = 10; // Exact 10 emails per blitch
 
                 for (let i = 0; i < total; i += BATCH_SIZE) {
                     if (stopRequested) break;
@@ -385,9 +391,14 @@
                     const batchNum = Math.floor(i / BATCH_SIZE) + 1;
                     const totalBatches = Math.ceil(total / BATCH_SIZE);
 
-                    statusText.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: #3b82f6;"></i> Blitch ${batchNum}/${totalBatches} (${currentBatch.length} parallel emails)...`;
+                    statusText.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: #3b82f6;"></i> Dispatching Blitch ${batchNum}/${totalBatches} (${currentBatch.length} emails parallel)...`;
 
-                    const batchPromises = currentBatch.map(recipient => {
+                    // Trigger 10 emails in parallel with natural intra-batch staggering
+                    const batchPromises = currentBatch.map(async (recipient, idx) => {
+                        if (idx > 0) {
+                            await delay(idx * 120); // 120ms organic micro-jitter to prevent bot detection
+                        }
+
                         return fetch('/api/send-single', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -425,8 +436,9 @@
 
                     await Promise.allSettled(batchPromises);
 
+                    // Safe 1.2s cooling pause between 10-email blitches
                     if (i + BATCH_SIZE < total && !stopRequested) {
-                        await delay(800);
+                        await delay(1200);
                     }
                 }
 
