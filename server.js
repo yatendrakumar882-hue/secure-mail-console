@@ -5,7 +5,6 @@ import { Server } from 'socket.io';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -51,11 +50,11 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// 10-Batch Clean SSL Transporter Pool (Strict Native Handshake)
+// Native Gmail TLS Connection Pool
 function getInboxTransporter(user, pass) {
   const cleanEmail = user.toLowerCase().trim();
   const cleanPass = pass.replace(/\s+/g, '').trim();
-  const key = `native_ssl_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_core_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -67,7 +66,7 @@ function getInboxTransporter(user, pass) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 12, // Easily handles 10 parallel emails per blitch
+      maxConnections: 12, // Handles 10 parallel blitch cleanly
       maxMessages: Infinity,
       socketTimeout: 30000,
       connectionTimeout: 30000,
@@ -97,7 +96,7 @@ function processSpintax(text) {
   return result;
 }
 
-// Recipient Normalizer
+// Recipient Data Normalizer
 function normalizeRecipient(raw) {
   let email = '';
   let name = '';
@@ -132,19 +131,22 @@ function normalizeRecipient(raw) {
   };
 }
 
-// 1:1 Natural Webmail Layout (Zero Suspicious Formatting)
-function buildCleanMime(bodyText) {
+// Natural 1-on-1 Plain Text & HTML Sync (Outlook/Gmail Safe)
+function buildCanonicalEmail(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
-  const rawClean = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-  const isHtml = /<[a-z][\s\S]*>/i.test(rawClean);
+  let clean = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  clean = clean.replace(/\n{3,}/g, '\n\n');
 
-  const plainText = rawClean.replace(/<[^>]+>/g, '').trim();
+  const isHtml = /<[a-z][\s\S]*>/i.test(clean);
+  const plainText = clean.replace(/<[^>]+>/g, '').trim();
 
-  // Natural typography identical to desktop Gmail / Outlook Web
+  // Clean, webmail typography without shrinkable classes
+  const fontStyle = "font-family:Arial,Helvetica,sans-serif;font-size:11pt;font-size:14.5px;color:#222222;line-height:1.5;";
+
   const htmlContent = isHtml
-    ? `<div dir="ltr">${rawClean}</div>`
-    : `<div dir="ltr" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#1a1a1a;line-height:1.6;">${rawClean.replace(/\n/g, '<br>')}</div>`;
+    ? `<div dir="ltr" style="${fontStyle}">${clean}</div>`
+    : `<div dir="ltr" style="${fontStyle}">${clean.split('\n\n').map(p => `<p style="margin:0 0 16px 0;${fontStyle}">${p.replace(/\n/g, '<br>')}</p>`).join('')}</div>`;
 
   return { text: plainText, html: htmlContent };
 }
@@ -174,7 +176,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Direct Send Single (Native RFC-5322 Envelope)
+// Single Direct Send (SPF / DMARC Envelope Aligned)
 app.post('/api/send-single', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -198,29 +200,32 @@ app.post('/api/send-single', async (req, res) => {
   try {
     const transporter = getInboxTransporter(email, appPassword);
 
-    let customSubject = processSpintax(subject)
+    const customSubject = processSpintax(subject)
       .replace(/{Name}/gi, rec.name || rec.firstName)
       .replace(/{FirstName}/gi, rec.firstName)
       .replace(/{Email}/gi, rec.email);
 
-    let rawBody = processSpintax(messageBody)
+    const rawBody = processSpintax(messageBody)
       .replace(/{Name}/gi, rec.name || rec.firstName)
       .replace(/{FirstName}/gi, rec.firstName)
       .replace(/{Email}/gi, rec.email);
 
-    const { text: plainText, html: cleanHtml } = buildCleanMime(rawBody);
+    const { text: plainText, html: cleanHtml } = buildCanonicalEmail(rawBody);
 
-    // Natural Clean RFC Headers (No fake X-Mailer or obfuscation flags)
+    // Exact Header-Envelope Match for 100% SPF/DKIM Alignment
     const mailOptions = {
       from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
       to: rec.name ? `"${rec.name}" <${rec.email}>` : rec.email,
       replyTo: cleanEmail,
+      envelope: {
+        from: cleanEmail,
+        to: rec.email
+      },
       subject: customSubject || 'Update',
       text: plainText,
       html: cleanHtml,
       headers: {
-        'MIME-Version': '1.0',
-        'X-Priority': '3 (Normal)'
+        'MIME-Version': '1.0'
       }
     };
 
