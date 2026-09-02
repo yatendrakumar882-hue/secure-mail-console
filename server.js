@@ -20,8 +20,6 @@ const PORT = process.env.PORT || 3000;
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
-const poolMap = new Map();
-
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -50,34 +48,26 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Native Gmail TLS Connection Pool
-function getInboxTransporter(user, pass) {
+// Clean Direct SSL Transporter (No Shared Pool Fingerprinting)
+function createDirectTransporter(user, pass) {
   const cleanEmail = user.toLowerCase().trim();
   const cleanPass = pass.replace(/\s+/g, '').trim();
-  const key = `inbox_core_${cleanEmail}_${cleanPass}`;
 
-  if (!poolMap.has(key)) {
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,
-      auth: {
-        user: cleanEmail,
-        pass: cleanPass
-      },
-      pool: true,
-      maxConnections: 12, // Handles 10 parallel blitch cleanly
-      maxMessages: Infinity,
-      socketTimeout: 30000,
-      connectionTimeout: 30000,
-      tls: {
-        rejectUnauthorized: true,
-        minVersion: 'TLSv1.2'
-      }
-    });
-    poolMap.set(key, transporter);
-  }
-  return poolMap.get(key);
+  return nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
+    auth: {
+      user: cleanEmail,
+      pass: cleanPass
+    },
+    socketTimeout: 25000,
+    connectionTimeout: 25000,
+    tls: {
+      rejectUnauthorized: true,
+      minVersion: 'TLSv1.2'
+    }
+  });
 }
 
 // Spintax Processing
@@ -131,7 +121,7 @@ function normalizeRecipient(raw) {
   };
 }
 
-// Natural 1-on-1 Plain Text & HTML Sync (Outlook/Gmail Safe)
+// Organic 1-on-1 Typography Normalizer (Outlook Safe)
 function buildCanonicalEmail(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
@@ -141,7 +131,6 @@ function buildCanonicalEmail(bodyText) {
   const isHtml = /<[a-z][\s\S]*>/i.test(clean);
   const plainText = clean.replace(/<[^>]+>/g, '').trim();
 
-  // Clean, webmail typography without shrinkable classes
   const fontStyle = "font-family:Arial,Helvetica,sans-serif;font-size:11pt;font-size:14.5px;color:#222222;line-height:1.5;";
 
   const htmlContent = isHtml
@@ -168,7 +157,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = getInboxTransporter(email, appPassword);
+    const transporter = createDirectTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP Connection Successful' });
   } catch (err) {
@@ -176,7 +165,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Single Direct Send (SPF / DMARC Envelope Aligned)
+// Single Direct Send (Strict Envelope Alignment)
 app.post('/api/send-single', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -198,7 +187,7 @@ app.post('/api/send-single', async (req, res) => {
   const cleanSenderName = (senderName || '').replace(/["\r\n]/g, '').trim();
 
   try {
-    const transporter = getInboxTransporter(email, appPassword);
+    const transporter = createDirectTransporter(email, appPassword);
 
     const customSubject = processSpintax(subject)
       .replace(/{Name}/gi, rec.name || rec.firstName)
@@ -212,7 +201,6 @@ app.post('/api/send-single', async (req, res) => {
 
     const { text: plainText, html: cleanHtml } = buildCanonicalEmail(rawBody);
 
-    // Exact Header-Envelope Match for 100% SPF/DKIM Alignment
     const mailOptions = {
       from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
       to: rec.name ? `"${rec.name}" <${rec.email}>` : rec.email,
@@ -249,7 +237,7 @@ app.get('*', (req, res) => {
 
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   server.listen(PORT, () => {
-    console.log(`Server running safely on port ${PORT}`);
+    console.log(`Server running on port ${PORT}`);
   });
 }
 
