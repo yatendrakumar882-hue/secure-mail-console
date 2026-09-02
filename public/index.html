@@ -137,8 +137,8 @@
             </div>
 
             <div class="form-group" style="margin-bottom: 14px;">
-                <label>Message Body (Plain Text / HTML with 1-Line Gap)</label>
-                <textarea id="messageBody" style="min-height: 220px;" placeholder="Hi {Name},&#10;&#10;Here is paragraph 1.&#10;&#10;Here is paragraph 2." required></textarea>
+                <label>Message Body (Plain Text / HTML)</label>
+                <textarea id="messageBody" style="min-height: 220px;" placeholder="Hi {Name},&#10;&#10;Here are the details you requested.&#10;&#10;Best regards,&#10;Team" required></textarea>
             </div>
 
             <div class="turnstile-box">
@@ -327,7 +327,7 @@
             statRemaining.textContent = extractedEmails.length;
         });
 
-        // 1 BLITCH = EXACT 10 EMAILS PARALLEL DISPATCH
+        // 1 BLITCH = EXACT 10 EMAILS IN PARALLEL (Clean Inbox-Oriented)
         sendBtn.addEventListener('click', async () => {
             if (isSending) return;
 
@@ -393,12 +393,8 @@
 
                     statusText.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: #3b82f6;"></i> Dispatching Blitch ${batchNum}/${totalBatches} (${currentBatch.length} emails parallel)...`;
 
-                    // Trigger 10 emails in parallel with natural intra-batch staggering
-                    const batchPromises = currentBatch.map(async (recipient, idx) => {
-                        if (idx > 0) {
-                            await delay(idx * 120); // 120ms organic micro-jitter to prevent bot detection
-                        }
-
+                    // 10 emails parallel send
+                    const batchPromises = currentBatch.map(recipient => {
                         return fetch('/api/send-single', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -436,9 +432,9 @@
 
                     await Promise.allSettled(batchPromises);
 
-                    // Safe 1.2s cooling pause between 10-email blitches
+                    // 1-second natural cooling pause between 10-email blitches
                     if (i + BATCH_SIZE < total && !stopRequested) {
-                        await delay(1200);
+                        await delay(1000);
                     }
                 }
 
