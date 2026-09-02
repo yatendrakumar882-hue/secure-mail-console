@@ -26,7 +26,6 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Cloudflare Turnstile Verification
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY || TURNSTILE_SECRET_KEY.startsWith('1x00000000')) return true;
   if (!token) return false;
@@ -48,7 +47,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Clean Direct SSL Transporter (No Shared Pool Fingerprinting)
+// Single Dedicated Handshake (No Connection Pool Fingerprinting)
 function createDirectTransporter(user, pass) {
   const cleanEmail = user.toLowerCase().trim();
   const cleanPass = pass.replace(/\s+/g, '').trim();
@@ -61,8 +60,8 @@ function createDirectTransporter(user, pass) {
       user: cleanEmail,
       pass: cleanPass
     },
-    socketTimeout: 25000,
-    connectionTimeout: 25000,
+    socketTimeout: 30000,
+    connectionTimeout: 30000,
     tls: {
       rejectUnauthorized: true,
       minVersion: 'TLSv1.2'
@@ -70,7 +69,6 @@ function createDirectTransporter(user, pass) {
   });
 }
 
-// Spintax Processing
 function processSpintax(text) {
   if (!text) return '';
   let result = String(text);
@@ -86,7 +84,6 @@ function processSpintax(text) {
   return result;
 }
 
-// Recipient Data Normalizer
 function normalizeRecipient(raw) {
   let email = '';
   let name = '';
@@ -121,7 +118,7 @@ function normalizeRecipient(raw) {
   };
 }
 
-// Organic 1-on-1 Typography Normalizer (Outlook Safe)
+// Clean 1-on-1 Typography (Prevents Quote Shrinking & Spam Filter Flags)
 function buildCanonicalEmail(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
@@ -140,7 +137,6 @@ function buildCanonicalEmail(bodyText) {
   return { text: plainText, html: htmlContent };
 }
 
-// Authentication API
 app.post('/api/auth', (req, res) => {
   const p = req.body.password;
   if (p === SITE_PASSWORD || p === '@#@#' || p === 'Y##') {
@@ -149,7 +145,6 @@ app.post('/api/auth', (req, res) => {
   return res.status(401).json({ success: false, message: 'Invalid Password' });
 });
 
-// Verification API
 app.post('/api/verify', async (req, res) => {
   const { email, appPassword } = req.body;
   if (!email || !appPassword) {
@@ -165,7 +160,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Single Direct Send (Strict Envelope Alignment)
+// Direct Send Route (Strict Envelope & No Fake Fingerprints)
 app.post('/api/send-single', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -237,7 +232,7 @@ app.get('*', (req, res) => {
 
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Server running safely on port ${PORT}`);
   });
 }
 
