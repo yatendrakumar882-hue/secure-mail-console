@@ -75,7 +75,6 @@
 
 <body>
 
-<!-- Password Gate Overlay -->
 <div class="lock-overlay" id="passwordGate">
     <div class="lock-card">
         <h2 style="font-size: 18px; margin-bottom: 6px; color: #0f172a;"><i class="fa-solid fa-lock"></i> Access Protected</h2>
@@ -90,14 +89,13 @@
     </div>
 </div>
 
-<!-- Main App Console -->
 <div class="main-wrapper hidden" id="mainApp">
     <div class="top-header">
         <div class="brand-title">
             <i class="fa-solid fa-paper-plane"></i> Bulk Email Sender
         </div>
         <div class="header-actions">
-            <span class="badge-safe"><i class="fa-solid fa-bolt"></i> 10-Batch Clean Protocol</span>
+            <span class="badge-safe"><i class="fa-solid fa-bolt"></i> 10-Batch Native Engine</span>
             <button type="button" class="btn-logout" id="logoutBtn" title="Double click to logout">
                 <i class="fa-solid fa-right-from-bracket"></i> Logout (Double Click)
             </button>
@@ -323,7 +321,7 @@
             statRemaining.textContent = extractedEmails.length;
         });
 
-        // 1 BLITCH = EXACT 10 EMAILS PARALLEL DISPATCH (Native Webmail Handshake)
+        // 1 BLITCH = EXACT 10 EMAILS IN PARALLEL (Clean Inbox Delivery Protocol)
         sendBtn.addEventListener('click', async () => {
             if (isSending) return;
 
@@ -378,7 +376,7 @@
                 sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending in Progress...';
                 stopBtn.style.display = 'flex';
 
-                const BATCH_SIZE = 10; // Exact 10 emails per blitch
+                const BATCH_SIZE = 10; // Exactly 10 parallel emails
 
                 for (let i = 0; i < total; i += BATCH_SIZE) {
                     if (stopRequested) break;
@@ -391,7 +389,7 @@
 
                     const batchPromises = currentBatch.map(async (recipient, idx) => {
                         if (idx > 0) {
-                            await delay(idx * 150); // 150ms natural human micro-stagger
+                            await delay(idx * 150); // 150ms natural human stagger
                         }
 
                         return fetch('/api/send-single', {
@@ -431,9 +429,9 @@
 
                     await Promise.allSettled(batchPromises);
 
-                    // 1-second socket recovery pause between batches
+                    // 1.2-second clean socket cooling pause
                     if (i + BATCH_SIZE < total && !stopRequested) {
-                        await delay(1000);
+                        await delay(1200);
                     }
                 }
 
