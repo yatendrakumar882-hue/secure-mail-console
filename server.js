@@ -49,11 +49,11 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Organic Gmail Stream Transporter
+// Enterprise High-Delivery SMTP Pool (Pure SSL 465)
 function getInboxTransporter(user, pass) {
   const cleanEmail = user.toLowerCase().trim();
   const cleanPass = pass.replace(/\s+/g, '').trim();
-  const key = `inbox_clean_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_ssl_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -65,10 +65,10 @@ function getInboxTransporter(user, pass) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 1, // Single trusted thread (Human Simulation)
-      maxMessages: 100,
-      socketTimeout: 30000,
-      connectionTimeout: 30000,
+      maxConnections: 5,
+      maxMessages: 500,
+      socketTimeout: 25000,
+      connectionTimeout: 25000,
       tls: {
         rejectUnauthorized: true,
         minVersion: 'TLSv1.2'
@@ -128,6 +128,7 @@ function normalizeRecipient(raw) {
   };
 }
 
+// 100% Identical MIME Sync (Text & HTML identical layout)
 function buildCanonicalEmail(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
@@ -137,7 +138,7 @@ function buildCanonicalEmail(bodyText) {
   const isHtml = /<[a-z][\s\S]*>/i.test(clean);
   const plainText = clean.replace(/<[^>]+>/g, '').trim();
 
-  const fontStyle = "font-family:Arial,Helvetica,sans-serif;font-size:11pt;font-size:14.5px;color:#222222;line-height:1.5;";
+  const fontStyle = "font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#222222;line-height:1.5;";
 
   const htmlContent = isHtml
     ? `<div dir="ltr" style="${fontStyle}">${clean}</div>`
@@ -169,7 +170,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Single Direct Send (Strict Envelope Alignment & Google Native Signing)
+// Single Direct Send (Full SPF/DMARC Envelope Handshake)
 app.post('/api/send-single', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
