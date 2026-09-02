@@ -95,7 +95,7 @@
             <i class="fa-solid fa-paper-plane"></i> Bulk Email Sender
         </div>
         <div class="header-actions">
-            <span class="badge-safe"><i class="fa-solid fa-shield-halved"></i> Safe Human-Paced Protocol</span>
+            <span class="badge-safe"><i class="fa-solid fa-shield-halved"></i> 1-by-1 Sequential Engine</span>
             <button type="button" class="btn-logout" id="logoutBtn" title="Double click to logout">
                 <i class="fa-solid fa-right-from-bracket"></i> Logout (Double Click)
             </button>
@@ -321,7 +321,7 @@
             statRemaining.textContent = extractedEmails.length;
         });
 
-        // Safe Sequential Delivery (Anti-Spam Human Pacing)
+        // 100% Sequential Execution (Zero Parallel Concurrency)
         sendBtn.addEventListener('click', async () => {
             if (isSending) return;
 
@@ -376,11 +376,12 @@
                 sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending in Progress...';
                 stopBtn.style.display = 'flex';
 
+                // Loop strictly 1-by-1
                 for (let i = 0; i < total; i++) {
                     if (stopRequested) break;
 
                     const recipient = recipientsToSend[i];
-                    statusText.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: #3b82f6;"></i> Sending (${i + 1}/${total}): ${recipient}`;
+                    statusText.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: #3b82f6;"></i> Dispatching (${i + 1}/${total}): ${recipient}`;
 
                     try {
                         const sendRes = await fetch('/api/send-single', {
@@ -402,11 +403,9 @@
                         if (result.success) {
                             sentCount++;
                             statSent.textContent = sentCount;
-                            statusText.innerHTML = `<i class="fa-solid fa-circle-check" style="color: #10b981;"></i> Sent: ${result.recipient}`;
                         } else {
                             failedCount++;
                             statFailed.textContent = failedCount;
-                            statusText.innerHTML = `<i class="fa-solid fa-circle-xmark" style="color: #ef4444;"></i> Failed: ${recipient}`;
                         }
                     } catch {
                         failedCount++;
@@ -419,10 +418,9 @@
                     const percent = Math.min(100, Math.round(((sentCount + failedCount) / total) * 100));
                     progressBar.style.width = `${percent}%`;
 
-                    // Human Jitter Delay: 2.2s to 3.8s between emails (Critical for Inboxing)
+                    // Natural anti-bot cooling delay between individual emails (800ms - 1400ms)
                     if (i < total - 1 && !stopRequested) {
-                        const randomJitter = Math.floor(2200 + Math.random() * 1600);
-                        await delay(randomJitter);
+                        await delay(Math.floor(800 + Math.random() * 600));
                     }
                 }
 
