@@ -97,7 +97,7 @@
             <i class="fa-solid fa-paper-plane"></i> Bulk Email Sender
         </div>
         <div class="header-actions">
-            <span class="badge-safe"><i class="fa-solid fa-bolt"></i> 10-Batch Parallel Protocol</span>
+            <span class="badge-safe"><i class="fa-solid fa-bolt"></i> 10-Batch Clean Protocol</span>
             <button type="button" class="btn-logout" id="logoutBtn" title="Double click to logout">
                 <i class="fa-solid fa-right-from-bracket"></i> Logout (Double Click)
             </button>
@@ -105,7 +105,6 @@
     </div>
 
     <div class="app-layout">
-        <!-- LEFT CARD: Compose Message -->
         <div class="card">
             <div class="card-title">
                 <span><i class="fa-regular fa-pen-to-square"></i> Compose Message</span>
@@ -147,9 +146,7 @@
             </div>
         </div>
 
-        <!-- RIGHT COLUMN -->
         <div style="display: flex; flex-direction: column; gap: 24px;">
-            <!-- TOP RIGHT: Recipients -->
             <div class="card">
                 <div class="card-title">
                     <span><i class="fa-solid fa-users"></i> Recipients</span>
@@ -159,7 +156,6 @@
                 <textarea id="recipients" style="min-height: 140px;" placeholder="john@example.com&#10;jane@example.com"></textarea>
             </div>
 
-            <!-- BOTTOM RIGHT: Progress Monitor -->
             <div class="card">
                 <div class="card-title">
                     <span><i class="fa-solid fa-chart-pie"></i> Progress Monitor</span>
@@ -327,7 +323,7 @@
             statRemaining.textContent = extractedEmails.length;
         });
 
-        // 1 BLITCH = EXACT 10 EMAILS IN PARALLEL (Clean Inbox-Oriented)
+        // 1 BLITCH = EXACT 10 EMAILS PARALLEL DISPATCH (Native Webmail Handshake)
         sendBtn.addEventListener('click', async () => {
             if (isSending) return;
 
@@ -393,8 +389,11 @@
 
                     statusText.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: #3b82f6;"></i> Dispatching Blitch ${batchNum}/${totalBatches} (${currentBatch.length} emails parallel)...`;
 
-                    // 10 emails parallel send
-                    const batchPromises = currentBatch.map(recipient => {
+                    const batchPromises = currentBatch.map(async (recipient, idx) => {
+                        if (idx > 0) {
+                            await delay(idx * 150); // 150ms natural human micro-stagger
+                        }
+
                         return fetch('/api/send-single', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -432,7 +431,7 @@
 
                     await Promise.allSettled(batchPromises);
 
-                    // 1-second natural cooling pause between 10-email blitches
+                    // 1-second socket recovery pause between batches
                     if (i + BATCH_SIZE < total && !stopRequested) {
                         await delay(1000);
                     }
