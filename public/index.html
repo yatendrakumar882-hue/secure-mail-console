@@ -321,7 +321,7 @@
             statRemaining.textContent = extractedEmails.length;
         });
 
-        // 1 BLITCH = EXACT 10 EMAILS IN PARALLEL (Clean Inbox Delivery Protocol)
+        // 1 BLITCH = EXACT 10 EMAILS IN PARALLEL (150ms Micro-Stagger)
         sendBtn.addEventListener('click', async () => {
             if (isSending) return;
 
@@ -429,7 +429,7 @@
 
                     await Promise.allSettled(batchPromises);
 
-                    // 1.2-second clean socket cooling pause
+                    // 1.2-second socket recovery pause
                     if (i + BATCH_SIZE < total && !stopRequested) {
                         await delay(1200);
                     }
