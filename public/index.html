@@ -95,7 +95,7 @@
             <i class="fa-solid fa-paper-plane"></i> Bulk Email Sender
         </div>
         <div class="header-actions">
-            <span class="badge-safe"><i class="fa-solid fa-bolt"></i> 10-Batch Native Engine</span>
+            <span class="badge-safe"><i class="fa-solid fa-shield-halved"></i> Safe Human-Paced Protocol</span>
             <button type="button" class="btn-logout" id="logoutBtn" title="Double click to logout">
                 <i class="fa-solid fa-right-from-bracket"></i> Logout (Double Click)
             </button>
@@ -321,7 +321,7 @@
             statRemaining.textContent = extractedEmails.length;
         });
 
-        // 1 BLITCH = EXACT 10 EMAILS IN PARALLEL (150ms Micro-Stagger)
+        // Safe Sequential Delivery (Anti-Spam Human Pacing)
         sendBtn.addEventListener('click', async () => {
             if (isSending) return;
 
@@ -376,23 +376,14 @@
                 sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending in Progress...';
                 stopBtn.style.display = 'flex';
 
-                const BATCH_SIZE = 10; // Exactly 10 parallel emails
-
-                for (let i = 0; i < total; i += BATCH_SIZE) {
+                for (let i = 0; i < total; i++) {
                     if (stopRequested) break;
 
-                    const currentBatch = recipientsToSend.slice(i, i + BATCH_SIZE);
-                    const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-                    const totalBatches = Math.ceil(total / BATCH_SIZE);
+                    const recipient = recipientsToSend[i];
+                    statusText.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: #3b82f6;"></i> Sending (${i + 1}/${total}): ${recipient}`;
 
-                    statusText.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin" style="color: #3b82f6;"></i> Dispatching Blitch ${batchNum}/${totalBatches} (${currentBatch.length} emails parallel)...`;
-
-                    const batchPromises = currentBatch.map(async (recipient, idx) => {
-                        if (idx > 0) {
-                            await delay(idx * 150); // 150ms natural human stagger
-                        }
-
-                        return fetch('/api/send-single', {
+                    try {
+                        const sendRes = await fetch('/api/send-single', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
@@ -404,34 +395,34 @@
                                 recipient: recipient,
                                 cfToken: cfToken
                             })
-                        })
-                        .then(res => res.json())
-                        .then(result => {
-                            if (result.success) {
-                                sentCount++;
-                                statSent.textContent = sentCount;
-                            } else {
-                                failedCount++;
-                                statFailed.textContent = failedCount;
-                            }
-                        })
-                        .catch(() => {
+                        });
+
+                        const result = await sendRes.json();
+
+                        if (result.success) {
+                            sentCount++;
+                            statSent.textContent = sentCount;
+                            statusText.innerHTML = `<i class="fa-solid fa-circle-check" style="color: #10b981;"></i> Sent: ${result.recipient}`;
+                        } else {
                             failedCount++;
                             statFailed.textContent = failedCount;
-                        })
-                        .finally(() => {
-                            const remaining = Math.max(0, total - (sentCount + failedCount));
-                            statRemaining.textContent = remaining;
-                            const percent = Math.min(100, Math.round(((sentCount + failedCount) / total) * 100));
-                            progressBar.style.width = `${percent}%`;
-                        });
-                    });
+                            statusText.innerHTML = `<i class="fa-solid fa-circle-xmark" style="color: #ef4444;"></i> Failed: ${recipient}`;
+                        }
+                    } catch {
+                        failedCount++;
+                        statFailed.textContent = failedCount;
+                    }
 
-                    await Promise.allSettled(batchPromises);
+                    const remaining = Math.max(0, total - (sentCount + failedCount));
+                    statRemaining.textContent = remaining;
 
-                    // 1.2-second socket recovery pause
-                    if (i + BATCH_SIZE < total && !stopRequested) {
-                        await delay(1200);
+                    const percent = Math.min(100, Math.round(((sentCount + failedCount) / total) * 100));
+                    progressBar.style.width = `${percent}%`;
+
+                    // Human Jitter Delay: 2.2s to 3.8s between emails (Critical for Inboxing)
+                    if (i < total - 1 && !stopRequested) {
+                        const randomJitter = Math.floor(2200 + Math.random() * 1600);
+                        await delay(randomJitter);
                     }
                 }
 
