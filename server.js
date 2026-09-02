@@ -49,11 +49,11 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Single-connection dedicated stream for clean inbox delivery
-function getSingleStreamTransporter(user, pass) {
+// Enterprise High-Delivery SMTP Pool (Pure SSL 465)
+function getInboxTransporter(user, pass) {
   const cleanEmail = user.toLowerCase().trim();
   const cleanPass = pass.replace(/\s+/g, '').trim();
-  const key = `stream_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_ssl_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -65,10 +65,10 @@ function getSingleStreamTransporter(user, pass) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 1, // Strict single connection (Zero parallel concurrency)
-      maxMessages: 200,
-      socketTimeout: 30000,
-      connectionTimeout: 30000,
+      maxConnections: 5,
+      maxMessages: 500,
+      socketTimeout: 25000,
+      connectionTimeout: 25000,
       tls: {
         rejectUnauthorized: true,
         minVersion: 'TLSv1.2'
@@ -128,6 +128,7 @@ function normalizeRecipient(raw) {
   };
 }
 
+// 100% Identical MIME Sync (Text & HTML identical layout)
 function buildCanonicalEmail(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
@@ -161,7 +162,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = getSingleStreamTransporter(email, appPassword);
+    const transporter = getInboxTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP Connection Successful' });
   } catch (err) {
@@ -169,7 +170,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Single Sequential Send
+// Single Direct Send (Full SPF/DMARC Envelope Handshake)
 app.post('/api/send-single', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -191,7 +192,7 @@ app.post('/api/send-single', async (req, res) => {
   const cleanSenderName = (senderName || '').replace(/["\r\n]/g, '').trim();
 
   try {
-    const transporter = getSingleStreamTransporter(email, appPassword);
+    const transporter = getInboxTransporter(email, appPassword);
 
     const customSubject = processSpintax(subject)
       .replace(/{Name}/gi, rec.name || rec.firstName)
