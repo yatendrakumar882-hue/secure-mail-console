@@ -5,6 +5,7 @@ import { Server } from 'socket.io';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -28,6 +29,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Cloudflare Turnstile Verification
 async function verifyTurnstile(token, ip) {
   if (!TURNSTILE_SECRET_KEY || TURNSTILE_SECRET_KEY.startsWith('1x00000000')) return true;
   if (!token) return false;
@@ -49,11 +51,11 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// Enterprise High-Delivery SMTP Pool (Pure SSL 465)
-function getInboxTransporter(user, pass) {
+// SMTP Transporter Pool with Keep-Alive & Direct SSL
+function getSecureTransporter(user, pass) {
   const cleanEmail = user.toLowerCase().trim();
   const cleanPass = pass.replace(/\s+/g, '').trim();
-  const key = `inbox_ssl_${cleanEmail}_${cleanPass}`;
+  const key = `smtp_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -66,25 +68,22 @@ function getInboxTransporter(user, pass) {
       },
       pool: true,
       maxConnections: 5,
-      maxMessages: 500,
-      socketTimeout: 25000,
-      connectionTimeout: 25000,
-      tls: {
-        rejectUnauthorized: true,
-        minVersion: 'TLSv1.2'
-      }
+      maxMessages: Infinity,
+      socketTimeout: 30000,
+      connectionTimeout: 30000
     });
     poolMap.set(key, transporter);
   }
   return poolMap.get(key);
 }
 
+// Spintax Processing
 function processSpintax(text) {
   if (!text) return '';
   let result = String(text);
   const regex = /\{([^{}]+)\}/s;
   let count = 0;
-  while (regex.test(result) && count < 35) {
+  while (regex.test(result) && count < 30) {
     result = result.replace(regex, (_, choices) => {
       const arr = choices.split('|');
       return arr[Math.floor(Math.random() * arr.length)].trim();
@@ -94,6 +93,7 @@ function processSpintax(text) {
   return result;
 }
 
+// Recipient Normalization
 function normalizeRecipient(raw) {
   let email = '';
   let name = '';
@@ -106,8 +106,6 @@ function normalizeRecipient(raw) {
     if (match) {
       name = match[1] || '';
       email = match[2] || raw;
-    } else {
-      email = raw;
     }
   }
 
@@ -116,37 +114,32 @@ function normalizeRecipient(raw) {
     name = email.split('@')[0].replace(/[._-]/g, ' ');
   }
 
-  const formattedName = name
-    ? name.replace(/\b\w/g, c => c.toUpperCase()).trim()
-    : '';
-
   return {
     email,
-    name: formattedName,
-    firstName: formattedName ? formattedName.split(' ')[0] : 'there',
+    name: name.replace(/\b\w/g, c => c.toUpperCase()).trim(),
     domain: email.split('@')[1] || ''
   };
 }
 
-// 100% Identical MIME Sync (Text & HTML identical layout)
-function buildCanonicalEmail(bodyText) {
-  if (!bodyText) return { text: '', html: '' };
-
-  let clean = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-  clean = clean.replace(/\n{3,}/g, '\n\n');
-
-  const isHtml = /<[a-z][\s\S]*>/i.test(clean);
-  const plainText = clean.replace(/<[^>]+>/g, '').trim();
-
-  const fontStyle = "font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#222222;line-height:1.5;";
-
-  const htmlContent = isHtml
-    ? `<div dir="ltr" style="${fontStyle}">${clean}</div>`
-    : `<div dir="ltr" style="${fontStyle}">${clean.split('\n\n').map(p => `<p style="margin:0 0 16px 0;${fontStyle}">${p.replace(/\n/g, '<br>')}</p>`).join('')}</div>`;
-
-  return { text: plainText, html: htmlContent };
+// Clean Plain Text Generator (Removes tags and styling cleanly)
+function createCleanPlainText(htmlOrText) {
+  if (!htmlOrText) return '';
+  return htmlOrText
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*[\/]?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\n\s*\n/g, '\n\n')
+    .trim();
 }
 
+// Authentication API
 app.post('/api/auth', (req, res) => {
   const p = req.body.password;
   if (p === SITE_PASSWORD || p === '@#@#' || p === 'Y##') {
@@ -155,6 +148,7 @@ app.post('/api/auth', (req, res) => {
   return res.status(401).json({ success: false, message: 'Invalid Password' });
 });
 
+// Verification API
 app.post('/api/verify', async (req, res) => {
   const { email, appPassword } = req.body;
   if (!email || !appPassword) {
@@ -162,7 +156,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = getInboxTransporter(email, appPassword);
+    const transporter = getSecureTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP Connection Successful' });
   } catch (err) {
@@ -170,7 +164,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Single Direct Send (Full SPF/DMARC Envelope Handshake)
+// High-Deliverability Dispatch API
 app.post('/api/send-single', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipient, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -192,33 +186,41 @@ app.post('/api/send-single', async (req, res) => {
   const cleanSenderName = (senderName || '').replace(/["\r\n]/g, '').trim();
 
   try {
-    const transporter = getInboxTransporter(email, appPassword);
+    const transporter = getSecureTransporter(email, appPassword);
 
+    // Personalization
     const customSubject = processSpintax(subject)
-      .replace(/{Name}/gi, rec.name || rec.firstName)
-      .replace(/{FirstName}/gi, rec.firstName)
+      .replace(/{Name}/gi, rec.name)
       .replace(/{Email}/gi, rec.email);
 
-    const rawBody = processSpintax(messageBody)
-      .replace(/{Name}/gi, rec.name || rec.firstName)
-      .replace(/{FirstName}/gi, rec.firstName)
+    let customBody = processSpintax(messageBody)
+      .replace(/{Name}/gi, rec.name)
       .replace(/{Email}/gi, rec.email);
 
-    const { text: plainText, html: cleanHtml } = buildCanonicalEmail(rawBody);
+    const isHtml = /<[a-z][\s\S]*>/i.test(customBody);
+    const plainText = createCleanPlainText(customBody);
+    
+    // Natural webmail HTML container
+    const cleanHtml = isHtml 
+      ? `<div dir="ltr">${customBody}</div>` 
+      : `<div dir="ltr">${plainText.replace(/\n/g, '<br>')}</div>`;
+
+    // Standard RFC-5322 Message-ID
+    const domainPart = cleanEmail.split('@')[1] || 'gmail.com';
+    const messageId = `<${crypto.randomBytes(16).toString('hex')}@${domainPart}>`;
 
     const mailOptions = {
       from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
       to: rec.name ? `"${rec.name}" <${rec.email}>` : rec.email,
       replyTo: cleanEmail,
-      envelope: {
-        from: cleanEmail,
-        to: rec.email
-      },
-      subject: customSubject || 'Update',
+      messageId: messageId,
+      date: new Date(),
+      subject: customSubject || 'Quick update',
       text: plainText,
       html: cleanHtml,
       headers: {
-        'MIME-Version': '1.0'
+        'X-Mailer': 'Gmail Web/iOS v1.0',
+        'X-Priority': '3'
       }
     };
 
