@@ -49,12 +49,12 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   HIGH-SPEED TRUSTED SSL POOL (3-Channel Pipeline)
+   PERSISTENT STREAM TRANSPORTER (Fast 1-by-1 Pipeline)
    ========================================================================== */
-function getFastSSLTransporter(email, appPassword) {
+function getSingleStreamTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `fast_ssl_${cleanEmail}_${cleanPass}`;
+  const key = `stream_fast_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -66,8 +66,8 @@ function getFastSSLTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 3, // Optimal balance: Fast dispatch without triggering burst filters
-      maxMessages: 500,
+      maxConnections: 1, // Strict single-stream queue (No parallel clash)
+      maxMessages: Infinity,
       socketTimeout: 20000,
       connectionTimeout: 20000,
       tls: {
@@ -213,7 +213,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = getFastSSLTransporter(email, appPassword);
+    const transporter = getSingleStreamTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP verified successfully' });
   } catch (error) {
@@ -225,7 +225,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   FAST STREAMING DISPATCH ROUTE (Pipelined Concurrency)
+   FAST 1-BY-1 SEQUENTIAL STREAMING DISPATCH
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -259,63 +259,47 @@ app.post('/api/send-stream', async (req, res) => {
     res.write(': keep-alive\n\n');
   }, 3000);
 
-  const transporter = getFastSSLTransporter(email, appPassword);
+  const transporter = getSingleStreamTransporter(email, appPassword);
 
-  // Fast Batch: 3 Concurrent Channels
-  const CONCURRENCY_LIMIT = 3;
-
-  for (let i = 0; i < recipients.length; i += CONCURRENCY_LIMIT) {
+  // Exact 1-by-1 Sequential Loop
+  for (let i = 0; i < recipients.length; i++) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
       break;
     }
 
-    const chunk = recipients.slice(i, i + CONCURRENCY_LIMIT);
-
-    const chunkPromises = chunk.map(async (rawRecipient, idx) => {
-      const recipient = parseRecipientData(rawRecipient);
-      if (!recipient.email) {
-        return { success: false, recipient: '', error: 'Invalid Email' };
-      }
-
-      // Micro-jitter to stagger socket writes (150ms - 250ms)
-      if (idx > 0) {
-        await new Promise(r => setTimeout(r, idx * Math.floor(150 + Math.random() * 100)));
-      }
-
-      try {
-        const personalizedSubject = personalizeContent(subject, recipient);
-        const personalizedBody = personalizeContent(messageBody, recipient);
-        const { text: plainText, html: cleanHtml } = buildCanonicalEmail(personalizedBody);
-
-        const mailOptions = {
-          from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
-          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-          replyTo: cleanEmail,
-          subject: personalizedSubject || 'Update',
-          html: cleanHtml,
-          text: plainText
-        };
-
-        await transporter.sendMail(mailOptions);
-        return { success: true, recipient: recipient.email, name: recipient.name };
-
-      } catch (err) {
-        return { success: false, recipient: recipient.email, error: err.message };
-      }
-    });
-
-    const results = await Promise.allSettled(chunkPromises);
-
-    for (const resItem of results) {
-      if (resItem.status === 'fulfilled' && resItem.value.recipient) {
-        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
-      }
+    const recipient = parseRecipientData(recipients[i]);
+    if (!recipient.email) {
+      res.write(`data: ${JSON.stringify({ success: false, recipient: '', error: 'Invalid Email' })}\n\n`);
+      continue;
     }
 
-    // Quick 400ms pace between small 3-email chunks (Maintains High Speed + IP Trust)
-    if (i + CONCURRENCY_LIMIT < recipients.length && !globalSession.stopRequested) {
-      await new Promise(resolve => setTimeout(resolve, Math.floor(350 + Math.random() * 100)));
+    try {
+      const personalizedSubject = personalizeContent(subject, recipient);
+      const personalizedBody = personalizeContent(messageBody, recipient);
+      const { text: plainText, html: cleanHtml } = buildCanonicalEmail(personalizedBody);
+
+      // Clean RFC-5322 Envelope: Google naturally signs DKIM, ARC & SPF
+      const mailOptions = {
+        from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
+        to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+        replyTo: cleanEmail,
+        subject: personalizedSubject || 'Update',
+        html: cleanHtml,
+        text: plainText
+      };
+
+      await transporter.sendMail(mailOptions);
+      res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email, name: recipient.name })}\n\n`);
+
+    } catch (err) {
+      res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
+    }
+
+    // Fast Human Micro-Jitter (300ms - 550ms): Fast overall speed, zero burst spam filter flag
+    if (i < recipients.length - 1 && !globalSession.stopRequested) {
+      const fastDelay = Math.floor(300 + Math.random() * 250);
+      await new Promise(resolve => setTimeout(resolve, fastDelay));
     }
   }
 
