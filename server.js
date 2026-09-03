@@ -42,11 +42,11 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-// Native Gmail SSL Pipeline (Single Dedicated Socket Stream)
-function getCleanTransporter(email, appPassword) {
+// Single-Stream Dedicated Transporter (High Speed 1-by-1)
+function getInboxTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `pipe_clean_${cleanEmail}_${cleanPass}`;
+  const key = `pipe_fast_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -58,7 +58,7 @@ function getCleanTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 1, // Zero parallel concurrency
+      maxConnections: 1, // Pure 1-by-1 sequential execution
       maxMessages: Infinity,
       socketTimeout: 20000,
       connectionTimeout: 20000,
@@ -148,7 +148,7 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// 1:1 Clean Body Normalizer (1-Line Natural Gap for Quoted Replies)
+// 1-Line Natural Gap Below Quoted Reply Header
 function buildCanonicalEmail(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
@@ -157,7 +157,7 @@ function buildCanonicalEmail(bodyText) {
   const plainText = `\n\n${rawClean.replace(/<[^>]+>/g, '').trim()}`;
 
   const fontStyle = "font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#222222;line-height:1.5;";
-  const topSpacer = `<p style="margin:0 0 16px 0;line-height:16px;font-size:11pt;">&nbsp;</p>`;
+  const topSpacer = `<div style="line-height:20px;height:20px;margin:0 0 16px 0;">&nbsp;</div>`;
 
   let htmlContent = '';
   if (isHtml) {
@@ -198,7 +198,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = getCleanTransporter(email, appPassword);
+    const transporter = getInboxTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP verified successfully' });
   } catch (error) {
@@ -209,7 +209,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Fast 1-by-1 Sequential Delivery (Parallel Strictly Removed)
+// Fast 1-by-1 Sequential Streaming Pipeline (Zero Parallel)
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -239,9 +239,8 @@ app.post('/api/send-stream', async (req, res) => {
     res.write(': keep-alive\n\n');
   }, 2000);
 
-  const transporter = getCleanTransporter(email, appPassword);
+  const transporter = getInboxTransporter(email, appPassword);
 
-  // Pure 1-by-1 Queue Loop
   for (let i = 0; i < recipients.length; i++) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
@@ -259,10 +258,14 @@ app.post('/api/send-stream', async (req, res) => {
       const personalizedBody = personalizeContent(messageBody, recipient);
       const { text: plainText, html: cleanHtml } = buildCanonicalEmail(personalizedBody);
 
-      // Clean Standard Message Schema (Google natively attaches DKIM & ARC signatures)
+      // Strict SPF & DMARC Envelope Alignment
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
         to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+        envelope: {
+          from: cleanEmail,
+          to: recipient.email
+        },
         subject: personalizedSubject || 'Update',
         html: cleanHtml,
         text: plainText
@@ -274,9 +277,9 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // Accelerated Pacing (380ms - 580ms): Safe against spam filters, 2x faster execution
+    // High-Speed Safe Micro-Jitter (120ms - 220ms)
     if (i < recipients.length - 1 && !globalSession.stopRequested) {
-      const fastDelay = Math.floor(380 + Math.random() * 200);
+      const fastDelay = Math.floor(120 + Math.random() * 100);
       await new Promise(resolve => setTimeout(resolve, fastDelay));
     }
   }
@@ -292,7 +295,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Clean Single-Pipe Fast Mailer running on port ${PORT}`);
+  console.log(`🚀 Fast Inbox Mailer running on port ${PORT}`);
 });
 
 export default app;
