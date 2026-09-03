@@ -26,7 +26,7 @@ app.use(express.static(path.join(__dirname, 'public')));
    TURNSTILE BOT PROTECTION VERIFICATION
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
-  if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
+  if (!token || TURNSTILE_SECRET_KEY.startsWith('1x00000000')) {
     return true;
   }
 
@@ -49,7 +49,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   HIGH-TRUST DIRECT SSL TRANSPORTER (Port 465 Protocol)
+   HIGH-TRUST DIRECT SSL TRANSPORTER (8-Batch Capacity)
    ========================================================================== */
 function getDirectSSLTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -60,13 +60,13 @@ function getDirectSSLTransporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
-      secure: true, // Direct SSL handshake for maximum trust
+      secure: true, // Native SSL handshake
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 8,
+      maxConnections: 10, // Supports 8 concurrent threads comfortably
       maxMessages: 500,
       socketTimeout: 30000,
       connectionTimeout: 30000,
@@ -164,7 +164,7 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// 1:1 Clean Body Normalizer (Outlook Safe & No Shrink)
+// 1:1 Clean Body Normalizer (Outlook Safe & Zero Font Shrink)
 function buildCanonicalEmail(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
@@ -226,7 +226,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE (8 Emails Per Batch - Strict Inbox Pipeline)
+   STREAMING DISPATCH ROUTE (1 Blitch = 8 Emails with Heavy Safe Delay)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -261,7 +261,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getDirectSSLTransporter(email, appPassword);
-  const BATCH_SIZE = 8; // Keep exact 8-batch processing
+  const BATCH_SIZE = 8; // Exact 8 emails per blitch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -275,9 +275,10 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      // Micro-jitter between batch threads to avoid firewall burst flags
+      // Micro-jitter inside the 8-email blitch (200ms - 350ms progressive stagger)
       if (idx > 0) {
-        await new Promise(r => setTimeout(r, idx * 100));
+        const microDelay = Math.floor(idx * (200 + Math.random() * 150));
+        await new Promise(r => setTimeout(r, microDelay));
       }
 
       try {
@@ -317,10 +318,10 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Cooling pause between 8-email batches
-    if (i + BATCH_SIZE < recipients.length) {
-      const batchDelay = Math.floor(400 + Math.random() * 100);
-      await new Promise(resolve => setTimeout(resolve, batchDelay));
+    // Heavy anti-spam delay between 8-email blitches (2.5s to 4.0s)
+    if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
+      const heavyBatchDelay = Math.floor(2500 + Math.random() * 1500);
+      await new Promise(resolve => setTimeout(resolve, heavyBatchDelay));
     }
   }
 
