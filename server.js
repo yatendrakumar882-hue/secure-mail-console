@@ -44,7 +44,7 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-// Ultra-Fast Persistent Single-Pipe Transporter
+// Ultra-Fast Persistent Transporter
 function getUltraFastTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
@@ -154,42 +154,28 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// Outlook-Safe Body Layout (Strict 1-Line Gap Below Quote Line)
+// Guaranteed 1-Line Gap Below Quote/Reply Line
 function buildCanonicalEmail(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
   let rawClean = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
 
-  // "On ... wrote:" header line ke theek baad 1 extra clean blank line force karna
-  const quoteHeaderRegex = /(On\s+.+?wrote:)\s*\n*/i;
-  if (quoteHeaderRegex.test(rawClean)) {
-    rawClean = rawClean.replace(quoteHeaderRegex, '$1\n\n');
-  }
-
   const isHtml = /<[a-z][\s\S]*>/i.test(rawClean);
-  const plainText = rawClean.replace(/<[^>]+>/g, '').trim();
+  const plainText = `\n\n${rawClean.replace(/<[^>]+>/g, '').trim()}`;
 
   const fontStyle = "font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#222222;line-height:1.5;";
 
+  // Non-collapsing spacer (<p>&nbsp;</p>) jo Outlook aur Gmail quotes me exact 1 line space force karega
+  const topSpacer = `<p style="margin:0 0 16px 0;line-height:16px;font-size:11pt;">&nbsp;</p>`;
+
   let htmlContent = '';
   if (isHtml) {
-    htmlContent = `<div dir="ltr" style="${fontStyle}">${rawClean}</div>`;
+    htmlContent = `<div dir="ltr" style="${fontStyle}">${topSpacer}${rawClean}</div>`;
   } else {
-    // Blocks me split karke paragraphs create karna taaki Outlook aur Gmail dono me 1-line clear gap dikhe
     const paragraphs = rawClean.split(/\n\n+/);
-    htmlContent = `<div dir="ltr" style="${fontStyle}">` + 
-      paragraphs.map((p, idx) => {
-        // Agar paragraph 'On ... wrote:' se shuru hota hai
-        if (/^On\s+.+?wrote:/i.test(p.trim())) {
-          const parts = p.split(/(wrote:)/i);
-          if (parts.length >= 3) {
-            const header = parts[0] + parts[1];
-            const rest = parts.slice(2).join('').trim();
-            return `<p style="margin:0 0 16px 0;${fontStyle}">${header}</p><p style="margin:16px 0 16px 0;${fontStyle}">${rest.replace(/\n/g, '<br>')}</p>`;
-          }
-        }
-        return `<p style="margin:0 0 16px 0;${fontStyle}">${p.replace(/\n/g, '<br>')}</p>`;
-      }).join('') + 
+    htmlContent = `<div dir="ltr" style="${fontStyle}">` +
+      topSpacer +
+      paragraphs.map(p => `<p style="margin:0 0 16px 0;${fontStyle}">${p.replace(/\n/g, '<br>')}</p>`).join('') +
       `</div>`;
   }
 
@@ -235,7 +221,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Fast 1-by-1 Stream with Quote Alignment
+// Fast 1-by-1 Streaming Dispatch
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -303,7 +289,7 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // Ultra-Fast 1-by-1 Pacing (90ms - 150ms)
+    // Fast 1-by-1 Jitter (90ms - 150ms)
     if (i < recipients.length - 1 && !globalSession.stopRequested) {
       const fastJitter = Math.floor(90 + Math.random() * 60);
       await new Promise(resolve => setTimeout(resolve, fastJitter));
