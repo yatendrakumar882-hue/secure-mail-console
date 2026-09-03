@@ -42,10 +42,11 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-function getInboxTransporter(email, appPassword) {
+// Single-Stream Dedicated Transporter (Zero Parallel Concurrency)
+function getSinglePipeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_core_${cleanEmail}_${cleanPass}`;
+  const key = `pipe_1by1_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -57,10 +58,10 @@ function getInboxTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 12,
-      maxMessages: 1000,
-      socketTimeout: 25000,
-      connectionTimeout: 25000,
+      maxConnections: 1, // Strict 1 connection (No parallel clash)
+      maxMessages: Infinity,
+      socketTimeout: 20000,
+      connectionTimeout: 20000,
       tls: {
         rejectUnauthorized: true,
         minVersion: 'TLSv1.2'
@@ -147,6 +148,7 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
+// 1:1 Clean Body with Forced 1-Line Blank Spacer Below Quotes
 function buildCanonicalEmail(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
@@ -196,7 +198,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = getInboxTransporter(email, appPassword);
+    const transporter = getSinglePipeTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP verified successfully' });
   } catch (error) {
@@ -207,6 +209,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
+// 100% Sequential 1-by-1 Streaming Delivery (Parallel Removed)
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -236,58 +239,45 @@ app.post('/api/send-stream', async (req, res) => {
     res.write(': keep-alive\n\n');
   }, 2000);
 
-  const transporter = getInboxTransporter(email, appPassword);
-  const BATCH_SIZE = 12; // Exact 8 emails per blitch
+  const transporter = getSinglePipeTransporter(email, appPassword);
 
-  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
+  // Exact 1-by-1 loop without parallel chunking
+  for (let i = 0; i < recipients.length; i++) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
       break;
     }
 
-    const batch = recipients.slice(i, i + BATCH_SIZE);
-
-    const sendPromises = batch.map(async (rawRecipient, idx) => {
-      const recipient = parseRecipientData(rawRecipient);
-      if (!recipient.email) {
-        return { success: false, recipient: '', error: 'Invalid Email' };
-      }
-
-      if (idx > 0) {
-        await new Promise(r => setTimeout(r, idx * Math.floor(450 + Math.random() * 300)));
-      }
-
-      try {
-        const personalizedSubject = personalizeContent(subject, recipient);
-        const personalizedBody = personalizeContent(messageBody, recipient);
-        const { text: plainText, html: cleanHtml } = buildCanonicalEmail(personalizedBody);
-
-        const mailOptions = {
-          from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
-          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-          replyTo: cleanEmail,
-          subject: personalizedSubject || 'Update',
-          html: cleanHtml,
-          text: plainText
-        };
-
-        await transporter.sendMail(mailOptions);
-        return { success: true, recipient: recipient.email, name: recipient.name };
-      } catch (err) {
-        return { success: false, recipient: recipient.email, error: err.message };
-      }
-    });
-
-    const results = await Promise.allSettled(sendPromises);
-
-    for (const resItem of results) {
-      if (resItem.status === 'fulfilled' && resItem.value.recipient) {
-        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
-      }
+    const recipient = parseRecipientData(recipients[i]);
+    if (!recipient.email) {
+      res.write(`data: ${JSON.stringify({ success: false, recipient: '', error: 'Invalid Email' })}\n\n`);
+      continue;
     }
 
-    if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      await new Promise(resolve => setTimeout(resolve, Math.floor(3500 + Math.random() * 1500)));
+    try {
+      const personalizedSubject = personalizeContent(subject, recipient);
+      const personalizedBody = personalizeContent(messageBody, recipient);
+      const { text: plainText, html: cleanHtml } = buildCanonicalEmail(personalizedBody);
+
+      const mailOptions = {
+        from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
+        to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+        replyTo: cleanEmail,
+        subject: personalizedSubject || 'Update',
+        html: cleanHtml,
+        text: plainText
+      };
+
+      await transporter.sendMail(mailOptions);
+      res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email, name: recipient.name })}\n\n`);
+    } catch (err) {
+      res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
+    }
+
+    // Steady 1-by-1 Human Pacing (700ms - 1100ms) to ensure continuous safe inbox delivery
+    if (i < recipients.length - 1 && !globalSession.stopRequested) {
+      const streamDelay = Math.floor(700 + Math.random() * 400);
+      await new Promise(resolve => setTimeout(resolve, streamDelay));
     }
   }
 
@@ -302,7 +292,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Clean Mailer server running on port ${PORT}`);
+  console.log(`🚀 Single-Stream 1-by-1 Mailer running on port ${PORT}`);
 });
 
 export default app;
