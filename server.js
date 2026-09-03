@@ -66,7 +66,7 @@ function getDirectSSLTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5,
+      maxConnections: 8,
       maxMessages: 500,
       socketTimeout: 30000,
       connectionTimeout: 30000,
@@ -226,7 +226,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE (4 Emails Per Batch - Strict Inbox Pipeline)
+   STREAMING DISPATCH ROUTE (8 Emails Per Batch - Strict Inbox Pipeline)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -261,7 +261,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getDirectSSLTransporter(email, appPassword);
-  const BATCH_SIZE = 4; // Keep exact 4-batch processing
+  const BATCH_SIZE = 8; // Keep exact 8-batch processing
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -317,7 +317,7 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Cooling pause between 4-email batches
+    // Cooling pause between 8-email batches
     if (i + BATCH_SIZE < recipients.length) {
       const batchDelay = Math.floor(400 + Math.random() * 100);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
