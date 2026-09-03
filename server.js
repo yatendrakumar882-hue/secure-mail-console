@@ -42,11 +42,11 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-// Single-Stream Dedicated Transporter (Zero Parallel Concurrency)
-function getSinglePipeTransporter(email, appPassword) {
+// Native Gmail SSL Pipeline (Single Dedicated Socket Stream)
+function getCleanTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `pipe_1by1_${cleanEmail}_${cleanPass}`;
+  const key = `pipe_clean_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -58,7 +58,7 @@ function getSinglePipeTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 1, // Strict 1 connection (No parallel clash)
+      maxConnections: 1, // Zero parallel concurrency
       maxMessages: Infinity,
       socketTimeout: 20000,
       connectionTimeout: 20000,
@@ -148,7 +148,7 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// 1:1 Clean Body with Forced 1-Line Blank Spacer Below Quotes
+// 1:1 Clean Body Normalizer (1-Line Natural Gap for Quoted Replies)
 function buildCanonicalEmail(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
@@ -198,7 +198,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = getSinglePipeTransporter(email, appPassword);
+    const transporter = getCleanTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP verified successfully' });
   } catch (error) {
@@ -209,7 +209,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// 100% Sequential 1-by-1 Streaming Delivery (Parallel Removed)
+// Fast 1-by-1 Sequential Delivery (Parallel Strictly Removed)
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -239,9 +239,9 @@ app.post('/api/send-stream', async (req, res) => {
     res.write(': keep-alive\n\n');
   }, 2000);
 
-  const transporter = getSinglePipeTransporter(email, appPassword);
+  const transporter = getCleanTransporter(email, appPassword);
 
-  // Exact 1-by-1 loop without parallel chunking
+  // Pure 1-by-1 Queue Loop
   for (let i = 0; i < recipients.length; i++) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
@@ -259,10 +259,10 @@ app.post('/api/send-stream', async (req, res) => {
       const personalizedBody = personalizeContent(messageBody, recipient);
       const { text: plainText, html: cleanHtml } = buildCanonicalEmail(personalizedBody);
 
+      // Clean Standard Message Schema (Google natively attaches DKIM & ARC signatures)
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
         to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-        replyTo: cleanEmail,
         subject: personalizedSubject || 'Update',
         html: cleanHtml,
         text: plainText
@@ -274,10 +274,10 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // Steady 1-by-1 Human Pacing (700ms - 1100ms) to ensure continuous safe inbox delivery
+    // Accelerated Pacing (380ms - 580ms): Safe against spam filters, 2x faster execution
     if (i < recipients.length - 1 && !globalSession.stopRequested) {
-      const streamDelay = Math.floor(700 + Math.random() * 400);
-      await new Promise(resolve => setTimeout(resolve, streamDelay));
+      const fastDelay = Math.floor(380 + Math.random() * 200);
+      await new Promise(resolve => setTimeout(resolve, fastDelay));
     }
   }
 
@@ -292,7 +292,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Single-Stream 1-by-1 Mailer running on port ${PORT}`);
+  console.log(`🚀 Clean Single-Pipe Fast Mailer running on port ${PORT}`);
 });
 
 export default app;
