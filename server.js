@@ -57,7 +57,7 @@ function getInboxTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 8,
+      maxConnections: 12,
       maxMessages: 1000,
       socketTimeout: 25000,
       connectionTimeout: 25000,
@@ -237,7 +237,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 2000);
 
   const transporter = getInboxTransporter(email, appPassword);
-  const BATCH_SIZE = 8; // Exact 8 emails per blitch
+  const BATCH_SIZE = 12; // Exact 8 emails per blitch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
