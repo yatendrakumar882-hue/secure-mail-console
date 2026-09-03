@@ -49,12 +49,12 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   HIGH-REPUTATION GMAIL TRANSPORTER (Clean Single Connection Pool)
+   HIGH-SPEED TRUSTED SSL POOL (3-Channel Pipeline)
    ========================================================================== */
-function getDirectSSLTransporter(email, appPassword) {
+function getFastSSLTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `clean_ssl_${cleanEmail}_${cleanPass}`;
+  const key = `fast_ssl_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -66,10 +66,10 @@ function getDirectSSLTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 1, // Single connection stream prevents Google rate-limit flags
-      maxMessages: Infinity,
-      socketTimeout: 30000,
-      connectionTimeout: 30000,
+      maxConnections: 3, // Optimal balance: Fast dispatch without triggering burst filters
+      maxMessages: 500,
+      socketTimeout: 20000,
+      connectionTimeout: 20000,
       tls: {
         rejectUnauthorized: true,
         minVersion: 'TLSv1.2'
@@ -163,7 +163,7 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// Organic 1-on-1 Typography (Strict Outlook & Gmail Rendering Sync)
+// 1:1 Clean Body Normalizer (Outlook Safe & No Font Shrink)
 function buildCanonicalEmail(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
@@ -213,7 +213,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = getDirectSSLTransporter(email, appPassword);
+    const transporter = getFastSSLTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP verified successfully' });
   } catch (error) {
@@ -225,7 +225,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE (Sequential Human Pacing - 100% Inbox Friendly)
+   FAST STREAMING DISPATCH ROUTE (Pipelined Concurrency)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -257,27 +257,30 @@ app.post('/api/send-stream', async (req, res) => {
 
   const keepAlivePing = setInterval(() => {
     res.write(': keep-alive\n\n');
-  }, 4000);
+  }, 3000);
 
-  const transporter = getDirectSSLTransporter(email, appPassword);
-  const BATCH_SIZE = 8;
+  const transporter = getFastSSLTransporter(email, appPassword);
 
-  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
+  // Fast Batch: 3 Concurrent Channels
+  const CONCURRENCY_LIMIT = 3;
+
+  for (let i = 0; i < recipients.length; i += CONCURRENCY_LIMIT) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
       break;
     }
 
-    const batch = recipients.slice(i, i + BATCH_SIZE);
+    const chunk = recipients.slice(i, i + CONCURRENCY_LIMIT);
 
-    // Sequential dispatch inside the batch prevents burst firewall triggers
-    for (let j = 0; j < batch.length; j++) {
-      if (globalSession.stopRequested) break;
-
-      const recipient = parseRecipientData(batch[j]);
+    const chunkPromises = chunk.map(async (rawRecipient, idx) => {
+      const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) {
-        res.write(`data: ${JSON.stringify({ success: false, recipient: '', error: 'Invalid Email' })}\n\n`);
-        continue;
+        return { success: false, recipient: '', error: 'Invalid Email' };
+      }
+
+      // Micro-jitter to stagger socket writes (150ms - 250ms)
+      if (idx > 0) {
+        await new Promise(r => setTimeout(r, idx * Math.floor(150 + Math.random() * 100)));
       }
 
       try {
@@ -285,7 +288,6 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedBody = personalizeContent(messageBody, recipient);
         const { text: plainText, html: cleanHtml } = buildCanonicalEmail(personalizedBody);
 
-        // Native Google Webmail Envelope (Google automatically adds DKIM & Message-ID)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -296,22 +298,24 @@ app.post('/api/send-stream', async (req, res) => {
         };
 
         await transporter.sendMail(mailOptions);
-        res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email, name: recipient.name })}\n\n`);
+        return { success: true, recipient: recipient.email, name: recipient.name };
 
       } catch (err) {
-        res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
+        return { success: false, recipient: recipient.email, error: err.message };
       }
+    });
 
-      // Micro-jitter between emails inside the batch (300ms - 500ms)
-      if (j < batch.length - 1) {
-        await new Promise(r => setTimeout(r, Math.floor(300 + Math.random() * 200)));
+    const results = await Promise.allSettled(chunkPromises);
+
+    for (const resItem of results) {
+      if (resItem.status === 'fulfilled' && resItem.value.recipient) {
+        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
       }
     }
 
-    // Organic cooling pause between 8-email batches (2.5s - 4s)
-    if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const batchDelay = Math.floor(2500 + Math.random() * 1500);
-      await new Promise(resolve => setTimeout(resolve, batchDelay));
+    // Quick 400ms pace between small 3-email chunks (Maintains High Speed + IP Trust)
+    if (i + CONCURRENCY_LIMIT < recipients.length && !globalSession.stopRequested) {
+      await new Promise(resolve => setTimeout(resolve, Math.floor(350 + Math.random() * 100)));
     }
   }
 
