@@ -60,7 +60,7 @@ function getFast8BlitchTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 8,
+      maxConnections: 12,
       maxMessages: 1000,
       socketTimeout: 25000,
       connectionTimeout: 25000,
@@ -220,7 +220,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Enhanced Delay 1 Blitch = 8 Emails Dispatch
+// Enhanced Delay 1 Blitch = 12 Emails Dispatch
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -254,7 +254,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 2000);
 
   const transporter = getFast8BlitchTransporter(email, appPassword);
-  const BATCH_SIZE = 8; // Exact 8 emails per blitch
+  const BATCH_SIZE = 12; // Exact 12 emails per blitch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -306,7 +306,7 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Heavy anti-burst cooling interval between 8-email blitches (3.5s - 5.0s)
+    // Heavy anti-burst cooling interval between 12-email blitches (3.5s - 5.0s)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
       await new Promise(resolve => setTimeout(resolve, Math.floor(3500 + Math.random() * 1500)));
     }
