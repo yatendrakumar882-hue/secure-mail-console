@@ -49,25 +49,25 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   HIGH-TRUST DIRECT SSL TRANSPORTER (8-Batch Capacity)
+   HIGH-REPUTATION GMAIL TRANSPORTER (Clean Single Connection Pool)
    ========================================================================== */
 function getDirectSSLTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `ssl465_${cleanEmail}_${cleanPass}`;
+  const key = `clean_ssl_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
-      secure: true, // Native SSL handshake
+      secure: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 10, // Supports 8 concurrent threads comfortably
-      maxMessages: 500,
+      maxConnections: 1, // Single connection stream prevents Google rate-limit flags
+      maxMessages: Infinity,
       socketTimeout: 30000,
       connectionTimeout: 30000,
       tls: {
@@ -138,7 +138,6 @@ function parseSpintax(text) {
 
   while (regex.test(spun) && iterations < 35) {
     spun = spun.replace(regex, (_, choices) => {
-      if (!choices.includes('|')) return choices;
       const options = choices.split('|');
       const pick = options[Math.floor(Math.random() * options.length)];
       return pick ? pick.trim() : '';
@@ -164,7 +163,7 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// 1:1 Clean Body Normalizer (Outlook Safe & Zero Font Shrink)
+// Organic 1-on-1 Typography (Strict Outlook & Gmail Rendering Sync)
 function buildCanonicalEmail(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
@@ -226,7 +225,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE (1 Blitch = 8 Emails with Heavy Safe Delay)
+   STREAMING DISPATCH ROUTE (Sequential Human Pacing - 100% Inbox Friendly)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -261,7 +260,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getDirectSSLTransporter(email, appPassword);
-  const BATCH_SIZE = 8; // Exact 8 emails per blitch
+  const BATCH_SIZE = 8;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -271,14 +270,14 @@ app.post('/api/send-stream', async (req, res) => {
 
     const batch = recipients.slice(i, i + BATCH_SIZE);
 
-    const sendPromises = batch.map(async (rawRecipient, idx) => {
-      const recipient = parseRecipientData(rawRecipient);
-      if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
+    // Sequential dispatch inside the batch prevents burst firewall triggers
+    for (let j = 0; j < batch.length; j++) {
+      if (globalSession.stopRequested) break;
 
-      // Micro-jitter inside the 8-email blitch (200ms - 350ms progressive stagger)
-      if (idx > 0) {
-        const microDelay = Math.floor(idx * (200 + Math.random() * 150));
-        await new Promise(r => setTimeout(r, microDelay));
+      const recipient = parseRecipientData(batch[j]);
+      if (!recipient.email) {
+        res.write(`data: ${JSON.stringify({ success: false, recipient: '', error: 'Invalid Email' })}\n\n`);
+        continue;
       }
 
       try {
@@ -286,42 +285,33 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedBody = personalizeContent(messageBody, recipient);
         const { text: plainText, html: cleanHtml } = buildCanonicalEmail(personalizedBody);
 
+        // Native Google Webmail Envelope (Google automatically adds DKIM & Message-ID)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
-          envelope: {
-            from: cleanEmail,
-            to: recipient.email
-          },
           subject: personalizedSubject || 'Update',
           html: cleanHtml,
-          text: plainText,
-          headers: {
-            'MIME-Version': '1.0'
-          }
+          text: plainText
         };
 
         await transporter.sendMail(mailOptions);
-        return { success: true, recipient: recipient.email, name: recipient.name };
+        res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email, name: recipient.name })}\n\n`);
 
       } catch (err) {
-        return { success: false, recipient: recipient.email, error: err.message };
+        res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
       }
-    });
 
-    const results = await Promise.allSettled(sendPromises);
-
-    for (const resItem of results) {
-      if (resItem.status === 'fulfilled' && resItem.value.recipient) {
-        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
+      // Micro-jitter between emails inside the batch (300ms - 500ms)
+      if (j < batch.length - 1) {
+        await new Promise(r => setTimeout(r, Math.floor(300 + Math.random() * 200)));
       }
     }
 
-    // Heavy anti-spam delay between 8-email blitches (2.5s to 4.0s)
+    // Organic cooling pause between 8-email batches (2.5s - 4s)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const heavyBatchDelay = Math.floor(2500 + Math.random() * 1500);
-      await new Promise(resolve => setTimeout(resolve, heavyBatchDelay));
+      const batchDelay = Math.floor(2500 + Math.random() * 1500);
+      await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
 
