@@ -22,9 +22,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 async function verifyTurnstileToken(token, remoteIp) {
-  if (!token || TURNSTILE_SECRET_KEY.startsWith('1x00000000')) {
-    return true;
-  }
+  if (!token || TURNSTILE_SECRET_KEY.startsWith('1x00000000')) return true;
 
   try {
     const formData = new URLSearchParams();
@@ -39,16 +37,15 @@ async function verifyTurnstileToken(token, remoteIp) {
     });
     const outcome = await result.json();
     return outcome.success === true;
-  } catch (error) {
+  } catch {
     return false;
   }
 }
 
-// 8-Channel High-Reputation SSL Transporter Pool
-function getFast8BlitchTransporter(email, appPassword) {
+function getInboxTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `blitch8_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_core_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -60,7 +57,7 @@ function getFast8BlitchTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 12,
+      maxConnections: 8,
       maxMessages: 1000,
       socketTimeout: 25000,
       connectionTimeout: 25000,
@@ -110,14 +107,11 @@ function parseRecipientData(input) {
     ? rawName.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
     : '';
 
-  const firstName = formattedName ? formattedName.split(' ')[0] : 'there';
-  const domain = email.includes('@') ? email.split('@')[1] : '';
-
   return {
     email: email.toLowerCase(),
     name: formattedName,
-    firstName: firstName,
-    domain: domain
+    firstName: formattedName ? formattedName.split(' ')[0] : 'there',
+    domain: email.includes('@') ? email.split('@')[1] : ''
   };
 }
 
@@ -129,10 +123,8 @@ function parseSpintax(text) {
 
   while (regex.test(spun) && iterations < 35) {
     spun = spun.replace(regex, (_, choices) => {
-      if (!choices.includes('|')) return choices;
       const options = choices.split('|');
-      const pick = options[Math.floor(Math.random() * options.length)];
-      return pick ? pick.trim() : '';
+      return options[Math.floor(Math.random() * options.length)].trim();
     });
     iterations++;
   }
@@ -155,12 +147,10 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// Guaranteed 1-Line Gap Below Quote/Reply Line
 function buildCanonicalEmail(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
-  let rawClean = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-
+  const rawClean = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   const isHtml = /<[a-z][\s\S]*>/i.test(rawClean);
   const plainText = `\n\n${rawClean.replace(/<[^>]+>/g, '').trim()}`;
 
@@ -201,15 +191,12 @@ app.post('/api/verify', async (req, res) => {
     return res.status(400).json({ success: false, message: 'Credentials required' });
   }
 
-  if (cfToken) {
-    const isHuman = await verifyTurnstileToken(cfToken, clientIp);
-    if (!isHuman) {
-      return res.status(403).json({ success: false, message: 'Security Verification Failed' });
-    }
+  if (cfToken && !(await verifyTurnstileToken(cfToken, clientIp))) {
+    return res.status(403).json({ success: false, message: 'Security Verification Failed' });
   }
 
   try {
-    const transporter = getFast8BlitchTransporter(email, appPassword);
+    const transporter = getInboxTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP verified successfully' });
   } catch (error) {
@@ -220,7 +207,6 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Enhanced Delay 1 Blitch = 12 Emails Dispatch
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -236,13 +222,10 @@ app.post('/api/send-stream', async (req, res) => {
     return;
   }
 
-  if (cfToken) {
-    const isHuman = await verifyTurnstileToken(cfToken, clientIp);
-    if (!isHuman) {
-      res.write(`data: ${JSON.stringify({ success: false, error: 'Turnstile Verification Failed' })}\n\n`);
-      res.end();
-      return;
-    }
+  if (cfToken && !(await verifyTurnstileToken(cfToken, clientIp))) {
+    res.write(`data: ${JSON.stringify({ success: false, error: 'Turnstile Verification Failed' })}\n\n`);
+    res.end();
+    return;
   }
 
   const cleanEmail = email.toLowerCase().trim();
@@ -253,8 +236,8 @@ app.post('/api/send-stream', async (req, res) => {
     res.write(': keep-alive\n\n');
   }, 2000);
 
-  const transporter = getFast8BlitchTransporter(email, appPassword);
-  const BATCH_SIZE = 12; // Exact 12 emails per blitch
+  const transporter = getInboxTransporter(email, appPassword);
+  const BATCH_SIZE = 8; // Exact 8 emails per blitch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -264,14 +247,12 @@ app.post('/api/send-stream', async (req, res) => {
 
     const batch = recipients.slice(i, i + BATCH_SIZE);
 
-    // 8 emails dispatch with heavy human-like micro-stagger
     const sendPromises = batch.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) {
         return { success: false, recipient: '', error: 'Invalid Email' };
       }
 
-      // Enhanced micro-stagger (450ms - 750ms per socket thread)
       if (idx > 0) {
         await new Promise(r => setTimeout(r, idx * Math.floor(450 + Math.random() * 300)));
       }
@@ -292,7 +273,6 @@ app.post('/api/send-stream', async (req, res) => {
 
         await transporter.sendMail(mailOptions);
         return { success: true, recipient: recipient.email, name: recipient.name };
-
       } catch (err) {
         return { success: false, recipient: recipient.email, error: err.message };
       }
@@ -306,7 +286,6 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Heavy anti-burst cooling interval between 12-email blitches (3.5s - 5.0s)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
       await new Promise(resolve => setTimeout(resolve, Math.floor(3500 + Math.random() * 1500)));
     }
@@ -323,7 +302,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Safe-Paced 8-Blitch Mailer server running on port ${PORT}`);
+  console.log(`🚀 Clean Mailer server running on port ${PORT}`);
 });
 
 export default app;
