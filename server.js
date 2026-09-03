@@ -16,15 +16,11 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x000000000000
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
-// Express Configuration
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-/* ==========================================================================
-   TURNSTILE BOT PROTECTION VERIFICATION
-   ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x00000000')) {
     return true;
@@ -48,13 +44,11 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-/* ==========================================================================
-   PERSISTENT STREAM TRANSPORTER (Fast 1-by-1 Pipeline)
-   ========================================================================== */
-function getSingleStreamTransporter(email, appPassword) {
+// Ultra-Fast Persistent Single-Pipe Transporter
+function getUltraFastTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `stream_fast_${cleanEmail}_${cleanPass}`;
+  const key = `pipe_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -66,10 +60,10 @@ function getSingleStreamTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 1, // Strict single-stream queue (No parallel clash)
-      maxMessages: Infinity,
-      socketTimeout: 20000,
-      connectionTimeout: 20000,
+      maxConnections: 1, // 1-by-1 safe dispatch
+      maxMessages: 1000,
+      socketTimeout: 15000,
+      connectionTimeout: 15000,
       tls: {
         rejectUnauthorized: true,
         minVersion: 'TLSv1.2'
@@ -80,9 +74,6 @@ function getSingleStreamTransporter(email, appPassword) {
   return poolMap.get(key);
 }
 
-/* ==========================================================================
-   RECIPIENT NORMALIZATION & SPINTAX ENGINE
-   ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
   let rawName = '';
@@ -163,28 +154,48 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// 1:1 Clean Body Normalizer (Outlook Safe & No Font Shrink)
+// Outlook-Safe Body Layout (Strict 1-Line Gap Below Quote Line)
 function buildCanonicalEmail(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
-  let clean = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-  clean = clean.replace(/\n{3,}/g, '\n\n');
+  let rawClean = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
 
-  const isHtml = /<[a-z][\s\S]*>/i.test(clean);
-  const plainText = clean.replace(/<[^>]+>/g, '').trim();
+  // "On ... wrote:" header line ke theek baad 1 extra clean blank line force karna
+  const quoteHeaderRegex = /(On\s+.+?wrote:)\s*\n*/i;
+  if (quoteHeaderRegex.test(rawClean)) {
+    rawClean = rawClean.replace(quoteHeaderRegex, '$1\n\n');
+  }
+
+  const isHtml = /<[a-z][\s\S]*>/i.test(rawClean);
+  const plainText = rawClean.replace(/<[^>]+>/g, '').trim();
 
   const fontStyle = "font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#222222;line-height:1.5;";
 
-  const htmlContent = isHtml
-    ? `<div dir="ltr" style="${fontStyle}">${clean}</div>`
-    : `<div dir="ltr" style="${fontStyle}">${clean.split('\n\n').map(p => `<p style="margin:0 0 16px 0;${fontStyle}">${p.replace(/\n/g, '<br>')}</p>`).join('')}</div>`;
+  let htmlContent = '';
+  if (isHtml) {
+    htmlContent = `<div dir="ltr" style="${fontStyle}">${rawClean}</div>`;
+  } else {
+    // Blocks me split karke paragraphs create karna taaki Outlook aur Gmail dono me 1-line clear gap dikhe
+    const paragraphs = rawClean.split(/\n\n+/);
+    htmlContent = `<div dir="ltr" style="${fontStyle}">` + 
+      paragraphs.map((p, idx) => {
+        // Agar paragraph 'On ... wrote:' se shuru hota hai
+        if (/^On\s+.+?wrote:/i.test(p.trim())) {
+          const parts = p.split(/(wrote:)/i);
+          if (parts.length >= 3) {
+            const header = parts[0] + parts[1];
+            const rest = parts.slice(2).join('').trim();
+            return `<p style="margin:0 0 16px 0;${fontStyle}">${header}</p><p style="margin:16px 0 16px 0;${fontStyle}">${rest.replace(/\n/g, '<br>')}</p>`;
+          }
+        }
+        return `<p style="margin:0 0 16px 0;${fontStyle}">${p.replace(/\n/g, '<br>')}</p>`;
+      }).join('') + 
+      `</div>`;
+  }
 
   return { text: plainText, html: htmlContent };
 }
 
-/* ==========================================================================
-   API ROUTES
-   ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -213,7 +224,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = getSingleStreamTransporter(email, appPassword);
+    const transporter = getUltraFastTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP verified successfully' });
   } catch (error) {
@@ -224,9 +235,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-/* ==========================================================================
-   FAST 1-BY-1 SEQUENTIAL STREAMING DISPATCH
-   ========================================================================== */
+// Fast 1-by-1 Stream with Quote Alignment
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -257,11 +266,10 @@ app.post('/api/send-stream', async (req, res) => {
 
   const keepAlivePing = setInterval(() => {
     res.write(': keep-alive\n\n');
-  }, 3000);
+  }, 2000);
 
-  const transporter = getSingleStreamTransporter(email, appPassword);
+  const transporter = getUltraFastTransporter(email, appPassword);
 
-  // Exact 1-by-1 Sequential Loop
   for (let i = 0; i < recipients.length; i++) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
@@ -279,7 +287,6 @@ app.post('/api/send-stream', async (req, res) => {
       const personalizedBody = personalizeContent(messageBody, recipient);
       const { text: plainText, html: cleanHtml } = buildCanonicalEmail(personalizedBody);
 
-      // Clean RFC-5322 Envelope: Google naturally signs DKIM, ARC & SPF
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
         to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -296,10 +303,10 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // Fast Human Micro-Jitter (300ms - 550ms): Fast overall speed, zero burst spam filter flag
+    // Ultra-Fast 1-by-1 Pacing (90ms - 150ms)
     if (i < recipients.length - 1 && !globalSession.stopRequested) {
-      const fastDelay = Math.floor(300 + Math.random() * 250);
-      await new Promise(resolve => setTimeout(resolve, fastDelay));
+      const fastJitter = Math.floor(90 + Math.random() * 60);
+      await new Promise(resolve => setTimeout(resolve, fastJitter));
     }
   }
 
@@ -314,7 +321,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Mailer server running on port ${PORT}`);
+  console.log(`🚀 Fast Mailer server running on port ${PORT}`);
 });
 
 export default app;
