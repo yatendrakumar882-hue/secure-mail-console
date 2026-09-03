@@ -44,11 +44,11 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-// Ultra-Fast Persistent Transporter
-function getUltraFastTransporter(email, appPassword) {
+// 8-Channel High-Speed SSL Transporter Pool
+function getFast8BlitchTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `pipe_${cleanEmail}_${cleanPass}`;
+  const key = `blitch8_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -60,7 +60,7 @@ function getUltraFastTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 1, // 1-by-1 safe dispatch
+      maxConnections: 8, // Exact 8 concurrent connections for 1 blitch
       maxMessages: 1000,
       socketTimeout: 15000,
       connectionTimeout: 15000,
@@ -164,8 +164,6 @@ function buildCanonicalEmail(bodyText) {
   const plainText = `\n\n${rawClean.replace(/<[^>]+>/g, '').trim()}`;
 
   const fontStyle = "font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#222222;line-height:1.5;";
-
-  // Non-collapsing spacer (<p>&nbsp;</p>) jo Outlook aur Gmail quotes me exact 1 line space force karega
   const topSpacer = `<p style="margin:0 0 16px 0;line-height:16px;font-size:11pt;">&nbsp;</p>`;
 
   let htmlContent = '';
@@ -210,7 +208,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = getUltraFastTransporter(email, appPassword);
+    const transporter = getFast8BlitchTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP verified successfully' });
   } catch (error) {
@@ -221,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Fast 1-by-1 Streaming Dispatch
+// Fast 1 Blitch = 8 Emails Dispatch
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -254,45 +252,62 @@ app.post('/api/send-stream', async (req, res) => {
     res.write(': keep-alive\n\n');
   }, 2000);
 
-  const transporter = getUltraFastTransporter(email, appPassword);
+  const transporter = getFast8BlitchTransporter(email, appPassword);
+  const BATCH_SIZE = 8; // Exact 8 emails per blitch
 
-  for (let i = 0; i < recipients.length; i++) {
+  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
       break;
     }
 
-    const recipient = parseRecipientData(recipients[i]);
-    if (!recipient.email) {
-      res.write(`data: ${JSON.stringify({ success: false, recipient: '', error: 'Invalid Email' })}\n\n`);
-      continue;
+    const batch = recipients.slice(i, i + BATCH_SIZE);
+
+    // 8 emails parallel dispatch with low-latency micro-jitter
+    const sendPromises = batch.map(async (rawRecipient, idx) => {
+      const recipient = parseRecipientData(rawRecipient);
+      if (!recipient.email) {
+        return { success: false, recipient: '', error: 'Invalid Email' };
+      }
+
+      // Fast micro-stagger (40ms - 70ms) to ensure high-speed burst delivery
+      if (idx > 0) {
+        await new Promise(r => setTimeout(r, idx * Math.floor(40 + Math.random() * 30)));
+      }
+
+      try {
+        const personalizedSubject = personalizeContent(subject, recipient);
+        const personalizedBody = personalizeContent(messageBody, recipient);
+        const { text: plainText, html: cleanHtml } = buildCanonicalEmail(personalizedBody);
+
+        const mailOptions = {
+          from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
+          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+          replyTo: cleanEmail,
+          subject: personalizedSubject || 'Update',
+          html: cleanHtml,
+          text: plainText
+        };
+
+        await transporter.sendMail(mailOptions);
+        return { success: true, recipient: recipient.email, name: recipient.name };
+
+      } catch (err) {
+        return { success: false, recipient: recipient.email, error: err.message };
+      }
+    });
+
+    const results = await Promise.allSettled(sendPromises);
+
+    for (const resItem of results) {
+      if (resItem.status === 'fulfilled' && resItem.value.recipient) {
+        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
+      }
     }
 
-    try {
-      const personalizedSubject = personalizeContent(subject, recipient);
-      const personalizedBody = personalizeContent(messageBody, recipient);
-      const { text: plainText, html: cleanHtml } = buildCanonicalEmail(personalizedBody);
-
-      const mailOptions = {
-        from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
-        to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-        replyTo: cleanEmail,
-        subject: personalizedSubject || 'Update',
-        html: cleanHtml,
-        text: plainText
-      };
-
-      await transporter.sendMail(mailOptions);
-      res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email, name: recipient.name })}\n\n`);
-
-    } catch (err) {
-      res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
-    }
-
-    // Fast 1-by-1 Jitter (90ms - 150ms)
-    if (i < recipients.length - 1 && !globalSession.stopRequested) {
-      const fastJitter = Math.floor(90 + Math.random() * 60);
-      await new Promise(resolve => setTimeout(resolve, fastJitter));
+    // Fast cooling pause between 8-email blitches (250ms - 350ms)
+    if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
+      await new Promise(resolve => setTimeout(resolve, Math.floor(250 + Math.random() * 100)));
     }
   }
 
@@ -307,7 +322,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Fast Mailer server running on port ${PORT}`);
+  console.log(`🚀 Fast 8-Blitch Mailer server running on port ${PORT}`);
 });
 
 export default app;
