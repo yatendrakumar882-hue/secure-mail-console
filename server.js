@@ -42,11 +42,11 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-// Single-Stream Dedicated Transporter (High Speed 1-by-1)
-function getInboxTransporter(email, appPassword) {
+// Authentic Single-Pipe Google Webmail Pipeline
+function getCleanWebmailTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `pipe_fast_${cleanEmail}_${cleanPass}`;
+  const key = `webmail_direct_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -58,7 +58,7 @@ function getInboxTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 1, // Pure 1-by-1 sequential execution
+      maxConnections: 1, // Pure 1-by-1 sequential execution (No parallel clash)
       maxMessages: Infinity,
       socketTimeout: 20000,
       connectionTimeout: 20000,
@@ -148,25 +148,24 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// 1-Line Natural Gap Below Quoted Reply Header
+// Organic 1-on-1 Typography (Clean 1-Line Gap for Replies Without Hidden Spam Traps)
 function buildCanonicalEmail(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
   const rawClean = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   const isHtml = /<[a-z][\s\S]*>/i.test(rawClean);
-  const plainText = `\n\n${rawClean.replace(/<[^>]+>/g, '').trim()}`;
+  const plainText = rawClean.replace(/<[^>]+>/g, '').trim();
 
   const fontStyle = "font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#222222;line-height:1.5;";
-  const topSpacer = `<div style="line-height:20px;height:20px;margin:0 0 16px 0;">&nbsp;</div>`;
 
+  // Natural top margin for quote separation without dummy spam-trigger characters (&nbsp;)
   let htmlContent = '';
   if (isHtml) {
-    htmlContent = `<div dir="ltr" style="${fontStyle}">${topSpacer}${rawClean}</div>`;
+    htmlContent = `<div dir="ltr" style="${fontStyle}padding-top:16px;">${rawClean}</div>`;
   } else {
     const paragraphs = rawClean.split(/\n\n+/);
-    htmlContent = `<div dir="ltr" style="${fontStyle}">` +
-      topSpacer +
-      paragraphs.map(p => `<p style="margin:0 0 16px 0;${fontStyle}">${p.replace(/\n/g, '<br>')}</p>`).join('') +
+    htmlContent = `<div dir="ltr" style="${fontStyle}padding-top:16px;">` +
+      paragraphs.map((p, idx) => `<p style="margin:${idx === 0 ? '0' : '16px'} 0 16px 0;${fontStyle}">${p.replace(/\n/g, '<br>')}</p>`).join('') +
       `</div>`;
   }
 
@@ -198,7 +197,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = getInboxTransporter(email, appPassword);
+    const transporter = getCleanWebmailTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP verified successfully' });
   } catch (error) {
@@ -209,7 +208,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Fast 1-by-1 Sequential Streaming Pipeline (Zero Parallel)
+// Pure 1-by-1 Direct Stream (Zero Parallel - Authentic Webmail Signing)
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -239,7 +238,7 @@ app.post('/api/send-stream', async (req, res) => {
     res.write(': keep-alive\n\n');
   }, 2000);
 
-  const transporter = getInboxTransporter(email, appPassword);
+  const transporter = getCleanWebmailTransporter(email, appPassword);
 
   for (let i = 0; i < recipients.length; i++) {
     if (globalSession.stopRequested) {
@@ -258,14 +257,10 @@ app.post('/api/send-stream', async (req, res) => {
       const personalizedBody = personalizeContent(messageBody, recipient);
       const { text: plainText, html: cleanHtml } = buildCanonicalEmail(personalizedBody);
 
-      // Strict SPF & DMARC Envelope Alignment
+      // Clean Standard Webmail Envelope (Google automatically aligns SPF, DKIM & ARC)
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
         to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-        envelope: {
-          from: cleanEmail,
-          to: recipient.email
-        },
         subject: personalizedSubject || 'Update',
         html: cleanHtml,
         text: plainText
@@ -277,10 +272,10 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // High-Speed Safe Micro-Jitter (120ms - 220ms)
+    // Natural Human Dispatch Pace (250ms - 400ms): Fast delivery without bot-burst penalty
     if (i < recipients.length - 1 && !globalSession.stopRequested) {
-      const fastDelay = Math.floor(120 + Math.random() * 100);
-      await new Promise(resolve => setTimeout(resolve, fastDelay));
+      const naturalDelay = Math.floor(250 + Math.random() * 150);
+      await new Promise(resolve => setTimeout(resolve, naturalDelay));
     }
   }
 
@@ -295,7 +290,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Fast Inbox Mailer running on port ${PORT}`);
+  console.log(`🚀 Clean Webmail Mailer running on port ${PORT}`);
 });
 
 export default app;
