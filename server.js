@@ -302,15 +302,15 @@ app.post('/api/send-stream', async (req, res) => {
         res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
       }
 
-      // Micro-jitter between emails inside the batch (200ms - 300ms)
+      // Micro-jitter between emails inside the batch (300ms - 500ms)
       if (j < batch.length - 1) {
-        await new Promise(r => setTimeout(r, Math.floor(200 + Math.random() * 100)));
+        await new Promise(r => setTimeout(r, Math.floor(300 + Math.random() * 200)));
       }
     }
 
-    // Organic cooling pause between 8-email batches (1.5s - 2s)
+    // Organic cooling pause between 8-email batches (2.5s - 4s)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const batchDelay = Math.floor(1500 + Math.random() * 500);
+      const batchDelay = Math.floor(2500 + Math.random() * 1500);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
