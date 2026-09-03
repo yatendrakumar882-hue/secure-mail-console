@@ -44,7 +44,7 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-// 8-Channel High-Speed SSL Transporter Pool
+// 8-Channel Safe-Paced SSL Transporter Pool
 function getFast8BlitchTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
@@ -60,10 +60,10 @@ function getFast8BlitchTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 8, // Exact 8 concurrent connections for 1 blitch
+      maxConnections: 8,
       maxMessages: 1000,
-      socketTimeout: 15000,
-      connectionTimeout: 15000,
+      socketTimeout: 20000,
+      connectionTimeout: 20000,
       tls: {
         rejectUnauthorized: true,
         minVersion: 'TLSv1.2'
@@ -219,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Fast 1 Blitch = 8 Emails Dispatch
+// Safe Paced 1 Blitch = 8 Emails Dispatch
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -263,16 +263,16 @@ app.post('/api/send-stream', async (req, res) => {
 
     const batch = recipients.slice(i, i + BATCH_SIZE);
 
-    // 8 emails parallel dispatch with low-latency micro-jitter
+    // 8 emails dispatch with natural intra-batch staggering
     const sendPromises = batch.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) {
         return { success: false, recipient: '', error: 'Invalid Email' };
       }
 
-      // Fast micro-stagger (40ms - 70ms) to ensure high-speed burst delivery
+      // Safe micro-stagger between individual sockets (180ms - 280ms)
       if (idx > 0) {
-        await new Promise(r => setTimeout(r, idx * Math.floor(40 + Math.random() * 30)));
+        await new Promise(r => setTimeout(r, idx * Math.floor(180 + Math.random() * 100)));
       }
 
       try {
@@ -305,9 +305,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Fast cooling pause between 8-email blitches (250ms - 350ms)
+    // Extended safe cooling pause between 8-email batches (1.2s - 1.6s)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      await new Promise(resolve => setTimeout(resolve, Math.floor(250 + Math.random() * 100)));
+      await new Promise(resolve => setTimeout(resolve, Math.floor(1200 + Math.random() * 400)));
     }
   }
 
@@ -322,7 +322,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Fast 8-Blitch Mailer server running on port ${PORT}`);
+  console.log(`🚀 Safe-Paced 8-Blitch Mailer server running on port ${PORT}`);
 });
 
 export default app;
