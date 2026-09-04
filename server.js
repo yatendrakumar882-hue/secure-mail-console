@@ -42,7 +42,7 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-// Dedicated 5-Connection SSL Transporter (Port 465)
+// 5-Socket SSL Transporter (Port 465)
 function getInboxTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
@@ -58,7 +58,7 @@ function getInboxTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5,
+      maxConnections: 5, // Exact 5 connections for 5-batch blitch
       maxMessages: 4100,
       socketTimeout: 30000,
       connectionTimeout: 30000,
@@ -148,7 +148,7 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// Pure 1:1 Clean Body (Artificial Top Gap Completely Removed)
+// Pure 1:1 Clean Body
 function buildCanonicalEmail(bodyText) {
   if (!bodyText) return { text: '', html: '' };
 
@@ -164,7 +164,7 @@ function buildCanonicalEmail(bodyText) {
   } else {
     const paragraphs = rawClean.split(/\n\n+/);
     htmlContent = `<div dir="ltr" style="${fontStyle}">` +
-      paragraphs.map((p, idx) => `<p style="margin:${idx === 0 ? '0 0 16px 0' : '0 0 16px 0'};${fontStyle}">${p.replace(/\n/g, '<br>')}</p>`).join('') +
+      paragraphs.map(p => `<p style="margin:0 0 16px 0;${fontStyle}">${p.replace(/\n/g, '<br>')}</p>`).join('') +
       `</div>`;
   }
 
@@ -207,7 +207,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Safe Slow Dispatch: 1 Blitch = 5 Emails
+// Exact 1 Blitch = 5 Emails Parallel Dispatch
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -234,11 +234,11 @@ app.post('/api/send-stream', async (req, res) => {
   globalSession.stopRequested = false;
 
   const keepAlivePing = setInterval(() => {
-    res.write(': keep-alive\n\n');
+    try { res.write(': keep-alive\n\n'); } catch {}
   }, 3000);
 
   const transporter = getInboxTransporter(email, appPassword);
-  const BATCH_SIZE = 5;
+  const BATCH_SIZE = 5; // Strict 5 Emails per Blitch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -252,8 +252,9 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
+      // Micro-stagger (100ms) inside the 5-email blitch
       if (idx > 0) {
-        await new Promise(r => setTimeout(r, 250));
+        await new Promise(r => setTimeout(r, idx * 100));
       }
 
       try {
@@ -285,6 +286,7 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
+    // Cooling pause between 5-email blitches (1.8s - 2.5s)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
       const slowDelay = Math.floor(1800 + Math.random() * 700);
       await new Promise(resolve => setTimeout(resolve, slowDelay));
@@ -301,8 +303,10 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Sending process stopped' });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Clean Safe 2-Blitch Mailer running on port ${PORT}`);
-});
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`🚀 Clean Safe 5-Blitch Mailer running on port ${PORT}`);
+  });
+}
 
 export default app;
