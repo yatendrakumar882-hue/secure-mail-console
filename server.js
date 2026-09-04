@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || '@##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const globalSession = { stopRequested: false };
@@ -42,7 +42,7 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-// Dedicated 2-Connection SSL Transporter (Port 465)
+// Dedicated 5-Connection SSL Transporter (Port 465)
 function getInboxTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
@@ -58,8 +58,8 @@ function getInboxTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 2,
-      maxMessages: 500,
+      maxConnections: 5,
+      maxMessages: 4100,
       socketTimeout: 30000,
       connectionTimeout: 30000,
       tls: {
@@ -177,7 +177,7 @@ app.get('/', (req, res) => {
 
 app.post('/api/auth', (req, res) => {
   const { password } = req.body;
-  if (password === SITE_PASSWORD || password === '@#@#' || password === 'Y##') {
+  if (password === SITE_PASSWORD || password === '@#@#' || password === '@##') {
     return res.json({ success: true, message: 'Authorized' });
   }
   return res.status(401).json({ success: false, message: 'Unauthorized Password' });
@@ -207,7 +207,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Safe Slow Dispatch: 1 Blitch = 2 Emails
+// Safe Slow Dispatch: 1 Blitch = 5 Emails
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -238,7 +238,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 3000);
 
   const transporter = getInboxTransporter(email, appPassword);
-  const BATCH_SIZE = 2;
+  const BATCH_SIZE = 5;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
