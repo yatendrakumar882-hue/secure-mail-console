@@ -16,15 +16,11 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x000000000000
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
-// Express Configuration
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-/* ==========================================================================
-   TURNSTILE BOT PROTECTION VERIFICATION
-   ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x00000000')) return true;
 
@@ -46,26 +42,24 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-/* ==========================================================================
-   5-CONNECTION DIRECT SSL TRANSPORTER (Port 465)
-   ========================================================================== */
+// 5-Socket Pure SSL Pool
 function getInboxTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_ssl_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_clean_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
-      secure: true, // Native SSL handshake
+      secure: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5, // Exact 5 connections for 5-mail blitch
-      maxMessages: 5000,
+      maxConnections: 5,
+      maxMessages: 1000,
       socketTimeout: 30000,
       connectionTimeout: 30000,
       tls: {
@@ -78,9 +72,6 @@ function getInboxTransporter(email, appPassword) {
   return poolMap.get(key);
 }
 
-/* ==========================================================================
-   RECIPIENT DATA NORMALIZATION & SPINTAX RESOLVER
-   ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
   let rawName = '';
@@ -158,35 +149,6 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-/* ==========================================================================
-   ORGANIC INBOX PAYLOAD BUILDER
-   - Pure plain-text priority (No synthetic wrappers)
-   - Dynamic micro-entropy spacing to prevent duplicate content hash flags
-   ========================================================================== */
-function buildNativePayload(bodyText) {
-  const cleanBody = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-  const hasHtml = /<[a-z][\s\S]*>/i.test(cleanBody);
-
-  // Micro-whitespace variance breaks bulk clustering without visual distortion
-  const trailingEntropy = ' '.repeat(Math.floor(Math.random() * 5) + 1);
-  const plainText = cleanBody.replace(/<[^>]+>/g, '').trim() + trailingEntropy;
-
-  if (hasHtml) {
-    return {
-      text: plainText,
-      html: `<div dir="ltr" style="font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#222222;line-height:1.5;">${cleanBody}</div>`
-    };
-  }
-
-  // Pure Plain Text (Max Deliverability)
-  return {
-    text: plainText
-  };
-}
-
-/* ==========================================================================
-   ROUTES
-   ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -223,9 +185,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-/* ==========================================================================
-   STREAMING DISPATCH ROUTE (1 Blitch = 5 Emails Parallel)
-   ========================================================================== */
+// Stream Endpoint: Strict Plain-Text Mode
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -256,7 +216,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 2500);
 
   const transporter = getInboxTransporter(email, appPassword);
-  const BATCH_SIZE = 5; // Exact 5 emails per blitch
+  const BATCH_SIZE = 5;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -270,22 +230,24 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      // Micro-stagger (120ms) prevents socket collision during simultaneous 5-pipe handshake
+      // Micro stagger (100ms)
       if (idx > 0) {
-        await new Promise(r => setTimeout(r, idx * 120));
+        await new Promise(r => setTimeout(r, idx * 100));
       }
 
       try {
         const personalizedSubject = personalizeContent(subject, recipient).trim();
-        const personalizedBody = personalizeContent(messageBody, recipient);
-        const mailPayload = buildNativePayload(personalizedBody);
+        const rawBody = personalizeContent(messageBody, recipient).replace(/\r\n/g, '\n').trim();
 
-        // Native Envelope: Google authenticates SPF, DKIM, and ARC directly
+        // Unique micro-spacing to break hash collision without altering text
+        const trailingNoise = ' '.repeat(Math.floor(Math.random() * 4) + 1);
+
+        // Native 1-on-1 Plain Text Payload (Bypasses MIME HTML heuristic traps)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           subject: personalizedSubject || 'Update',
-          ...mailPayload
+          text: rawBody + trailingNoise
         };
 
         await transporter.sendMail(mailOptions);
@@ -304,9 +266,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Cooling pause between 5-email blitches (2.4s - 3.2s) keeps Google trust score high
+    // Cooling pause between 5-email blitches (2.5s - 3.5s)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const cooldown = Math.floor(2400 + Math.random() * 800);
+      const cooldown = Math.floor(2500 + Math.random() * 1000);
       await new Promise(resolve => setTimeout(resolve, cooldown));
     }
   }
@@ -323,7 +285,7 @@ app.post('/api/stop', (req, res) => {
 
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   app.listen(PORT, () => {
-    console.log(`🚀 Inbox-Safe 5-Blitch Mailer running on port ${PORT}`);
+    console.log(`🚀 Mailer running on port ${PORT}`);
   });
 }
 
