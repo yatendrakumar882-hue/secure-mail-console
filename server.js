@@ -42,7 +42,7 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-// 5-Socket SSL Transporter (Port 465)
+// Port 465 Direct SSL with native Gmail envelope handling
 function getInboxTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
@@ -58,8 +58,8 @@ function getInboxTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5, // Exact 5 connections for 5-batch blitch
-      maxMessages: 4100,
+      maxConnections: 5,
+      maxMessages: 2000,
       socketTimeout: 30000,
       connectionTimeout: 30000,
       tls: {
@@ -124,6 +124,7 @@ function parseSpintax(text) {
 
   while (regex.test(spun) && iterations < 35) {
     spun = spun.replace(regex, (_, choices) => {
+      if (!choices.includes('|')) return choices;
       const options = choices.split('|');
       return options[Math.floor(Math.random() * options.length)].trim();
     });
@@ -148,27 +149,25 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// Pure 1:1 Clean Body
-function buildCanonicalEmail(bodyText) {
-  if (!bodyText) return { text: '', html: '' };
+// Pure 1-on-1 Organic Payload: No artificial wrappers
+function buildNativePayload(bodyText) {
+  const cleanBody = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  const hasHtml = /<[a-z][\s\S]*>/i.test(cleanBody);
 
-  const rawClean = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-  const isHtml = /<[a-z][\s\S]*>/i.test(rawClean);
-  const plainText = rawClean.replace(/<[^>]+>/g, '').trim();
+  // Micro-entropy invisible space: Prevents batch hash collisions
+  const noise = ' '.repeat(Math.floor(Math.random() * 4) + 1);
 
-  const fontStyle = "font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#222222;line-height:1.5;";
-
-  let htmlContent = '';
-  if (isHtml) {
-    htmlContent = `<div dir="ltr" style="${fontStyle}">${rawClean}</div>`;
-  } else {
-    const paragraphs = rawClean.split(/\n\n+/);
-    htmlContent = `<div dir="ltr" style="${fontStyle}">` +
-      paragraphs.map(p => `<p style="margin:0 0 16px 0;${fontStyle}">${p.replace(/\n/g, '<br>')}</p>`).join('') +
-      `</div>`;
+  if (hasHtml) {
+    return {
+      text: cleanBody.replace(/<[^>]+>/g, '').trim() + noise,
+      html: cleanBody
+    };
   }
 
-  return { text: plainText, html: htmlContent };
+  // Pure Plain Text: 100% highest primary inbox score
+  return {
+    text: cleanBody + noise
+  };
 }
 
 app.get('/', (req, res) => {
@@ -207,7 +206,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Exact 1 Blitch = 5 Emails Parallel Dispatch
+// 1 Blitch = 5 Emails Parallel Stream
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -238,7 +237,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 3000);
 
   const transporter = getInboxTransporter(email, appPassword);
-  const BATCH_SIZE = 5; // Strict 5 Emails per Blitch
+  const BATCH_SIZE = 5;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -252,22 +251,22 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      // Micro-stagger (100ms) inside the 5-email blitch
+      // Micro-stagger (80ms) to ensure clean connection separation in the blitch
       if (idx > 0) {
-        await new Promise(r => setTimeout(r, idx * 100));
+        await new Promise(r => setTimeout(r, idx * 80));
       }
 
       try {
-        const personalizedSubject = personalizeContent(subject, recipient);
+        const personalizedSubject = personalizeContent(subject, recipient).trim();
         const personalizedBody = personalizeContent(messageBody, recipient);
-        const { text: plainText, html: cleanHtml } = buildCanonicalEmail(personalizedBody);
+        const mailPayload = buildNativePayload(personalizedBody);
 
+        // Clean envelope: Google attaches official SPF, DKIM, ARC
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           subject: personalizedSubject || 'Update',
-          html: cleanHtml,
-          text: plainText
+          ...mailPayload
         };
 
         await transporter.sendMail(mailOptions);
@@ -286,10 +285,10 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Cooling pause between 5-email blitches (1.8s - 2.5s)
+    // Cooling pause between 5-email blitches (2.0s - 3.0s)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const slowDelay = Math.floor(1800 + Math.random() * 700);
-      await new Promise(resolve => setTimeout(resolve, slowDelay));
+      const cooldown = Math.floor(2000 + Math.random() * 1000);
+      await new Promise(resolve => setTimeout(resolve, cooldown));
     }
   }
 
@@ -305,7 +304,7 @@ app.post('/api/stop', (req, res) => {
 
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   app.listen(PORT, () => {
-    console.log(`🚀 Clean Safe 5-Blitch Mailer running on port ${PORT}`);
+    console.log(`🚀 Dedicated 5-Blitch Mailer running on port ${PORT}`);
   });
 }
 
