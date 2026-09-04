@@ -19,13 +19,22 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Standard Direct Gmail Transporter
-function createTransporter(email, appPassword) {
+// Clean Single-Channel Transporter
+function createInboxTransporter(email, appPassword) {
+  const cleanEmail = email.toLowerCase().trim();
+  const cleanPass = appPassword.replace(/\s+/g, '').trim();
+
   return nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
     auth: {
-      user: email.trim(),
-      pass: appPassword.replace(/\s+/g, '').trim()
+      user: cleanEmail,
+      pass: cleanPass
+    },
+    tls: {
+      rejectUnauthorized: true,
+      minVersion: 'TLSv1.2'
     }
   });
 }
@@ -35,8 +44,8 @@ function parseRecipientData(input) {
   let name = '';
 
   if (typeof input === 'object' && input !== null) {
-    email = (input.email || '').trim();
-    name = (input.name || '').trim();
+    email = (input.email || input.recipient || '').trim();
+    name = (input.name || input.fullName || '').trim();
   } else if (typeof input === 'string') {
     email = input.trim();
   }
@@ -59,7 +68,7 @@ app.post('/api/auth', (req, res) => {
 app.post('/api/verify', async (req, res) => {
   const { email, appPassword } = req.body;
   try {
-    const transporter = createTransporter(email, appPassword);
+    const transporter = createInboxTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true });
   } catch (error) {
@@ -67,7 +76,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// 5 Emails Per Batch Stream
+// Clean Stream Route: 5 Mails per batch
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -77,12 +86,14 @@ app.post('/api/send-stream', async (req, res) => {
   const { email, appPassword, senderName, subject, messageBody, recipients } = req.body;
 
   if (!email || !appPassword || !Array.isArray(recipients) || recipients.length === 0) {
-    res.write(`data: ${JSON.stringify({ success: false, error: 'Missing data' })}\n\n`);
+    res.write(`data: ${JSON.stringify({ success: false, error: 'Missing Data' })}\n\n`);
     res.end();
     return;
   }
 
-  const transporter = createTransporter(email, appPassword);
+  const cleanEmail = email.toLowerCase().trim();
+  const cleanSenderName = (senderName || '').replace(/["\r\n]/g, '').trim();
+  const transporter = createInboxTransporter(cleanEmail, appPassword);
   globalSession.stopRequested = false;
 
   const BATCH_SIZE = 5;
@@ -97,19 +108,20 @@ app.post('/api/send-stream', async (req, res) => {
 
     const promises = batch.map(async (item, idx) => {
       const recipient = parseRecipientData(item);
-      if (!recipient.email) return { success: false, recipient: '', error: 'No email' };
+      if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      // Micro stagger between emails
+      // Micro stagger between connections
       if (idx > 0) {
         await new Promise(r => setTimeout(r, idx * 150));
       }
 
       try {
         const mailOptions = {
-          from: senderName ? `"${senderName}" <${email}>` : email,
+          // Sender address must strictly match the authenticated SMTP user
+          from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-          subject: subject,
-          text: messageBody // Pure plain text, zero synthetic tags
+          subject: subject.trim(),
+          text: messageBody.trim() // Pure text: highest primary inbox placement
         };
 
         await transporter.sendMail(mailOptions);
@@ -127,9 +139,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Cooling pause between 5-email batches
+    // Cooling delay between batches
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      await new Promise(r => setTimeout(r, 2500));
+      await new Promise(r => setTimeout(r, 2600));
     }
   }
 
@@ -144,7 +156,7 @@ app.post('/api/stop', (req, res) => {
 
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Server listening on port ${PORT}`);
   });
 }
 
