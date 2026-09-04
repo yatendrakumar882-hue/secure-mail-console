@@ -58,7 +58,7 @@ function getInboxTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6,
+      maxConnections: 8,
       maxMessages: 4100,
       socketTimeout: 30000,
       connectionTimeout: 30000,
@@ -207,7 +207,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Safe Slow Dispatch: 1 Blitch = 6 Emails
+// Safe Slow Dispatch: 1 Blitch = 8 Emails
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -238,7 +238,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 3000);
 
   const transporter = getInboxTransporter(email, appPassword);
-  const BATCH_SIZE = 6;
+  const BATCH_SIZE = 8;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -302,7 +302,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Clean Safe 2-Blitch Mailer running on port ${PORT}`);
+  console.log(`🚀 Clean Safe 8-Blitch Mailer running on port ${PORT}`);
 });
 
 export default app;
