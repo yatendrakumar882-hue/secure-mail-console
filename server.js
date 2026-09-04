@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
@@ -10,6 +12,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: '*', methods: ['GET', 'POST'] }
+});
+
 const PORT = process.env.PORT || 3000;
 const SITE_PASSWORD = process.env.SITE_PASSWORD || '@##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
@@ -20,7 +27,12 @@ const poolMap = new Map();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.static(path.join(process.cwd(), 'public')));
 app.use(express.static(path.join(__dirname, 'public')));
+
+io.on('connection', (socket) => {
+  socket.on('disconnect', () => {});
+});
 
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x00000000')) return true;
@@ -43,11 +55,11 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-// Dedicated Direct Port 465 SSL Transporter
+// 5-Socket SSL Transporter Pool (Port 465)
 function getInboxTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_verified_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_pool_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -61,7 +73,7 @@ function getInboxTransporter(email, appPassword) {
       pool: true,
       maxConnections: 5,
       maxMessages: 5000,
-      socketTimeout: 30000,
+      socketTimeout: 35000,
       connectionTimeout: 30000,
       tls: {
         rejectUnauthorized: true,
@@ -150,11 +162,37 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// Authentic Gmail Header & Message-ID Emulation
+// Generates Authentic Webmail Message-ID
 function generateGmailMessageId(userEmail) {
   const domain = userEmail.split('@')[1] || 'gmail.com';
   const randHex = crypto.randomBytes(16).toString('hex');
   return `<${randHex}@mail.${domain}>`;
+}
+
+/* ==========================================================================
+   MINHASH DISPERSION ENGINE (Bypasses Bulk Spam Classifier)
+   - Injects random whitespace & invisible padding to destroy pattern similarity
+   - Text is 100% identical and legible to the recipient
+   ========================================================================== */
+function buildInboxPayload(bodyText) {
+  const cleanBody = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  const isHtml = /<[a-z][\s\S]*>/i.test(cleanBody);
+
+  // Micro variable entropy: 2 to 7 spaces + 1 invisible break
+  const trailingEntropy = ' '.repeat(Math.floor(Math.random() * 6) + 2) + '\u200B';
+  const plainText = cleanBody.replace(/<[^>]+>/g, '').trim() + trailingEntropy;
+
+  if (isHtml) {
+    return {
+      text: plainText,
+      html: `<div dir="ltr" style="font-family:Arial,Helvetica,sans-serif;font-size:small;color:#222222;line-height:1.5;">${cleanBody}</div>`
+    };
+  }
+
+  // Pure Plain Text Stream (Safest for Cold Outreach)
+  return {
+    text: plainText
+  };
 }
 
 app.get('/', (req, res) => {
@@ -193,7 +231,9 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Stream Dispatch: Strict 1 Blitch = 5 Emails
+/* ==========================================================================
+   STREAMING DISPATCH ROUTE (Exact 5 Emails Per Blitch with Pacing)
+   ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -238,26 +278,23 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      // Micro stagger (100ms) between socket negotiations
+      // Micro stagger (150ms - 220ms) prevents socket collision
       if (idx > 0) {
-        await new Promise(r => setTimeout(r, idx * 100));
+        const jitter = Math.floor(150 + Math.random() * 70);
+        await new Promise(r => setTimeout(r, idx * jitter));
       }
 
       try {
         const personalizedSubject = personalizeContent(subject, recipient).trim();
-        const personalizedBody = personalizeContent(messageBody, recipient).replace(/\r\n/g, '\n').trim();
+        const personalizedBody = personalizeContent(messageBody, recipient);
+        const mailPayload = buildInboxPayload(personalizedBody);
 
-        // Authentic Single-Part RFC Structure (Bypasses MIME HTML heuristic flags)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           subject: personalizedSubject || 'Update',
-          text: personalizedBody, // Pure Plain Text guarantees highest primary inbox rate
-          messageId: generateGmailMessageId(cleanEmail),
-          headers: {
-            'X-Priority': '3',
-            'Importance': 'Normal'
-          }
+          ...mailPayload,
+          messageId: generateGmailMessageId(cleanEmail)
         };
 
         await transporter.sendMail(mailOptions);
@@ -272,13 +309,15 @@ app.post('/api/send-stream', async (req, res) => {
 
     for (const resItem of results) {
       if (resItem.status === 'fulfilled' && resItem.value.recipient) {
+        io.emit(resItem.value.success ? 'mail_sent' : 'mail_error', resItem.value);
         res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
       }
     }
 
-    // Cooling pause between 5-email blitches (2.2s - 3.2s)
+    // Cooling pause between 5-email blitches (3.5s - 5.0s)
+    // Yeh natural cooling delay hi Gmail ko campaign flag karne se rokta hai
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const cooldown = Math.floor(2200 + Math.random() * 1000);
+      const cooldown = Math.floor(3500 + Math.random() * 1500);
       await new Promise(resolve => setTimeout(resolve, cooldown));
     }
   }
@@ -294,8 +333,8 @@ app.post('/api/stop', (req, res) => {
 });
 
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
-  app.listen(PORT, () => {
-    console.log(`Mailer server running on port ${PORT}`);
+  server.listen(PORT, () => {
+    console.log(`Mailer server running safely on port ${PORT}`);
   });
 }
 
