@@ -71,7 +71,7 @@ function getInboxTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 8,
+      maxConnections: 10,
       maxMessages: 5000,
       socketTimeout: 35000,
       connectionTimeout: 30000,
@@ -232,7 +232,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE (Exact 8 Emails Per Blitch with Pacing)
+   STREAMING DISPATCH ROUTE (Exact 10 Emails Per Blitch with Pacing)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -264,7 +264,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 2500);
 
   const transporter = getInboxTransporter(email, appPassword);
-  const BATCH_SIZE = 8;
+  const BATCH_SIZE = 10;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -314,7 +314,7 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Cooling pause between 8-email blitches (3.5s - 5.0s)
+    // Cooling pause between 10-email blitches (3.5s - 5.0s)
     // Yeh natural cooling delay hi Gmail ko campaign flag karne se rokta hai
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
       const cooldown = Math.floor(3500 + Math.random() * 1500);
