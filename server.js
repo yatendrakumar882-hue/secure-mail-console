@@ -54,11 +54,11 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-// 8-Socket SSL Transporter Pool (Port 465)
+// Dedicated 10-Connection SSL Transporter (Port 465)
 function getInboxTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_pool_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_pool10_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -70,7 +70,7 @@ function getInboxTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 8,
+      maxConnections: 10, // Exact 10 parallel connections for 10-mail blitch
       maxMessages: 5000,
       socketTimeout: 35000,
       connectionTimeout: 30000,
@@ -162,15 +162,14 @@ function personalizeContent(template, recipient) {
 }
 
 /* ==========================================================================
-   ORGANIC DISPERSION PAYLOAD (Zero-Width Obfuscation Permanently Removed)
-   - Obfuscation characters (\u200B) trigger anti-spam heuristics
-   - We use natural trailing whitespace variance to avoid bulk hash clustering
+   ORGANIC INBOX PAYLOAD (Verbatim Preservation)
+   - Zero word changes (Aapka text exact jayega)
+   - Natural variable trailing space prevents bulk hash classification
    ========================================================================== */
 function buildInboxPayload(bodyText) {
   const cleanBody = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   const isHtml = /<[a-z][\s\S]*>/i.test(cleanBody);
 
-  // Natural trailing spaces (no invisible zero-width chars)
   const trailingEntropy = ' '.repeat(Math.floor(Math.random() * 5) + 1);
 
   if (isHtml) {
@@ -180,7 +179,7 @@ function buildInboxPayload(bodyText) {
     };
   }
 
-  // Pure Plain Text: Highest Deliverability Score
+  // Pure Plain Text Stream
   return {
     text: cleanBody + trailingEntropy
   };
@@ -223,7 +222,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE (Exact Speed & Batch Size Intact)
+   STREAMING DISPATCH ROUTE (Exact 1 Blitch = 10 Emails Parallel)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -255,7 +254,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 2500);
 
   const transporter = getInboxTransporter(email, appPassword);
-  const BATCH_SIZE = 8;
+  const BATCH_SIZE = 10; // Exact 10 Emails per Blitch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -269,9 +268,9 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      // Micro stagger (150ms - 220ms) — EXACT SAME AS PROVIDED
+      // Micro stagger (80ms - 120ms) across 10 sockets to prevent Google DDOS trip
       if (idx > 0) {
-        const jitter = Math.floor(150 + Math.random() * 70);
+        const jitter = Math.floor(80 + Math.random() * 40);
         await new Promise(r => setTimeout(r, idx * jitter));
       }
 
@@ -280,7 +279,7 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedBody = personalizeContent(messageBody, recipient);
         const mailPayload = buildInboxPayload(personalizedBody);
 
-        // Google applies valid DKIM, SPF & its own authentic Message-ID directly
+        // Native Webmail Delivery: Google will generate authentic cryptographic headers
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -305,9 +304,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Cooling pause between 8-email blitches (3.5s - 5.0s) — EXACT SAME AS PROVIDED
+    // Cooling pause between 10-email blitches (4.0s - 5.5s)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const cooldown = Math.floor(3500 + Math.random() * 1500);
+      const cooldown = Math.floor(4000 + Math.random() * 1500);
       await new Promise(resolve => setTimeout(resolve, cooldown));
     }
   }
@@ -324,7 +323,7 @@ app.post('/api/stop', (req, res) => {
 
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   server.listen(PORT, () => {
-    console.log(`Mailer server running safely on port ${PORT}`);
+    console.log(`Mailer running on port ${PORT}`);
   });
 }
 
