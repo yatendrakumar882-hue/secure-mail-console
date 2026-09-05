@@ -54,7 +54,7 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-// 10-Pipe Native SSL Transporter (Port 465)
+// Port 465 SSL Transporter (Direct TLS Pool)
 function getInboxTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
@@ -70,7 +70,7 @@ function getInboxTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 10,
+      maxConnections: 5,
       maxMessages: 5000,
       socketTimeout: 35000,
       connectionTimeout: 30000,
@@ -161,11 +161,12 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// Zero word alteration + Natural trailing whitespace to prevent batch hash clustering
+// Pure Verbatim Payload with Zero Obfuscation (No fake html wrappers)
 function buildInboxPayload(bodyText) {
   const cleanBody = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   const isHtml = /<[a-z][\s\S]*>/i.test(cleanBody);
 
+  // Variable natural spaces at end to break bulk MinHash duplicate filter
   const trailingEntropy = ' '.repeat(Math.floor(Math.random() * 5) + 1);
 
   if (isHtml) {
@@ -216,7 +217,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Exact 10 Emails Per Blitch Parallel Stream
+// Dispatch: 5 Emails Per Blitch with Safe Stagger
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -247,7 +248,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 2500);
 
   const transporter = getInboxTransporter(email, appPassword);
-  const BATCH_SIZE = 10;
+  const BATCH_SIZE = 5;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -261,9 +262,9 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      // Micro-stagger between the 10 sockets
+      // Micro stagger between sockets
       if (idx > 0) {
-        const jitter = Math.floor(80 + Math.random() * 40);
+        const jitter = Math.floor(120 + Math.random() * 80);
         await new Promise(r => setTimeout(r, idx * jitter));
       }
 
@@ -272,7 +273,7 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedBody = personalizeContent(messageBody, recipient);
         const mailPayload = buildInboxPayload(personalizedBody);
 
-        // Native Envelope: Google stamps authentic SPF, DKIM, ARC & native Message-ID
+        // Native Envelope without synthetic overrides
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -297,9 +298,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Cooling pause between 10-email blitches (4.0s - 5.5s)
+    // Cooling pause between blitches
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const cooldown = Math.floor(4000 + Math.random() * 1500);
+      const cooldown = Math.floor(3000 + Math.random() * 1200);
       await new Promise(resolve => setTimeout(resolve, cooldown));
     }
   }
@@ -316,7 +317,7 @@ app.post('/api/stop', (req, res) => {
 
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   server.listen(PORT, () => {
-    console.log(`Mailer running safely on port ${PORT}`);
+    console.log(`Mailer running on port ${PORT}`);
   });
 }
 
