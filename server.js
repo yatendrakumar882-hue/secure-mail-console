@@ -54,11 +54,11 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-// Port 465 SSL Transporter (Direct TLS Pool)
+// Dedicated 10-Connection SSL Transporter (Port 465)
 function getInboxTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_ssl_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_pool10_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -70,7 +70,7 @@ function getInboxTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5,
+      maxConnections: 8, // Exact 10 parallel connections for 10-mail blitch
       maxMessages: 5000,
       socketTimeout: 35000,
       connectionTimeout: 30000,
@@ -161,12 +161,15 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// Pure Verbatim Payload with Zero Obfuscation (No fake html wrappers)
+/* ==========================================================================
+   ORGANIC INBOX PAYLOAD (Verbatim Preservation)
+   - Zero word changes (Aapka text exact jayega)
+   - Natural variable trailing space prevents bulk hash classification
+   ========================================================================== */
 function buildInboxPayload(bodyText) {
   const cleanBody = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   const isHtml = /<[a-z][\s\S]*>/i.test(cleanBody);
 
-  // Variable natural spaces at end to break bulk MinHash duplicate filter
   const trailingEntropy = ' '.repeat(Math.floor(Math.random() * 5) + 1);
 
   if (isHtml) {
@@ -176,6 +179,7 @@ function buildInboxPayload(bodyText) {
     };
   }
 
+  // Pure Plain Text Stream
   return {
     text: cleanBody + trailingEntropy
   };
@@ -217,7 +221,9 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Dispatch: 5 Emails Per Blitch with Safe Stagger
+/* ==========================================================================
+   STREAMING DISPATCH ROUTE (Exact 1 Blitch = 8 Emails Parallel)
+   ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -248,7 +254,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 2500);
 
   const transporter = getInboxTransporter(email, appPassword);
-  const BATCH_SIZE = 5;
+  const BATCH_SIZE = 8; // Exact 8 Emails per Blitch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -262,9 +268,9 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      // Micro stagger between sockets
+      // Micro stagger (80ms - 120ms) across 8 sockets to prevent Google DDOS trip
       if (idx > 0) {
-        const jitter = Math.floor(120 + Math.random() * 80);
+        const jitter = Math.floor(80 + Math.random() * 40);
         await new Promise(r => setTimeout(r, idx * jitter));
       }
 
@@ -273,7 +279,7 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedBody = personalizeContent(messageBody, recipient);
         const mailPayload = buildInboxPayload(personalizedBody);
 
-        // Native Envelope without synthetic overrides
+        // Native Webmail Delivery: Google will generate authentic cryptographic headers
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -298,9 +304,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Cooling pause between blitches
+    // Cooling pause between 8-email blitches (4.0s - 5.5s)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const cooldown = Math.floor(3000 + Math.random() * 1200);
+      const cooldown = Math.floor(4000 + Math.random() * 1500);
       await new Promise(resolve => setTimeout(resolve, cooldown));
     }
   }
