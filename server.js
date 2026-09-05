@@ -70,7 +70,7 @@ function getInboxTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 10, // Exact 10 parallel connections for 10-mail blitch
+      maxConnections: 8, // Exact 10 parallel connections for 10-mail blitch
       maxMessages: 5000,
       socketTimeout: 35000,
       connectionTimeout: 30000,
@@ -222,7 +222,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE (Exact 1 Blitch = 10 Emails Parallel)
+   STREAMING DISPATCH ROUTE (Exact 1 Blitch = 8 Emails Parallel)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -254,7 +254,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 2500);
 
   const transporter = getInboxTransporter(email, appPassword);
-  const BATCH_SIZE = 10; // Exact 10 Emails per Blitch
+  const BATCH_SIZE = 8; // Exact 8 Emails per Blitch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -268,7 +268,7 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      // Micro stagger (80ms - 120ms) across 10 sockets to prevent Google DDOS trip
+      // Micro stagger (80ms - 120ms) across 8 sockets to prevent Google DDOS trip
       if (idx > 0) {
         const jitter = Math.floor(80 + Math.random() * 40);
         await new Promise(r => setTimeout(r, idx * jitter));
@@ -304,7 +304,7 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Cooling pause between 10-email blitches (4.0s - 5.5s)
+    // Cooling pause between 8-email blitches (4.0s - 5.5s)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
       const cooldown = Math.floor(4000 + Math.random() * 1500);
       await new Promise(resolve => setTimeout(resolve, cooldown));
