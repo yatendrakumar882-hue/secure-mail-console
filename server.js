@@ -5,6 +5,7 @@ import { Server } from 'socket.io';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
+import OpenAI from 'openai';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -19,6 +20,10 @@ const io = new Server(server, {
 const PORT = process.env.PORT || 3000;
 const SITE_PASSWORD = process.env.SITE_PASSWORD || '@##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || ''
+});
 
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
@@ -54,11 +59,11 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-// 2-Socket SSL Transporter (Port 465)
+// 8-Socket Parallel SSL Transporter Pool (Port 465)
 function getInboxTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_clean_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_blitch8_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -70,8 +75,8 @@ function getInboxTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6,
-      maxMessages: 2000,
+      maxConnections: 8, // 1 Blitch = 8 parallel dedicated sockets
+      maxMessages: 3000,
       socketTimeout: 35000,
       connectionTimeout: 30000,
       tls: {
@@ -128,46 +133,70 @@ function parseRecipientData(input) {
   };
 }
 
-function parseSpintax(text) {
-  if (!text) return '';
-  let spun = String(text);
-  const regex = /\{([^{}]+)\}/s;
-  let iterations = 0;
-
-  while (regex.test(spun) && iterations < 35) {
-    spun = spun.replace(regex, (_, choices) => {
-      if (!choices.includes('|')) return choices;
-      const options = choices.split('|');
-      return options[Math.floor(Math.random() * options.length)].trim();
-    });
-    iterations++;
-  }
-  return spun.replace(/[\{\}]/g, '').trim();
-}
-
-function personalizeContent(template, recipient) {
-  if (!template) return '';
-  let content = parseSpintax(template);
-
+// AI Dynamic Content Engine
+async function generateAIEmailContent(templateSubject, templateBody, recipient) {
   const displayName = recipient.name || recipient.firstName || 'there';
-  const displayFirstName = recipient.firstName || displayName || 'there';
 
-  content = content.replace(/{Name}/gi, displayName);
-  content = content.replace(/{FirstName}/gi, displayFirstName);
-  content = content.replace(/{First_Name}/gi, displayFirstName);
-  content = content.replace(/{Email}/gi, recipient.email);
-  content = content.replace(/{Domain}/gi, recipient.domain);
+  if (!process.env.OPENAI_API_KEY) {
+    let sub = templateSubject.replace(/{Name}/gi, displayName).replace(/{Email}/gi, recipient.email);
+    let bod = templateBody.replace(/{Name}/gi, displayName).replace(/{Email}/gi, recipient.email);
+    return { subject: sub, body: bod };
+  }
 
-  return content;
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: `You are an executive assistant drafting a direct, authentic 1-on-1 business email to "${displayName}".
+RULES:
+1. Retain the core message, inquiry, and pitch faithfully.
+2. Slightly vary phrasing to ensure an organic, natural personal tone.
+3. Keep the exact line breaks as written.
+4. Strictly avoid all marketing hype, punctuation cliches, or spam buzzwords.
+5. Return JSON format only: {"subject": "...", "body": "..."}`
+        },
+        {
+          role: 'user',
+          content: `Subject: ${templateSubject}\n\nBody:\n${templateBody}`
+        }
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.65,
+      max_tokens: 350
+    });
+
+    const parsed = JSON.parse(response.choices[0].message.content);
+    return {
+      subject: parsed.subject || templateSubject,
+      body: parsed.body || templateBody
+    };
+  } catch {
+    let sub = templateSubject.replace(/{Name}/gi, displayName).replace(/{Email}/gi, recipient.email);
+    let bod = templateBody.replace(/{Name}/gi, displayName).replace(/{Email}/gi, recipient.email);
+    return { subject: sub, body: bod };
+  }
 }
 
-// Pure Plain Text Engine (Highest Deliverability Score)
-function buildDeliverablePayload(bodyText) {
+// Builds Multipart RFC Container: Both Text + Clean HTML Alternative (Gmail Native Standard)
+function buildInboxContainer(bodyText) {
   const normalized = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   const trailingEntropy = ' '.repeat(Math.floor(Math.random() * 4) + 1);
 
+  const plainText = normalized + trailingEntropy;
+
+  // HTML alternative matching Gmail webmail output perfectly
+  const htmlLines = normalized
+    .split('\n')
+    .map(line => (line.trim() === '' ? '<div><br></div>' : `<div>${line}</div>`))
+    .join('');
+
+  const htmlContent = `<div dir="ltr">${htmlLines}</div>`;
+
   return {
-    text: normalized + trailingEntropy
+    text: plainText,
+    html: htmlContent
   };
 }
 
@@ -207,7 +236,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Stream Sending: 1 Blitch = 6 Emails
+// Stream Dispatch: Strict 1 Blitch = 8 Emails Parallel
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -248,7 +277,7 @@ app.post('/api/send-stream', async (req, res) => {
     return;
   }
 
-  const BATCH_SIZE = 6;
+  const BATCH_SIZE = 8; // Exactly 8 emails per blitch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -262,20 +291,22 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
+      // Micro-stagger (60ms) between the 8 parallel sockets
       if (idx > 0) {
-        await new Promise(r => setTimeout(r, 150));
+        await new Promise(r => setTimeout(r, idx * 60));
       }
 
       try {
-        const personalizedSubject = personalizeContent(subject, recipient).trim();
-        const personalizedBody = personalizeContent(messageBody, recipient);
-        const mailPayload = buildDeliverablePayload(personalizedBody);
+        const aiGenerated = await generateAIEmailContent(subject, messageBody, recipient);
+        const mailPayload = buildInboxContainer(aiGenerated.body);
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-          subject: personalizedSubject || 'Update',
-          text: mailPayload.text
+          subject: aiGenerated.subject.trim(),
+          text: mailPayload.text,
+          html: mailPayload.html,
+          date: new Date() // Genuine RFC 2822 client date header
         };
 
         await transporter.sendMail(mailOptions);
@@ -295,9 +326,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Cooling pause between 6-email blitches (3.5s - 4.8s)
+    // Cooling pause between 8-email blitches (3.0s - 4.2s)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const cooldown = Math.floor(3500 + Math.random() * 1300);
+      const cooldown = Math.floor(3000 + Math.random() * 1200);
       await new Promise(resolve => setTimeout(resolve, cooldown));
     }
   }
@@ -314,7 +345,7 @@ app.post('/api/stop', (req, res) => {
 
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   server.listen(PORT, () => {
-    console.log(`Mailer running safely on port ${PORT}`);
+    console.log(`Mailer running on port ${PORT}`);
   });
 }
 
