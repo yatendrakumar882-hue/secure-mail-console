@@ -5,7 +5,7 @@ import { Server } from 'socket.io';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
-import OpenAI from 'openai';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -20,10 +20,6 @@ const io = new Server(server, {
 const PORT = process.env.PORT || 3000;
 const SITE_PASSWORD = process.env.SITE_PASSWORD || '@##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || ''
-});
 
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
@@ -59,11 +55,11 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-// 8-Socket Native SSL Transporter (Port 465)
+// Dedicated 8-Socket Direct SSL Connection Pool (Port 465)
 function getInboxTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_blitch8_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_blitch8_exact_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -76,7 +72,7 @@ function getInboxTransporter(email, appPassword) {
       },
       pool: true,
       maxConnections: 8,
-      maxMessages: 3000,
+      maxMessages: 5000,
       socketTimeout: 35000,
       connectionTimeout: 30000,
       tls: {
@@ -133,60 +129,51 @@ function parseRecipientData(input) {
   };
 }
 
-// AI Anti-Spam Transformer: Har aggressive/commercial word ko natural business phrasing me convert karta hai
-async function generateSpamProofEmail(templateSubject, templateBody, recipient) {
-  const displayName = recipient.name || recipient.firstName || 'there';
+function parseSpintax(text) {
+  if (!text) return '';
+  let spun = String(text);
+  const regex = /\{([^{}]+)\}/s;
+  let iterations = 0;
 
-  if (!process.env.OPENAI_API_KEY) {
-    let sub = templateSubject.replace(/{Name}/gi, displayName).replace(/{Email}/gi, recipient.email);
-    let bod = templateBody.replace(/{Name}/gi, displayName).replace(/{Email}/gi, recipient.email);
-    return { subject: sub, body: bod };
-  }
-
-  try {
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: `You are an elite email deliverability engineer. Your job is to make this email bypass all NLP spam filters (Google Spam Heuristics, SpamAssassin, Barracuda).
-TASK:
-1. Preserve the sender's exact core offer/pitch and intent for recipient "${displayName}".
-2. Replace any spam-trigger words, commercial hype, aggressive marketing cliches (like free, guarantee, 100%, audit, report, ranking, best price) with completely neutral, professional, 1-on-1 human phrasing.
-3. Keep the email concise, grounded, and sounding like a direct message typed on a keyboard.
-4. Keep the exact paragraph line breaks intact. Do not add salutations if not in original.
-5. Strict JSON output only: {"subject": "...", "body": "..."}`
-        },
-        {
-          role: 'user',
-          content: `Subject: ${templateSubject}\n\nBody:\n${templateBody}`
-        }
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.6,
-      max_tokens: 350
+  while (regex.test(spun) && iterations < 35) {
+    spun = spun.replace(regex, (_, choices) => {
+      if (!choices.includes('|')) return choices;
+      const options = choices.split('|');
+      return options[Math.floor(Math.random() * options.length)].trim();
     });
-
-    const parsed = JSON.parse(response.choices[0].message.content);
-    return {
-      subject: parsed.subject || templateSubject,
-      body: parsed.body || templateBody
-    };
-  } catch {
-    let sub = templateSubject.replace(/{Name}/gi, displayName).replace(/{Email}/gi, recipient.email);
-    let bod = templateBody.replace(/{Name}/gi, displayName).replace(/{Email}/gi, recipient.email);
-    return { subject: sub, body: bod };
+    iterations++;
   }
+  return spun.replace(/[\{\}]/g, '').trim();
 }
 
-// Exact verbatim layout: zero artificial margins, natural spacing
-function buildNaturalEmailContainer(bodyText) {
-  const normalized = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-  const trailingEntropy = ' '.repeat(Math.floor(Math.random() * 4) + 1);
+// Strictly substitutes placeholders without altering any of your words
+function applyTemplate(template, recipient) {
+  if (!template) return '';
+  let content = parseSpintax(template);
 
-  const plainText = normalized + trailingEntropy;
+  const displayName = recipient.name || recipient.firstName || '';
+  const displayFirstName = recipient.firstName || displayName || '';
 
-  const htmlLines = normalized
+  content = content.replace(/{Name}/gi, displayName);
+  content = content.replace(/{FirstName}/gi, displayFirstName);
+  content = content.replace(/{First_Name}/gi, displayFirstName);
+  content = content.replace(/{Email}/gi, recipient.email);
+  content = content.replace(/{Domain}/gi, recipient.domain);
+
+  return content;
+}
+
+// Zero-Word Change Payload with Anti-Fingerprint Isolation
+function buildVerbatimPayload(bodyText) {
+  // Normalize newlines
+  const cleanBody = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+
+  // Natural space jitter (1 to 4 spaces at the very end) to generate unique cryptographic hashes
+  const hashJitter = ' '.repeat(Math.floor(Math.random() * 4) + 1);
+  const plainText = cleanBody + hashJitter;
+
+  // Exact 1:1 clean HTML container identical to Gmail Web Composer
+  const htmlLines = cleanBody
     .split('\n')
     .map(line => (line.trim() === '' ? '<div><br></div>' : `<div>${line}</div>`))
     .join('');
@@ -235,7 +222,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Stream Dispatch: 1 Blitch = 8 Emails Parallel
+// Stream Dispatch: 1 Blitch = 8 Emails Parallel (Verbatim Words)
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -290,20 +277,21 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      // Micro-stagger (60ms) between the 8 parallel sockets
+      // Micro-stagger (70ms) across parallel sockets
       if (idx > 0) {
-        await new Promise(r => setTimeout(r, idx * 60));
+        await new Promise(r => setTimeout(r, idx * 70));
       }
 
       try {
-        // AI neutralizes spam triggers while preserving your intent
-        const aiCleaned = await generateSpamProofEmail(subject, messageBody, recipient);
-        const mailPayload = buildNaturalEmailContainer(aiCleaned.body);
+        // Words are 100% untouched as per your input template
+        const verbatimSubject = applyTemplate(subject, recipient).trim();
+        const verbatimBody = applyTemplate(messageBody, recipient);
+        const mailPayload = buildVerbatimPayload(verbatimBody);
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-          subject: aiCleaned.subject.trim(),
+          subject: verbatimSubject || 'Notification',
           text: mailPayload.text,
           html: mailPayload.html,
           date: new Date()
@@ -345,7 +333,7 @@ app.post('/api/stop', (req, res) => {
 
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   server.listen(PORT, () => {
-    console.log(`Mailer running on port ${PORT}`);
+    console.log(`Verbatim 8-Mailer running on port ${PORT}`);
   });
 }
 
