@@ -5,7 +5,6 @@ import { Server } from 'socket.io';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -55,11 +54,11 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-// 5-Socket SSL Transporter Pool (Port 465)
+// Dedicated 2-Socket SSL Transporter (Port 465)
 function getInboxTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_pool_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_pool_2_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -71,8 +70,8 @@ function getInboxTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 8,
-      maxMessages: 5000,
+      maxConnections: 2, // Strict 2 parallel sockets for 2-mail blitch
+      maxMessages: 2000,
       socketTimeout: 35000,
       connectionTimeout: 30000,
       tls: {
@@ -162,36 +161,24 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// Generates Authentic Webmail Message-ID
-function generateGmailMessageId(userEmail) {
-  const domain = userEmail.split('@')[1] || 'gmail.com';
-  const randHex = crypto.randomBytes(16).toString('hex');
-  return `<${randHex}@mail.${domain}>`;
-}
+// Preserves exact line breaks and paragraph spacing (4 lines stay exactly 4 lines)
+function buildPerfectLinePayload(bodyText) {
+  // Normalize windows/unix breaks
+  const normalized = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
 
-/* ==========================================================================
-   MINHASH DISPERSION ENGINE (Bypasses Bulk Spam Classifier)
-   - Injects random whitespace & invisible padding to destroy pattern similarity
-   - Text is 100% identical and legible to the recipient
-   ========================================================================== */
-function buildInboxPayload(bodyText) {
-  const cleanBody = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-  const isHtml = /<[a-z][\s\S]*>/i.test(cleanBody);
+  // Natural micro-space variance to break bulk MinHash classifier
+  const entropyTail = ' '.repeat(Math.floor(Math.random() * 4) + 1);
+  const plainText = normalized + entropyTail;
 
-  // Micro variable entropy: 2 to 7 spaces + 1 invisible break
-  const trailingEntropy = ' '.repeat(Math.floor(Math.random() * 6) + 2) + '\u200B';
-  const plainText = cleanBody.replace(/<[^>]+>/g, '').trim() + trailingEntropy;
+  // HTML mapping that preserves exact newlines and 1-line gaps without template distortion
+  const htmlBody = normalized
+    .split('\n')
+    .map(line => (line.trim() === '' ? '<br>' : `<div>${line}</div>`))
+    .join('');
 
-  if (isHtml) {
-    return {
-      text: plainText,
-      html: `<div dir="ltr" style="font-family:Arial,Helvetica,sans-serif;font-size:small;color:#222222;line-height:1.5;">${cleanBody}</div>`
-    };
-  }
-
-  // Pure Plain Text Stream (Safest for Cold Outreach)
   return {
-    text: plainText
+    text: plainText,
+    html: `<div dir="ltr" style="font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#222222;line-height:1.5;">${htmlBody}</div>`
   };
 }
 
@@ -231,9 +218,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-/* ==========================================================================
-   STREAMING DISPATCH ROUTE (Exact 8 Emails Per Blitch with Pacing)
-   ========================================================================== */
+// Exact 1 Blitch = 2 Emails Parallel
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -264,7 +249,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 2500);
 
   const transporter = getInboxTransporter(email, appPassword);
-  const BATCH_SIZE = 8;
+  const BATCH_SIZE = 2; // Strict 2 Emails per Blitch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -278,23 +263,21 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      // Micro stagger (150ms - 220ms) prevents socket collision
+      // Micro-stagger (150ms) between the 2 sockets
       if (idx > 0) {
-        const jitter = Math.floor(150 + Math.random() * 70);
-        await new Promise(r => setTimeout(r, idx * jitter));
+        await new Promise(r => setTimeout(r, 150));
       }
 
       try {
         const personalizedSubject = personalizeContent(subject, recipient).trim();
         const personalizedBody = personalizeContent(messageBody, recipient);
-        const mailPayload = buildInboxPayload(personalizedBody);
+        const mailPayload = buildPerfectLinePayload(personalizedBody);
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           subject: personalizedSubject || 'Update',
-          ...mailPayload,
-          messageId: generateGmailMessageId(cleanEmail)
+          ...mailPayload
         };
 
         await transporter.sendMail(mailOptions);
@@ -314,10 +297,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Cooling pause between 8-email blitches (3.5s - 5.0s)
-    // Yeh natural cooling delay hi Gmail ko campaign flag karne se rokta hai
+    // Cooling pause between 2-email blitches (3.2s - 4.5s)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const cooldown = Math.floor(3500 + Math.random() * 1500);
+      const cooldown = Math.floor(3200 + Math.random() * 1300);
       await new Promise(resolve => setTimeout(resolve, cooldown));
     }
   }
@@ -334,7 +316,7 @@ app.post('/api/stop', (req, res) => {
 
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   server.listen(PORT, () => {
-    console.log(`Mailer server running safely on port ${PORT}`);
+    console.log(`Mailer running safely on port ${PORT}`);
   });
 }
 
