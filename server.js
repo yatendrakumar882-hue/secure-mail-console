@@ -70,7 +70,7 @@ function getInboxTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 2,
+      maxConnections: 6,
       maxMessages: 2000,
       socketTimeout: 35000,
       connectionTimeout: 30000,
@@ -207,7 +207,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Stream Sending: 1 Blitch = 2 Emails
+// Stream Sending: 1 Blitch = 6 Emails
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -248,7 +248,7 @@ app.post('/api/send-stream', async (req, res) => {
     return;
   }
 
-  const BATCH_SIZE = 2;
+  const BATCH_SIZE = 6;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -295,7 +295,7 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Cooling pause between 2-email blitches (3.5s - 4.8s)
+    // Cooling pause between 6-email blitches (3.5s - 4.8s)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
       const cooldown = Math.floor(3500 + Math.random() * 1300);
       await new Promise(resolve => setTimeout(resolve, cooldown));
