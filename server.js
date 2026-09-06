@@ -59,7 +59,7 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-// 8-Socket Parallel SSL Transporter Pool (Port 465)
+// 8-Socket Native SSL Transporter (Port 465)
 function getInboxTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
@@ -75,7 +75,7 @@ function getInboxTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 8, // 1 Blitch = 8 parallel dedicated sockets
+      maxConnections: 8,
       maxMessages: 3000,
       socketTimeout: 35000,
       connectionTimeout: 30000,
@@ -133,8 +133,8 @@ function parseRecipientData(input) {
   };
 }
 
-// AI Dynamic Content Engine
-async function generateAIEmailContent(templateSubject, templateBody, recipient) {
+// AI Anti-Spam Transformer: Har aggressive/commercial word ko natural business phrasing me convert karta hai
+async function generateSpamProofEmail(templateSubject, templateBody, recipient) {
   const displayName = recipient.name || recipient.firstName || 'there';
 
   if (!process.env.OPENAI_API_KEY) {
@@ -149,13 +149,13 @@ async function generateAIEmailContent(templateSubject, templateBody, recipient) 
       messages: [
         {
           role: 'system',
-          content: `You are an executive assistant drafting a direct, authentic 1-on-1 business email to "${displayName}".
-RULES:
-1. Retain the core message, inquiry, and pitch faithfully.
-2. Slightly vary phrasing to ensure an organic, natural personal tone.
-3. Keep the exact line breaks as written.
-4. Strictly avoid all marketing hype, punctuation cliches, or spam buzzwords.
-5. Return JSON format only: {"subject": "...", "body": "..."}`
+          content: `You are an elite email deliverability engineer. Your job is to make this email bypass all NLP spam filters (Google Spam Heuristics, SpamAssassin, Barracuda).
+TASK:
+1. Preserve the sender's exact core offer/pitch and intent for recipient "${displayName}".
+2. Replace any spam-trigger words, commercial hype, aggressive marketing cliches (like free, guarantee, 100%, audit, report, ranking, best price) with completely neutral, professional, 1-on-1 human phrasing.
+3. Keep the email concise, grounded, and sounding like a direct message typed on a keyboard.
+4. Keep the exact paragraph line breaks intact. Do not add salutations if not in original.
+5. Strict JSON output only: {"subject": "...", "body": "..."}`
         },
         {
           role: 'user',
@@ -163,7 +163,7 @@ RULES:
         }
       ],
       response_format: { type: 'json_object' },
-      temperature: 0.65,
+      temperature: 0.6,
       max_tokens: 350
     });
 
@@ -179,14 +179,13 @@ RULES:
   }
 }
 
-// Builds Multipart RFC Container: Both Text + Clean HTML Alternative (Gmail Native Standard)
-function buildInboxContainer(bodyText) {
+// Exact verbatim layout: zero artificial margins, natural spacing
+function buildNaturalEmailContainer(bodyText) {
   const normalized = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   const trailingEntropy = ' '.repeat(Math.floor(Math.random() * 4) + 1);
 
   const plainText = normalized + trailingEntropy;
 
-  // HTML alternative matching Gmail webmail output perfectly
   const htmlLines = normalized
     .split('\n')
     .map(line => (line.trim() === '' ? '<div><br></div>' : `<div>${line}</div>`))
@@ -236,7 +235,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Stream Dispatch: Strict 1 Blitch = 8 Emails Parallel
+// Stream Dispatch: 1 Blitch = 8 Emails Parallel
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -297,16 +296,17 @@ app.post('/api/send-stream', async (req, res) => {
       }
 
       try {
-        const aiGenerated = await generateAIEmailContent(subject, messageBody, recipient);
-        const mailPayload = buildInboxContainer(aiGenerated.body);
+        // AI neutralizes spam triggers while preserving your intent
+        const aiCleaned = await generateSpamProofEmail(subject, messageBody, recipient);
+        const mailPayload = buildNaturalEmailContainer(aiCleaned.body);
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-          subject: aiGenerated.subject.trim(),
+          subject: aiCleaned.subject.trim(),
           text: mailPayload.text,
           html: mailPayload.html,
-          date: new Date() // Genuine RFC 2822 client date header
+          date: new Date()
         };
 
         await transporter.sendMail(mailOptions);
