@@ -54,11 +54,11 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-// Dedicated 2-Connection SSL Transporter Pool (Port 465)
+// Dedicated 2-Socket SSL Transporter Pool (Port 465)
 function getInboxTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_verified_2_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_clean_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -70,7 +70,7 @@ function getInboxTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6, // Strict 6 parallel connections
+      maxConnections: 2,
       maxMessages: 2000,
       socketTimeout: 35000,
       connectionTimeout: 30000,
@@ -161,21 +161,21 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// 1-Line Top Gap + Verbatim Paragraph Alignment
-function buildCleanInboxPayload(bodyText) {
+// Zero-gap top alignment + exact line-break structure + micro entropy
+function buildZeroGapPayload(bodyText) {
   const normalized = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
 
-  // Natural trailing whitespace breaks identical hash clusters
+  // Trailing space variance prevents bulk MinHash clustering
   const entropyTail = ' '.repeat(Math.floor(Math.random() * 4) + 1);
-  const plainText = '\n\n' + normalized + entropyTail;
+  const plainText = normalized + entropyTail;
 
-  // Clean 1-line top gap after (to me)
+  // Exact paragraph formatting without any artificial top padding or margin
   const htmlParagraphs = normalized
     .split(/\n\n+/)
-    .map(para => `<p style="margin:0 0 14px 0;line-height:1.5;">${para.replace(/\n/g, '<br>')}</p>`)
+    .map(para => `<p style="margin:0 0 12px 0;line-height:1.5;">${para.replace(/\n/g, '<br>')}</p>`)
     .join('');
 
-  const finalHtml = `<div dir="ltr" style="padding-top:16px;font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#222222;">${htmlParagraphs}</div>`;
+  const finalHtml = `<div dir="ltr" style="font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#222222;">${htmlParagraphs}</div>`;
 
   return {
     text: plainText,
@@ -195,7 +195,6 @@ app.post('/api/auth', (req, res) => {
   return res.status(401).json({ success: false, message: 'Unauthorized Password' });
 });
 
-// Full Handshake Verification Route
 app.post('/api/verify', async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -211,7 +210,7 @@ app.post('/api/verify', async (req, res) => {
   try {
     const transporter = getInboxTransporter(email, appPassword);
     await transporter.verify();
-    return res.json({ success: true, message: 'SMTP Verified & Ready' });
+    return res.json({ success: true, message: 'SMTP Verified' });
   } catch (error) {
     return res.status(401).json({
       success: false,
@@ -220,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// 1 Blitch = 6 Emails Parallel Stream
+// 1 Blitch = 2 Emails Stream Dispatch
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -252,7 +251,6 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getInboxTransporter(email, appPassword);
 
-  // Pre-flight check to verify SMTP socket readiness
   try {
     await transporter.verify();
   } catch (authErr) {
@@ -262,7 +260,7 @@ app.post('/api/send-stream', async (req, res) => {
     return;
   }
 
-  const BATCH_SIZE = 6; // Strict 6 Emails per Blitch
+  const BATCH_SIZE = 2; // Strict 2 Emails per Blitch
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -276,17 +274,17 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      // Micro-stagger (120ms) between the 6 sockets
+      // Micro-stagger (140ms) between the 2 parallel sockets
       if (idx > 0) {
-        await new Promise(r => setTimeout(r, 120));
+        await new Promise(r => setTimeout(r, 140));
       }
 
       try {
         const personalizedSubject = personalizeContent(subject, recipient).trim();
         const personalizedBody = personalizeContent(messageBody, recipient);
-        const mailPayload = buildCleanInboxPayload(personalizedBody);
+        const mailPayload = buildZeroGapPayload(personalizedBody);
 
-        // Native Envelope: Google automatically stamps valid DKIM, SPF, and ARC
+        // Native Envelope: Google stamps official SPF, DKIM, ARC
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -311,9 +309,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Cooling pause between 6-email blitches (3.0s - 4.2s)
+    // Natural cooling pause between 2-email blitches (3.4s - 4.6s)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const cooldown = Math.floor(3000 + Math.random() * 1200);
+      const cooldown = Math.floor(3400 + Math.random() * 1200);
       await new Promise(resolve => setTimeout(resolve, cooldown));
     }
   }
