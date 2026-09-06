@@ -70,7 +70,7 @@ function getInboxTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 2, // Strict 2 parallel sockets for 2-mail blitch
+      maxConnections: 2, // 1 Blitch = 2 Parallel Sockets
       maxMessages: 2000,
       socketTimeout: 35000,
       connectionTimeout: 30000,
@@ -161,24 +161,27 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// Preserves exact line breaks and paragraph spacing (4 lines stay exactly 4 lines)
+// Preserves exact line-breaks and injects 1 clean line-gap right after (to me)
 function buildPerfectLinePayload(bodyText) {
-  // Normalize windows/unix breaks
   const normalized = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
 
   // Natural micro-space variance to break bulk MinHash classifier
   const entropyTail = ' '.repeat(Math.floor(Math.random() * 4) + 1);
-  const plainText = normalized + entropyTail;
 
-  // HTML mapping that preserves exact newlines and 1-line gaps without template distortion
+  // Plain text version with leading newline for natural gap
+  const plainText = '\n' + normalized + entropyTail;
+
+  // HTML version with explicit top margin (16px) for natural 1-line gap after (to me)
   const htmlBody = normalized
     .split('\n')
-    .map(line => (line.trim() === '' ? '<br>' : `<div>${line}</div>`))
+    .map(line => (line.trim() === '' ? '<div style="height:14px;"></div>' : `<div>${line}</div>`))
     .join('');
+
+  const finalHtml = `<div dir="ltr" style="margin-top:16px;font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#222222;line-height:1.5;">${htmlBody}</div>`;
 
   return {
     text: plainText,
-    html: `<div dir="ltr" style="font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#222222;line-height:1.5;">${htmlBody}</div>`
+    html: finalHtml
   };
 }
 
@@ -218,7 +221,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Exact 1 Blitch = 2 Emails Parallel
+// Exact 1 Blitch = 2 Emails Parallel Stream
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -273,6 +276,7 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedBody = personalizeContent(messageBody, recipient);
         const mailPayload = buildPerfectLinePayload(personalizedBody);
 
+        // Native Google Envelope (Google handles DKIM, SPF, and ARC automatically)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
