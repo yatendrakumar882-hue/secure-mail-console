@@ -54,7 +54,7 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-// Dedicated 2-Socket SSL Transporter Pool (Port 465)
+// 2-Socket SSL Transporter (Port 465)
 function getInboxTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
@@ -161,25 +161,13 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// Zero-gap top alignment + exact line-break structure + micro entropy
-function buildZeroGapPayload(bodyText) {
+// Pure Plain Text Engine (Highest Deliverability Score)
+function buildDeliverablePayload(bodyText) {
   const normalized = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-
-  // Trailing space variance prevents bulk MinHash clustering
-  const entropyTail = ' '.repeat(Math.floor(Math.random() * 4) + 1);
-  const plainText = normalized + entropyTail;
-
-  // Exact paragraph formatting without any artificial top padding or margin
-  const htmlParagraphs = normalized
-    .split(/\n\n+/)
-    .map(para => `<p style="margin:0 0 12px 0;line-height:1.5;">${para.replace(/\n/g, '<br>')}</p>`)
-    .join('');
-
-  const finalHtml = `<div dir="ltr" style="font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#222222;">${htmlParagraphs}</div>`;
+  const trailingEntropy = ' '.repeat(Math.floor(Math.random() * 4) + 1);
 
   return {
-    text: plainText,
-    html: finalHtml
+    text: normalized + trailingEntropy
   };
 }
 
@@ -214,12 +202,12 @@ app.post('/api/verify', async (req, res) => {
   } catch (error) {
     return res.status(401).json({
       success: false,
-      message: error.message || 'SMTP Auth Failed. Use a 16-char Google App Password.'
+      message: error.message || 'SMTP Auth Failed. Check 16-char App Password.'
     });
   }
 });
 
-// 1 Blitch = 2 Emails Stream Dispatch
+// Stream Sending: 1 Blitch = 2 Emails
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -260,7 +248,7 @@ app.post('/api/send-stream', async (req, res) => {
     return;
   }
 
-  const BATCH_SIZE = 2; // Strict 2 Emails per Blitch
+  const BATCH_SIZE = 2;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -274,22 +262,20 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      // Micro-stagger (140ms) between the 2 parallel sockets
       if (idx > 0) {
-        await new Promise(r => setTimeout(r, 140));
+        await new Promise(r => setTimeout(r, 150));
       }
 
       try {
         const personalizedSubject = personalizeContent(subject, recipient).trim();
         const personalizedBody = personalizeContent(messageBody, recipient);
-        const mailPayload = buildZeroGapPayload(personalizedBody);
+        const mailPayload = buildDeliverablePayload(personalizedBody);
 
-        // Native Envelope: Google stamps official SPF, DKIM, ARC
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           subject: personalizedSubject || 'Update',
-          ...mailPayload
+          text: mailPayload.text
         };
 
         await transporter.sendMail(mailOptions);
@@ -309,9 +295,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Natural cooling pause between 2-email blitches (3.4s - 4.6s)
+    // Cooling pause between 2-email blitches (3.5s - 4.8s)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const cooldown = Math.floor(3400 + Math.random() * 1200);
+      const cooldown = Math.floor(3500 + Math.random() * 1300);
       await new Promise(resolve => setTimeout(resolve, cooldown));
     }
   }
