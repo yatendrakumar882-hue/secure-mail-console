@@ -3,7 +3,6 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -25,7 +24,7 @@ app.use(express.static(path.join(process.cwd(), 'public')));
 app.use(express.static(path.join(__dirname, 'public')));
 
 /* ==========================================================================
-   TURNSTILE BOT PROTECTION
+   TURNSTILE BOT PROTECTION VERIFICATION
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x00000000')) return true;
@@ -48,27 +47,28 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   DEDICATED PORT 465 SSL TRANSPORTER (Unbreakable Socket)
+   DIRECT SSL TRANSPORTER (Port 465 - Stable Webmail Sockets)
    ========================================================================== */
 function getInboxTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_master_${cleanEmail}_${cleanPass}`;
+  const key = `native_hand_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
-      secure: true,
+      secure: true, // Direct SSL handshake prevents socket disconnects
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 2,
-      maxMessages: 2000,
+      maxConnections: 2, // 1 Blitch = 2 parallel pipes
+      maxMessages: 1500,
       socketTimeout: 45000,
       connectionTimeout: 35000,
+      greetingTimeout: 30000,
       tls: {
         rejectUnauthorized: true,
         minVersion: 'TLSv1.2'
@@ -80,7 +80,7 @@ function getInboxTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   RECIPIENT NORMALIZATION
+   RECIPIENT NORMALIZATION & SPINTAX
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -159,25 +159,13 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// 100% Genuine Webmail MIME Structure (No Bot Markers)
-function buildNaturalPayload(bodyText) {
-  const normalized = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-  const trailingEntropy = ' '.repeat(Math.floor(Math.random() * 3) + 1);
-
-  // Exact 1:1 clean HTML container matching Gmail web interface
-  const htmlLines = normalized
-    .split('\n')
-    .map(line => (line.trim() === '' ? '<div><br></div>' : `<div>${line}</div>`))
-    .join('');
-
-  return {
-    text: normalized + trailingEntropy,
-    html: `<div dir="ltr">${htmlLines}</div>`
-  };
+// Exactly matches personal typed email style shown in screenshot
+function buildVerbatimText(bodyText) {
+  return bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
 }
 
 /* ==========================================================================
-   ROUTES
+   API ROUTES
    ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -204,7 +192,7 @@ app.post('/api/verify', async (req, res) => {
   try {
     const transporter = getInboxTransporter(email, appPassword);
     await transporter.verify();
-    return res.json({ success: true, message: 'SMTP Verified (SSL Port 465 Ready)' });
+    return res.json({ success: true, message: 'SMTP Connected (Port 465 Verified)' });
   } catch (error) {
     return res.status(401).json({
       success: false,
@@ -214,7 +202,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX DISPATCH ENGINE (1 Blitch = 2 Parallel Sockets + Failover)
+   STREAMING DISPATCH (1 Blitch = 2 Emails Parallel, Pure Single-Part MIME)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -243,7 +231,7 @@ app.post('/api/send-stream', async (req, res) => {
 
   const keepAlivePing = setInterval(() => {
     try { res.write(': keep-alive\n\n'); } catch {}
-  }, 2500);
+  }, 3000);
 
   const transporter = getInboxTransporter(email, appPassword);
 
@@ -256,7 +244,7 @@ app.post('/api/send-stream', async (req, res) => {
     return;
   }
 
-  const BATCH_SIZE = 2; // Strict 2 Emails per Blitch
+  const BATCH_SIZE = 2; // Strict 1 Blitch = 2 Emails
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -270,23 +258,22 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      // Micro-jitter between parallel sockets
+      // Micro-delay between the 2 sockets
       if (idx > 0) {
-        await new Promise(r => setTimeout(r, 140));
+        await new Promise(r => setTimeout(r, 120));
       }
 
       const finalSubject = personalizeContent(subject, recipient).trim();
       const finalBody = personalizeContent(messageBody, recipient);
-      const payload = buildNaturalPayload(finalBody);
+      const plainText = buildVerbatimText(finalBody);
 
-      // Clean RFC-5322 Envelope mimicking 1-on-1 Webmail
+      // Pure Single-Part Text Envelope (Triggers Google Smart Reply Chips)
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
         to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
         replyTo: cleanEmail,
         subject: finalSubject || 'Update',
-        text: payload.text,
-        html: payload.html,
+        text: plainText,
         date: new Date()
       };
 
@@ -294,9 +281,9 @@ app.post('/api/send-stream', async (req, res) => {
         await transporter.sendMail(mailOptions);
         return { success: true, recipient: recipient.email, name: recipient.name };
       } catch (err) {
-        // Instant single retry for transient socket drops
+        // Instant Single Retry on socket drop
         try {
-          await new Promise(r => setTimeout(r, 900));
+          await new Promise(r => setTimeout(r, 800));
           await transporter.sendMail(mailOptions);
           return { success: true, recipient: recipient.email, name: recipient.name };
         } catch (retryErr) {
@@ -313,9 +300,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Cooling pause between 2-email blitches (2.0s - 3.2s) to prevent spam trap velocity
+    // Cooling pause between 2-email blitches (1.8s - 2.8s)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const cooldown = Math.floor(2000 + Math.random() * 1200);
+      const cooldown = Math.floor(Math.random() * 1000) + 1800;
       await new Promise(resolve => setTimeout(resolve, cooldown));
     }
   }
@@ -330,13 +317,15 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Sending process stopped' });
 });
 
+// UI Catch-All Route
 app.get('*', (req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
 
+// Start Server locally; Export for Vercel
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   app.listen(PORT, () => {
-    console.log(`Mailer active on port ${PORT}`);
+    console.log(`🚀 Clean Hand-Mailer running on port ${PORT}`);
   });
 }
 
