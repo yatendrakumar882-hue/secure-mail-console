@@ -17,16 +17,13 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x000000000000
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
 
-// Express Configuration
+// Express Setup
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 app.use(express.static(path.join(__dirname, 'public')));
 
-/* ==========================================================================
-   TURNSTILE BOT PROTECTION VERIFICATION
-   ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x00000000')) return true;
   try {
@@ -47,9 +44,7 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-/* ==========================================================================
-   DIRECT SSL TRANSPORTER (Port 465 - Stable Webmail Socket)
-   ========================================================================== */
+// Solid 2-Pipe Direct SSL Transporter (Port 465)
 function getInboxTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
@@ -65,10 +60,10 @@ function getInboxTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 2, // 1 Blitch = 2 parallel pipes
-      maxMessages: 2000,
-      socketTimeout: 45000,
-      connectionTimeout: 35000,
+      maxConnections: 2,
+      maxMessages: 1000,
+      socketTimeout: 50000,
+      connectionTimeout: 40000,
       greetingTimeout: 30000,
       tls: {
         rejectUnauthorized: true,
@@ -80,9 +75,6 @@ function getInboxTransporter(email, appPassword) {
   return poolMap.get(key);
 }
 
-/* ==========================================================================
-   RECIPIENT NORMALIZATION & SPINTAX RESOLVER
-   ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
   let rawName = '';
@@ -151,39 +143,36 @@ function personalizeContent(template, recipient) {
   const displayName = recipient.name || recipient.firstName || '';
   const displayFirstName = recipient.firstName || displayName || '';
 
-  content = content.replace(/{Name}/gi, displayName ? displayName : 'there');
-  content = content.replace(/{FirstName}/gi, displayFirstName ? displayFirstName : 'there');
-  content = content.replace(/{First_Name}/gi, displayFirstName ? displayFirstName : 'there');
+  content = content.replace(/{Name}/gi, displayName || 'there');
+  content = content.replace(/{FirstName}/gi, displayFirstName || 'there');
+  content = content.replace(/{First_Name}/gi, displayFirstName || 'there');
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
   return content;
 }
 
-// Zero Word-Change Invisible Hash Mutator (Prevents Bulk Duplicate Flagging)
-function buildUniqueInboxPayload(bodyText) {
+// Zero Word Changes + Cryptographic Invisible Non-Joiners
+function buildInboxPayload(bodyText) {
   const normalized = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-
-  // Micro invisible zero-width non-joiner inserted at random sentence breaks
-  // Recipient sees exact original text; Google hash engine sees brand-new unique email
-  const sentences = normalized.split(/(\. |\? |\! |\n)/);
+  
+  // Invisible space-entropy to break bulk hash fingerprint
   const entropyToken = '\u200C';
-
-  let mutatedBody = sentences.map((part) => {
-    if (Math.random() > 0.45 && (part === '. ' || part === '? ' || part === '! ')) {
-      return part.trim() + entropyToken + ' ';
+  const sentences = normalized.split(/(\. |\? |\! |\n)/);
+  
+  let result = sentences.map((chunk) => {
+    if ((chunk === '. ' || chunk === '? ' || chunk === '! ') && Math.random() > 0.4) {
+      return chunk.trim() + entropyToken + ' ';
     }
-    return part;
+    return chunk;
   }).join('');
 
-  // Micro space-tail (1 to 4 spaces)
-  mutatedBody += ' '.repeat(Math.floor(Math.random() * 4) + 1);
-
-  return mutatedBody;
+  result += ' '.repeat(Math.floor(Math.random() * 4) + 1);
+  return result;
 }
 
 /* ==========================================================================
-   API ROUTES
+   ROUTES
    ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -210,7 +199,7 @@ app.post('/api/verify', async (req, res) => {
   try {
     const transporter = getInboxTransporter(email, appPassword);
     await transporter.verify();
-    return res.json({ success: true, message: 'SMTP Verified (SSL Port 465 Ready)' });
+    return res.json({ success: true, message: 'SMTP Connected & Verified (SSL Port 465)' });
   } catch (error) {
     return res.status(401).json({
       success: false,
@@ -219,9 +208,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-/* ==========================================================================
-   PRIMARY INBOX DISPATCH ENGINE (1 Blitch = 2 Emails, Anti-Trap Flow)
-   ========================================================================== */
+// Stream Dispatch: 1 Blitch = 2 Emails Parallel with Natural Delay
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -276,22 +263,25 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      // Micro human-stagger between parallel sockets
+      // Micro human-stagger
       if (idx > 0) {
-        await new Promise(r => setTimeout(r, 220));
+        await new Promise(r => setTimeout(r, 280));
       }
 
       const finalSubject = personalizeContent(subject, recipient).trim();
       const finalBody = personalizeContent(messageBody, recipient);
-      const uniqueCleanText = buildUniqueInboxPayload(finalBody);
+      const plainText = buildInboxPayload(finalBody);
 
-      // Webmail 1-on-1 pure envelope
+      // Authentic Clean Webmail Message-ID Envelope
+      const randomMsgId = `<${crypto.randomBytes(12).toString('hex')}@mail.gmail.com>`;
+
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
         to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
         replyTo: cleanEmail,
         subject: finalSubject || 'Update',
-        text: uniqueCleanText,
+        text: plainText,
+        messageId: randomMsgId,
         date: new Date()
       };
 
@@ -299,7 +289,6 @@ app.post('/api/send-stream', async (req, res) => {
         await transporter.sendMail(mailOptions);
         return { success: true, recipient: recipient.email, name: recipient.name };
       } catch (err) {
-        // Instant Single Retry on socket drop
         try {
           await new Promise(r => setTimeout(r, 1200));
           await transporter.sendMail(mailOptions);
@@ -318,9 +307,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Natural Human Cooling Pace (5.5s - 8.5s) to permanently stop Google's bulk flag
+    // Cooling pause between 2-email blitches (7.0s - 11.0s)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const cooldown = Math.floor(5500 + Math.random() * 3000);
+      const cooldown = Math.floor(7000 + Math.random() * 4000);
       await new Promise(resolve => setTimeout(resolve, cooldown));
     }
   }
@@ -343,7 +332,7 @@ app.get('*', (req, res) => {
 // Start Server locally; Export for Vercel
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   app.listen(PORT, () => {
-    console.log(`🚀 Inbox-Safe Mailer active on port ${PORT}`);
+    console.log(`🚀 Safe Mailer running on port ${PORT}`);
   });
 }
 
