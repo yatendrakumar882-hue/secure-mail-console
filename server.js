@@ -3,6 +3,7 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -47,25 +48,25 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   DIRECT SSL TRANSPORTER (Port 465 - Stable Webmail Sockets)
+   DIRECT SSL TRANSPORTER (Port 465 - Stable Webmail Socket)
    ========================================================================== */
 function getInboxTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `native_hand_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
-      secure: true, // Direct SSL handshake prevents socket disconnects
+      secure: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
       maxConnections: 2, // 1 Blitch = 2 parallel pipes
-      maxMessages: 1500,
+      maxMessages: 2000,
       socketTimeout: 45000,
       connectionTimeout: 35000,
       greetingTimeout: 30000,
@@ -80,7 +81,7 @@ function getInboxTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   RECIPIENT NORMALIZATION & SPINTAX
+   RECIPIENT NORMALIZATION & SPINTAX RESOLVER
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -159,9 +160,26 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// Exactly matches personal typed email style shown in screenshot
-function buildVerbatimText(bodyText) {
-  return bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+// Zero Word-Change Invisible Hash Mutator (Prevents Bulk Duplicate Flagging)
+function buildUniqueInboxPayload(bodyText) {
+  const normalized = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+
+  // Micro invisible zero-width non-joiner inserted at random sentence breaks
+  // Recipient sees exact original text; Google hash engine sees brand-new unique email
+  const sentences = normalized.split(/(\. |\? |\! |\n)/);
+  const entropyToken = '\u200C';
+
+  let mutatedBody = sentences.map((part) => {
+    if (Math.random() > 0.45 && (part === '. ' || part === '? ' || part === '! ')) {
+      return part.trim() + entropyToken + ' ';
+    }
+    return part;
+  }).join('');
+
+  // Micro space-tail (1 to 4 spaces)
+  mutatedBody += ' '.repeat(Math.floor(Math.random() * 4) + 1);
+
+  return mutatedBody;
 }
 
 /* ==========================================================================
@@ -192,7 +210,7 @@ app.post('/api/verify', async (req, res) => {
   try {
     const transporter = getInboxTransporter(email, appPassword);
     await transporter.verify();
-    return res.json({ success: true, message: 'SMTP Connected (Port 465 Verified)' });
+    return res.json({ success: true, message: 'SMTP Verified (SSL Port 465 Ready)' });
   } catch (error) {
     return res.status(401).json({
       success: false,
@@ -202,7 +220,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH (1 Blitch = 2 Emails Parallel, Pure Single-Part MIME)
+   PRIMARY INBOX DISPATCH ENGINE (1 Blitch = 2 Emails, Anti-Trap Flow)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -231,7 +249,7 @@ app.post('/api/send-stream', async (req, res) => {
 
   const keepAlivePing = setInterval(() => {
     try { res.write(': keep-alive\n\n'); } catch {}
-  }, 3000);
+  }, 2500);
 
   const transporter = getInboxTransporter(email, appPassword);
 
@@ -258,22 +276,22 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      // Micro-delay between the 2 sockets
+      // Micro human-stagger between parallel sockets
       if (idx > 0) {
-        await new Promise(r => setTimeout(r, 120));
+        await new Promise(r => setTimeout(r, 220));
       }
 
       const finalSubject = personalizeContent(subject, recipient).trim();
       const finalBody = personalizeContent(messageBody, recipient);
-      const plainText = buildVerbatimText(finalBody);
+      const uniqueCleanText = buildUniqueInboxPayload(finalBody);
 
-      // Pure Single-Part Text Envelope (Triggers Google Smart Reply Chips)
+      // Webmail 1-on-1 pure envelope
       const mailOptions = {
         from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
         to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
         replyTo: cleanEmail,
         subject: finalSubject || 'Update',
-        text: plainText,
+        text: uniqueCleanText,
         date: new Date()
       };
 
@@ -283,7 +301,7 @@ app.post('/api/send-stream', async (req, res) => {
       } catch (err) {
         // Instant Single Retry on socket drop
         try {
-          await new Promise(r => setTimeout(r, 800));
+          await new Promise(r => setTimeout(r, 1200));
           await transporter.sendMail(mailOptions);
           return { success: true, recipient: recipient.email, name: recipient.name };
         } catch (retryErr) {
@@ -300,9 +318,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Cooling pause between 2-email blitches (1.8s - 2.8s)
+    // Natural Human Cooling Pace (5.5s - 8.5s) to permanently stop Google's bulk flag
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const cooldown = Math.floor(Math.random() * 1000) + 1800;
+      const cooldown = Math.floor(5500 + Math.random() * 3000);
       await new Promise(resolve => setTimeout(resolve, cooldown));
     }
   }
@@ -325,7 +343,7 @@ app.get('*', (req, res) => {
 // Start Server locally; Export for Vercel
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   app.listen(PORT, () => {
-    console.log(`🚀 Clean Hand-Mailer running on port ${PORT}`);
+    console.log(`🚀 Inbox-Safe Mailer active on port ${PORT}`);
   });
 }
 
