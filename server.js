@@ -60,7 +60,7 @@ function getDirectTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6, // 1 Blitch = 6 parallel connections
+      maxConnections: 5,
       maxMessages: 4000
     });
     poolMap.set(key, transporter);
@@ -181,7 +181,7 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
-/* ---------------- 5. 6-EMAIL PARALLEL BATCH DISPATCH STREAM ---------------- */
+/* ---------------- 5. 6-EMAIL BATCH DISPATCH STREAM ---------------- */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -216,7 +216,7 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getDirectTransporter(email, appPassword);
   
-  // Exactly 6 emails per blitch/batch
+  // Exactly 6 emails per glitch/batch
   const BATCH_SIZE = 6;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
@@ -227,23 +227,22 @@ app.post('/api/send-stream', async (req, res) => {
 
     const currentBatch = recipients.slice(i, i + BATCH_SIZE);
 
-    // 1 Blitch: 6 emails sent in parallel
-    const sendPromises = currentBatch.map(async (rawRecipient, idx) => {
+    for (let j = 0; j < currentBatch.length; j++) {
+      if (globalSession.stopRequested) break;
+
+      const rawRecipient = currentBatch[j];
       const recipient = parseRecipientData(rawRecipient);
 
       if (!recipient.email) {
-        return { success: false, recipient: "", error: "Invalid Email" };
-      }
-
-      // Micro human-stagger across the 6 sockets
-      if (idx > 0) {
-        await new Promise(r => setTimeout(r, idx * 80));
+        res.write(`data: ${JSON.stringify({ success: false, recipient: "", error: "Invalid Email" })}\n\n`);
+        continue;
       }
 
       try {
         const personalizedSubject = personalizeContent(subject, recipient);
         const personalizedBody = personalizeContent(messageBody, recipient);
 
+        // Pure RFC 5322 Native Plain-Text Mail (Zero HTML/Zero Spam Obfuscation Tags)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -253,18 +252,16 @@ app.post('/api/send-stream', async (req, res) => {
         };
 
         await transporter.sendMail(mailOptions);
-        return { success: true, recipient: recipient.email, name: recipient.name };
+        res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email, name: recipient.name })}\n\n`);
 
       } catch (err) {
-        return { success: false, recipient: recipient.email, error: err.message };
+        res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
       }
-    });
 
-    const results = await Promise.allSettled(sendPromises);
-
-    for (const resItem of results) {
-      if (resItem.status === 'fulfilled') {
-        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
+      // Micro human delay (100ms - 160ms) between the 6 emails
+      if (j < currentBatch.length - 1) {
+        const microDelay = Math.floor(Math.random() * 60) + 100;
+        await new Promise(resolve => setTimeout(resolve, microDelay));
       }
     }
 
