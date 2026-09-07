@@ -1,12 +1,20 @@
 {
   "version": 2,
-  "functions": {
-    "server.js": {
-      "maxDuration": 60,
-      "memory": 1024
+  "builds": [
+    {
+      "src": "server.js",
+      "use": "@vercel/node"
     }
-  },
+  ],
   "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "server.js"
+    },
+    {
+      "src": "/socket.io/(.*)",
+      "dest": "server.js"
+    },
     {
       "src": "/(.*)",
       "dest": "server.js"
