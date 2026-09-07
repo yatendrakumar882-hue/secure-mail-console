@@ -79,10 +79,10 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 1, // Single connection per app pass prevents spam flags
+      maxConnections: 6, // six connection per app pass prevents spam flags
       maxMessages: 100,
       rateDelta: 1000,
-      rateLimit: 1,
+      rateLimit: 6,
       socketTimeout: 30000,
       connectionTimeout: 30000
     });
@@ -320,7 +320,7 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify(errPayload)}\n\n`);
     }
 
-    if (i < recipients.length - 1) {
+    if (i < recipients.length - 6) {
       // Slight rest delay between mails
       await new Promise(resolve => setTimeout(resolve, 500));
     }
