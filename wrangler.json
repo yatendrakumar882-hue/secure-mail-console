@@ -2,8 +2,5 @@
   "name": "secure-mail-console",
   "main": "worker.js",
   "compatibility_date": "2024-03-20",
-  "compatibility_flags": ["nodejs_compat"],
-  "assets": {
-    "directory": "public"
-  }
+  "compatibility_flags": ["nodejs_compat"]
 }
