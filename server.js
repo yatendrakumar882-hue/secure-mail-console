@@ -5,7 +5,6 @@ import { Server } from 'socket.io';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -55,11 +54,11 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-// Dedicated 8-Socket Direct SSL Connection Pool (Port 465)
+// 8 Native Direct SSL Sockets (Port 465) with Auto-Reconnect
 function getInboxTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_blitch8_exact_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_pro_v8_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -73,8 +72,9 @@ function getInboxTransporter(email, appPassword) {
       pool: true,
       maxConnections: 8,
       maxMessages: 5000,
-      socketTimeout: 35000,
-      connectionTimeout: 30000,
+      socketTimeout: 45000,
+      connectionTimeout: 40000,
+      greetingTimeout: 30000,
       tls: {
         rejectUnauthorized: true,
         minVersion: 'TLSv1.2'
@@ -124,7 +124,7 @@ function parseRecipientData(input) {
   return {
     email: email.toLowerCase(),
     name: formattedName,
-    firstName: formattedName ? formattedName.split(' ')[0] : 'there',
+    firstName: formattedName ? formattedName.split(' ')[0] : '',
     domain: email.includes('@') ? email.split('@')[1] : ''
   };
 }
@@ -146,7 +146,6 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
-// Strictly substitutes placeholders without altering any of your words
 function applyTemplate(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
@@ -163,26 +162,13 @@ function applyTemplate(template, recipient) {
   return content;
 }
 
-// Zero-Word Change Payload with Anti-Fingerprint Isolation
-function buildVerbatimPayload(bodyText) {
-  // Normalize newlines
-  const cleanBody = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-
-  // Natural space jitter (1 to 4 spaces at the very end) to generate unique cryptographic hashes
-  const hashJitter = ' '.repeat(Math.floor(Math.random() * 4) + 1);
-  const plainText = cleanBody + hashJitter;
-
-  // Exact 1:1 clean HTML container identical to Gmail Web Composer
-  const htmlLines = cleanBody
-    .split('\n')
-    .map(line => (line.trim() === '' ? '<div><br></div>' : `<div>${line}</div>`))
-    .join('');
-
-  const htmlContent = `<div dir="ltr">${htmlLines}</div>`;
+// 100% Verbatim Natural Formatting without Extra Gap or Bot Fingerprints
+function buildCleanMimePayload(bodyText) {
+  const normalized = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  const entropyTail = ' '.repeat(Math.floor(Math.random() * 4) + 1);
 
   return {
-    text: plainText,
-    html: htmlContent
+    text: normalized + entropyTail
   };
 }
 
@@ -213,7 +199,7 @@ app.post('/api/verify', async (req, res) => {
   try {
     const transporter = getInboxTransporter(email, appPassword);
     await transporter.verify();
-    return res.json({ success: true, message: 'SMTP Verified' });
+    return res.json({ success: true, message: 'SMTP Verified & Ready' });
   } catch (error) {
     return res.status(401).json({
       success: false,
@@ -222,7 +208,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
-// Stream Dispatch: 1 Blitch = 8 Emails Parallel (Verbatim Words)
+// Stream Dispatch: 1 Blitch = 8 Emails Parallel with Failover Safety
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -258,7 +244,7 @@ app.post('/api/send-stream', async (req, res) => {
     await transporter.verify();
   } catch (authErr) {
     clearInterval(keepAlivePing);
-    res.write(`data: ${JSON.stringify({ success: false, error: 'SMTP Verification Failed: ' + authErr.message })}\n\n`);
+    res.write(`data: ${JSON.stringify({ success: false, error: 'SMTP Connection Failed: ' + authErr.message })}\n\n`);
     res.end();
     return;
   }
@@ -275,25 +261,23 @@ app.post('/api/send-stream', async (req, res) => {
 
     const sendPromises = batch.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
-      if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
+      if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email Address' };
 
-      // Micro-stagger (70ms) across parallel sockets
+      // Micro-stagger across the 8 parallel sockets
       if (idx > 0) {
-        await new Promise(r => setTimeout(r, idx * 70));
+        await new Promise(r => setTimeout(r, idx * 90));
       }
 
       try {
-        // Words are 100% untouched as per your input template
-        const verbatimSubject = applyTemplate(subject, recipient).trim();
-        const verbatimBody = applyTemplate(messageBody, recipient);
-        const mailPayload = buildVerbatimPayload(verbatimBody);
+        const finalSubject = applyTemplate(subject, recipient).trim();
+        const finalBody = applyTemplate(messageBody, recipient);
+        const mailPayload = buildCleanMimePayload(finalBody);
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-          subject: verbatimSubject || 'Notification',
+          subject: finalSubject || 'Update',
           text: mailPayload.text,
-          html: mailPayload.html,
           date: new Date()
         };
 
@@ -301,7 +285,24 @@ app.post('/api/send-stream', async (req, res) => {
         return { success: true, recipient: recipient.email, name: recipient.name };
 
       } catch (err) {
-        return { success: false, recipient: recipient.email, error: err.message };
+        // Instant single retry if transient socket disconnect occurs
+        try {
+          await new Promise(r => setTimeout(r, 600));
+          const finalSubject = applyTemplate(subject, recipient).trim();
+          const finalBody = applyTemplate(messageBody, recipient);
+          const mailPayload = buildCleanMimePayload(finalBody);
+
+          await transporter.sendMail({
+            from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
+            to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+            subject: finalSubject || 'Update',
+            text: mailPayload.text,
+            date: new Date()
+          });
+          return { success: true, recipient: recipient.email, name: recipient.name };
+        } catch (retryErr) {
+          return { success: false, recipient: recipient.email, error: retryErr.message };
+        }
       }
     });
 
@@ -314,9 +315,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Cooling pause between 8-email blitches (3.0s - 4.2s)
+    // Cooling pause between 8-email batches (3.4s - 4.6s) to protect Gmail rate limits
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const cooldown = Math.floor(3000 + Math.random() * 1200);
+      const cooldown = Math.floor(3400 + Math.random() * 1200);
       await new Promise(resolve => setTimeout(resolve, cooldown));
     }
   }
@@ -333,7 +334,7 @@ app.post('/api/stop', (req, res) => {
 
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   server.listen(PORT, () => {
-    console.log(`Verbatim 8-Mailer running on port ${PORT}`);
+    console.log(`Bulletproof 8-Mailer active on port ${PORT}`);
   });
 }
 
