@@ -23,7 +23,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 /* ==========================================================================
-   TURNSTILE BOT PROTECTION (100% Exact & Unchanged)
+   TURNSTILE BOT PROTECTION VERIFICATION (100% Exact & Unchanged)
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
@@ -49,7 +49,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   OPTIMIZED GMAIL SMTP POOL (Port 587 STARTTLS)
+   GMAIL TLS TRANSPORTER POOL (High-Speed Multi-Connection Pool)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -60,17 +60,17 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // STARTTLS for RFC compliance
+      secure: false, // STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 10,
+      maxConnections: 10, // Supports multi-socket parallel bursts
       maxMessages: 50000,
-      socketTimeout: 25000,
-      connectionTimeout: 25000
+      socketTimeout: 15000,
+      connectionTimeout: 15000
     });
     poolMap.set(key, transporter);
   }
@@ -78,7 +78,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   RECIPIENT NORMALIZATION & ADVANCED SPINTAX
+   RECIPIENT NORMALIZATION & ADVANCED SPINTAX ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -161,7 +161,7 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// Convert text into genuine natural paragraphs with exact 1-line gap
+// Formats content with natural 1-line paragraph gap for inbox placement
 function buildPrimaryInboxHtml(rawBody) {
   const paragraphs = rawBody
     .split(/\r?\n\r?\n/)
@@ -237,7 +237,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   PRIMARY INBOX 1-BY-1 FAST DISPATCH STREAM
+   ULTRA-FAST 4-5 PARALLEL BLITZ STREAMING DISPATCH ROUTE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -269,9 +269,10 @@ app.post('/api/send-stream', async (req, res) => {
 
   const keepAlivePing = setInterval(() => {
     res.write(': keep-alive\n\n');
-  }, 3000);
+  }, 2000);
 
   const transporter = getPort587Transporter(email, appPassword);
+  const BATCH_SIZE = 5; // Exactly 4-5 emails per blitz
 
   const defaultBestSubject = '{quick note regarding your site|website feedback|quick question for you|question about your page}';
   const defaultBestBody = "{Hi {Name},|Hello {Name},|Hey {Name},}\n\n{I noticed your site has a great presentation but isn't showing on the top results.|Your website looks clean, but seems missing from the primary search listings.}\n\n{May I send you a quick report with details?|Would you mind if I shared the screenshot with you?|Can I share the audit reports with you?}";
@@ -279,71 +280,80 @@ app.post('/api/send-stream', async (req, res) => {
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultBestSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBestBody;
 
-  // 1-by-1 Fast & Safe execution with instant live counting
-  for (let i = 0; i < recipients.length; i++) {
+  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
       break;
     }
 
-    const rawRecipient = recipients[i];
-    const recipient = parseRecipientData(rawRecipient);
+    const batch = recipients.slice(i, i + BATCH_SIZE);
 
-    if (!recipient.email || !recipient.email.includes('@')) {
-      res.write(`data: ${JSON.stringify({ success: false, recipient: rawRecipient, error: 'Invalid Email' })}\n\n`);
-      continue;
+    // 4-5 parallel executions per blitz
+    const sendPromises = batch.map(async (rawRecipient, idx) => {
+      const recipient = parseRecipientData(rawRecipient);
+      if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
+
+      try {
+        if (idx > 0) {
+          // Minimal staggered socket connect (15-30ms) for high speed
+          await new Promise(resolve => setTimeout(resolve, idx * 20));
+        }
+
+        const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
+        const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
+        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+
+        const formattedHtml = isHtml 
+          ? `<div dir="ltr" style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">${personalizedBody}</div>`
+          : buildPrimaryInboxHtml(personalizedBody);
+
+        const plainTextFormatted = createCleanPlainText(personalizedBody);
+
+        const uniqueDomain = cleanEmail.split('@')[1] || 'gmail.com';
+        const cleanMsgId = `${Date.now()}.${Math.random().toString(36).substring(2, 9)}@${uniqueDomain}`;
+
+        const mailOptions = {
+          from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
+          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+          envelope: {
+            from: cleanEmail,
+            to: recipient.email
+          },
+          replyTo: cleanEmail,
+          date: new Date(),
+          subject: personalizedSubject,
+          text: plainTextFormatted,
+          html: formattedHtml,
+          headers: {
+            'Message-ID': `<${cleanMsgId}>`,
+            'X-Mailer': 'Microsoft Outlook 16.0',
+            'X-Priority': '3',
+            'Importance': 'Normal'
+          },
+          textEncoding: 'base64',
+          encoding: 'utf-8'
+        };
+
+        await transporter.sendMail(mailOptions);
+        return { success: true, recipient: recipient.email, name: recipient.name };
+
+      } catch (err) {
+        return { success: false, recipient: recipient.email, error: err.message };
+      }
+    });
+
+    const results = await Promise.allSettled(sendPromises);
+
+    // Immediate stream response for live count updates
+    for (const resItem of results) {
+      if (resItem.status === 'fulfilled' && resItem.value.recipient) {
+        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
+      }
     }
 
-    try {
-      const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
-      const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
-
-      // Exact 1-line paragraph gap formatting
-      const isHtmlInput = /<[a-z][\s\S]*>/i.test(personalizedBody);
-      const formattedHtml = isHtmlInput 
-        ? `<div dir="ltr" style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">${personalizedBody}</div>`
-        : buildPrimaryInboxHtml(personalizedBody);
-
-      const plainTextFormatted = createCleanPlainText(personalizedBody);
-
-      const uniqueDomain = cleanEmail.split('@')[1] || 'gmail.com';
-      const cleanMsgId = `${Date.now()}.${Math.random().toString(36).substring(2, 9)}@${uniqueDomain}`;
-
-      const mailOptions = {
-        from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
-        to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-        envelope: {
-          from: cleanEmail,
-          to: recipient.email
-        },
-        replyTo: cleanEmail,
-        date: new Date(),
-        subject: personalizedSubject,
-        text: plainTextFormatted,
-        html: formattedHtml,
-        headers: {
-          'Message-ID': `<${cleanMsgId}>`,
-          'X-Mailer': 'Microsoft Outlook 16.0',
-          'X-Priority': '3',
-          'Importance': 'Normal'
-        },
-        textEncoding: 'base64',
-        encoding: 'utf-8'
-      };
-
-      await transporter.sendMail(mailOptions);
-
-      // Instant live counter update to frontend
-      res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email, name: recipient.name })}\n\n`);
-
-    } catch (err) {
-      res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
-    }
-
-    // Fast micro-delay (120ms to 220ms) to ensure maximum speed while keeping connection natural
-    if (i < recipients.length - 1 && !globalSession.stopRequested) {
-      const fastDelay = Math.floor(120 + Math.random() * 100);
-      await new Promise(resolve => setTimeout(resolve, fastDelay));
+    // Micro-delay between blitzes to complete ~25 emails within 2-3 seconds
+    if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
+      await new Promise(resolve => setTimeout(resolve, 80));
     }
   }
 
