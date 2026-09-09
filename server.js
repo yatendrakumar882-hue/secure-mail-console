@@ -17,7 +17,7 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x000000000000
 // ==========================================
 // 🛡️ SPEED & DELIVERABILITY CONTROL
 // ==========================================
-const DELAY_BETWEEN_MAILS = 1000; // 1.0 second safe pause (1-by-1 human typing pace)
+const DELAY_BETWEEN_MAILS = 400; // 400 ms safe pause (1-by-1 human typing pace)
 // ==========================================
 
 const globalSession = { stopRequested: false };
