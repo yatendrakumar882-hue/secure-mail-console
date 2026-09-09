@@ -67,7 +67,7 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 12, // 12-batch sync
+      maxConnections: 6, // 6-batch sync
       maxMessages: 50000,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -254,7 +254,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 12;
+  const BATCH_SIZE = 6;
 
   // Fully diversified spintax (Protects against Content-Hash Filters)
   const defaultBestSubject = '{quick note regarding your site|website feedback|quick question for you|question about your page}';
@@ -277,7 +277,7 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 250)));
+          await new Promise(resolve => setTimeout(resolve, Math.floor(50 + Math.random() * 100)));
         }
 
         const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
@@ -324,9 +324,9 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Human delay between 12-email batches (2.0s to 2.5s)
+    // Human delay between 6-email batches (800ms to 500ms)
     if (i + BATCH_SIZE < recipients.length) {
-      const safeBatchDelay = Math.floor(2000 + Math.random() * 1500);
+      const safeBatchDelay = Math.floor(800 + Math.random() * 300);
       await new Promise(resolve => setTimeout(resolve, safeBatchDelay));
     }
   }
