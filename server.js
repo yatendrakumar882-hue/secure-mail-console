@@ -4,6 +4,7 @@ import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -48,28 +49,31 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. HIGH-BURST GMAIL TLS TRANSPORTER POOL
+   2. RESIDENTIAL STICKY TRANSPORTER (Primary Inbox Key)
    ========================================================================== */
-function getPort587Transporter(email, appPassword) {
+function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_blitz_fast_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_residential_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
+    const proxyUrl = process.env.PROXY_URL;
+    const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : null;
+
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
-      port: 587,
-      secure: false, // RFC Compliant STARTTLS
-      requireTLS: true,
+      port: 465,
+      secure: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
+      ...(agent && { agent }),
       pool: true,
-      maxConnections: 12, // High socket reuse for instant dispatch
-      maxMessages: 50000,
-      socketTimeout: 12000,
-      connectionTimeout: 12000
+      maxConnections: 3,
+      maxMessages: 20000,
+      socketTimeout: 20000,
+      connectionTimeout: 20000
     });
     poolMap.set(key, transporter);
   }
@@ -77,7 +81,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. ADVANCED SPINTAX & PERSONALIZATION
+   3. RECIPIENT NORMALIZATION & ADVANCED SPINTAX
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -160,13 +164,13 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// 1-line clean paragraph gap styling
-function formatInboxBody(text) {
+// Exactly 1 line clean paragraph gap
+function buildCleanHtml(text) {
   const paras = text.split(/\r?\n\r?\n/).map(p => p.trim()).filter(Boolean);
   if (paras.length === 0) {
-    return `<div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">${text}</div>`;
+    return `<div dir="ltr" style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.55; color: #222;">${text}</div>`;
   }
-  return `<div dir="ltr">${paras.map(p => `<p style="margin: 0 0 15px 0; font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">${p.replace(/\r?\n/g, '<br>')}</p>`).join('')}</div>`;
+  return `<div dir="ltr">${paras.map(p => `<p style="margin: 0 0 16px 0; font-family: Arial, sans-serif; font-size: 14px; line-height: 1.55; color: #222;">${p.replace(/\r?\n/g, '<br>')}</p>`).join('')}</div>`;
 }
 
 function createCleanPlainText(text) {
@@ -215,7 +219,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = getPort587Transporter(email, appPassword);
+    const transporter = getTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP verified successfully' });
   } catch (error) {
@@ -227,7 +231,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. ULTRA-FAST 8-BLITZ INBOX STREAMING ROUTE
+   5. PRIMARY INBOX DISPATCH STREAM (3/Blitz + Natural Gap)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -259,15 +263,15 @@ app.post('/api/send-stream', async (req, res) => {
 
   const keepAlivePing = setInterval(() => {
     res.write(': keep-alive\n\n');
-  }, 2000);
+  }, 3000);
 
-  const transporter = getPort587Transporter(email, appPassword);
+  const transporter = getTransporter(email, appPassword);
   
-  // Ultra-Fast 8 emails parallel per blitz
-  const BATCH_SIZE = 8;
+  // Safe 3-email blitz: Avoids Gmail SMTP burst detection
+  const BATCH_SIZE = 3;
 
-  const defaultBestSubject = '{quick note regarding your site|website feedback|quick question for you|question about your page}';
-  const defaultBestBody = "{Hi {Name},|Hello {Name},|Hey {Name},}\n\n{I noticed your site has a great presentation but isn't showing on the top results.|Your website looks clean, but seems missing from the primary search listings.}\n\n{May I send you a quick report with details?|Would you mind if I shared the screenshot with you?|Can I share the audit reports with you?}";
+  const defaultBestSubject = '{quick note regarding your account|statement update for your review|requested document update}';
+  const defaultBestBody = "Hello {Name},\n\nPlease review the updated statement details attached for your record.\n\nLet me know if you have any questions.";
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultBestSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBestBody;
@@ -280,15 +284,13 @@ app.post('/api/send-stream', async (req, res) => {
 
     const batch = recipients.slice(i, i + BATCH_SIZE);
 
-    // Concurrent parallel firing
     const sendPromises = batch.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
       try {
         if (idx > 0) {
-          // 12ms micro-stagger to avoid local OS socket collision
-          await new Promise(r => setTimeout(r, idx * 12));
+          await new Promise(r => setTimeout(r, idx * 60));
         }
 
         const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
@@ -296,8 +298,8 @@ app.post('/api/send-stream', async (req, res) => {
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
         const formattedHtml = isHtml 
-          ? `<div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">${personalizedBody}</div>`
-          : formatInboxBody(personalizedBody);
+          ? `<div dir="ltr" style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.55; color: #222;">${personalizedBody}</div>`
+          : buildCleanHtml(personalizedBody);
 
         const plainTextFormatted = createCleanPlainText(personalizedBody);
         const uniqueDomain = cleanEmail.split('@')[1] || 'gmail.com';
@@ -327,7 +329,6 @@ app.post('/api/send-stream', async (req, res) => {
 
         await transporter.sendMail(mailOptions);
         
-        // Immediate SSE event push: counter updates on screen in real time
         const successData = { success: true, recipient: recipient.email, name: recipient.name };
         res.write(`data: ${JSON.stringify(successData)}\n\n`);
         return successData;
@@ -341,9 +342,9 @@ app.post('/api/send-stream', async (req, res) => {
 
     await Promise.allSettled(sendPromises);
 
-    // Micro-delay between batches (180ms) ensures 25 emails complete in ~1.5 - 2.2s
+    // 800ms natural cooldown between blitzes keeps Google's AI happy
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      await new Promise(resolve => setTimeout(resolve, 180));
+      await new Promise(resolve => setTimeout(resolve, 800));
     }
   }
 
@@ -358,7 +359,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Ultra-Fast Mailer running on port ${PORT}`);
+  console.log(`🚀 Primary Inbox Mailer running on port ${PORT}`);
 });
 
 export default app;
