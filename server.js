@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 3000;
 // ==========================================
 // 🛡️ INBOX DELIVERABILITY SPEED CONTROLS
 // ==========================================
-const BLITZ_SIZE = 2;          // 2 emails per blitz (Optimal for spam avoidance)
+const BLITZ_SIZE = 12;          // 12 emails per blitz (Optimal for spam avoidance)
 const DELAY_BETWEEN_EMAILS = 1200; // 1.2s gap between each email
 const BLITZ_COOLDOWN = 2500;   // 2.5s cooldown between blitzes
 // ==========================================
