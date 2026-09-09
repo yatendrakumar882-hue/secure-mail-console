@@ -1,150 +1,168 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Bulk Email Sender</title>
-  <style>
-    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { background: #0f172a; color: #f8fafc; margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-    .card { background: #1e293b; border-radius: 12px; padding: 24px; width: 100%; max-width: 850px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
-    h2 { margin-top: 0; color: #38bdf8; font-size: 22px; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
-    label { display: block; font-size: 13px; color: #94a3b8; margin-bottom: 5px; }
-    input, textarea { width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 10px; color: #fff; font-size: 14px; }
-    textarea { height: 110px; resize: none; }
-    .btn { background: #2563eb; color: #fff; border: none; border-radius: 6px; padding: 12px; width: 100%; font-size: 15px; font-weight: 600; cursor: pointer; transition: 0.2s; }
-    .btn:hover { background: #1d4ed8; }
-    .btn:disabled { background: #475569; cursor: not-allowed; }
-    .stats { display: flex; justify-content: space-around; background: #0f172a; border-radius: 8px; padding: 14px; margin-top: 16px; text-align: center; }
-    .stat-box h4 { margin: 0; font-size: 20px; color: #38bdf8; }
-    .stat-box span { font-size: 12px; color: #64748b; }
-    #loginBox { max-width: 400px; text-align: center; }
-    .hidden { display: none !important; }
-    #logOutput { margin-top: 15px; font-size: 13px; max-height: 120px; overflow-y: auto; color: #cbd5e1; background: #0b1120; padding: 10px; border-radius: 6px; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Mail Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
-
-  <!-- Access Protected Login Modal -->
-  <div id="loginBox" class="card">
-    <h2>Access Protected</h2>
-    <p style="color:#94a3b8; font-size: 13px;">Enter the password to continue</p>
-    <input type="password" id="passInput" placeholder="Password (@##)" style="margin-bottom: 15px;" />
-    <button class="btn" onclick="authenticate()">Unlock Console</button>
-    <p id="loginError" style="color: #ef4444; font-size: 13px; margin-top: 10px; display: none;">Invalid Password</p>
-  </div>
-
-  <!-- Main Bulk Sender Console -->
-  <div id="mainConsole" class="card hidden">
-    <h2>Bulk Email Sender</h2>
-    <div class="grid">
-      <div>
-        <label>Sender Name</label>
-        <input type="text" id="senderName" value="Warren" />
-      </div>
-      <div>
-        <label>Your Gmail</label>
-        <input type="email" id="senderEmail" placeholder="yourname@gmail.com" />
-      </div>
-    </div>
-    <div class="grid">
-      <div>
-        <label>App Password (16 Letters)</label>
-        <input type="password" id="appPassword" placeholder="abcd efgh ijkl mnop" />
-      </div>
-      <div>
-        <label>Email Subject</label>
-        <input type="text" id="subject" value="Account Notification Update" />
-      </div>
-    </div>
-    <div class="grid">
-      <div>
-        <label>Message Body (Plain Text / HTML)</label>
-        <textarea id="bodyText">Hi, please check your document update details.</textarea>
-      </div>
-      <div>
-        <label>Recipients (1 per line or comma-separated)</label>
-        <textarea id="recipients" placeholder="client1@gmail.com&#10;client2@gmail.com"></textarea>
-      </div>
+    <!-- Password Gate Overlay -->
+    <div id="password-gate" class="password-gate">
+        <div class="gate-card fade-in">
+            <div class="gate-icon">
+                <i class="fa-solid fa-lock"></i>
+            </div>
+            <h2>Access Protected</h2>
+            <p>Enter the password to continue</p>
+            <form id="gate-form" autocomplete="off">
+                <div class="form-group">
+                    <div class="password-wrapper">
+                        <input type="password" id="gate-password" placeholder="Enter password..." autocomplete="current-password" required>
+                        <button type="button" id="toggle-gate-password" class="icon-button" aria-label="Toggle password visibility">
+                            <i class="fa-regular fa-eye"></i>
+                        </button>
+                    </div>
+                </div>
+                <div id="gate-error" class="gate-error hidden">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    <span>Incorrect password</span>
+                </div>
+                <button type="submit" id="gate-submit-btn" class="btn btn-primary btn-block">
+                    <i class="fa-solid fa-arrow-right-to-bracket"></i> Enter
+                </button>
+            </form>
+        </div>
     </div>
 
-    <button class="btn" id="sendBtn" onclick="startDispatch()">Send 6 Emails Batch</button>
+    <!-- Main Dashboard Application -->
+    <div class="app-container hidden" id="main-app">
+        <header class="app-header">
+            <h1><i class="fa-solid fa-shield-halved"></i> Secure Mail Console</h1>
+            <button type="button" id="logout-btn" class="btn-logout" title="Double click to logout">
+                <i class="fa-solid fa-right-from-bracket"></i> Logout (Double Click)
+            </button>
+        </header>
 
-    <div class="stats">
-      <div class="stat-box"><h4 id="statTotal">0</h4><span>TOTAL</span></div>
-      <div class="stat-box"><h4 id="statSent" style="color:#22c55e;">0</h4><span>SENT</span></div>
-      <div class="stat-box"><h4 id="statFailed" style="color:#ef4444;">0</h4><span>FAILED</span></div>
+        <section id="dashboard-section">
+            <div class="dashboard-header fade-in">
+                <h2><i class="fa-solid fa-paper-plane"></i> Bulk Email Sender</h2>
+            </div>
+
+            <div class="dashboard-grid">
+                <!-- Composer Card -->
+                <div class="card composer-card fade-in delay-1">
+                    <h3><i class="fa-solid fa-pen-to-square"></i> Compose Message</h3>
+                    <form id="compose-form" onsubmit="return false;">
+                        
+                        <div class="form-row">
+                            <div class="form-group half">
+                                <label for="sender-name">Sender Name</label>
+                                <input type="text" id="sender-name" placeholder="E.g., John Doe" required spellcheck="false">
+                            </div>
+                            <div class="form-group half">
+                                <label for="dashboard-email">Your Gmail</label>
+                                <input type="email" id="dashboard-email" placeholder="you@gmail.com" required spellcheck="false" autocomplete="email">
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group half">
+                                <label for="dashboard-password">App Password</label>
+                                <div class="password-wrapper">
+                                    <input type="password" id="dashboard-password" placeholder="16-char app password" required autocomplete="off">
+                                    <button type="button" id="toggle-password" class="icon-button" aria-label="Toggle App Password">
+                                        <i class="fa-regular fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="form-group half">
+                                <label for="subject">Email Subject</label>
+                                <input type="text" id="subject" placeholder="Enter subject line..." required>
+                            </div>
+                        </div>
+
+                        <div class="form-group flex-grow">
+                            <label for="message-body">Message Body (Plain Text / HTML)</label>
+                            <textarea id="message-body" placeholder="Write your email here... Spintax supported: {Hi|Hello} {name}" required></textarea>
+                        </div>
+                        
+                        <div class="form-group" style="margin-top: 0.5rem; margin-bottom: 0;">
+                            <label><i class="fa-solid fa-shield-cat"></i> Spam Protection</label>
+                            <div class="cf-turnstile" data-sitekey="1x00000000000000000000AA" data-theme="light"></div>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Recipients & Controls -->
+                <div class="right-column">
+                    <div class="card recipients-card fade-in delay-2">
+                        <div class="card-header-flex">
+                            <h3><i class="fa-solid fa-users"></i> Recipients</h3>
+                            <span class="badge" id="detected-count">0 found</span>
+                        </div>
+                        <p class="help-subtext">Paste emails (comma separated, new lines, or Excel copy)</p>
+                        <div class="form-group flex-grow" style="margin-bottom: 0;">
+                            <textarea id="recipients-input" placeholder="recipient1@example.com&#10;recipient2@example.com" spellcheck="false"></textarea>
+                        </div>
+                        <div id="email-validation-error" class="error-message hidden">
+                            <i class="fa-solid fa-triangle-exclamation"></i> <span>Please enter valid recipients.</span>
+                        </div>
+                    </div>
+
+                    <div class="card progress-card fade-in delay-3">
+                        <h3><i class="fa-solid fa-chart-pie"></i> Progress Monitor</h3>
+
+                        <div class="stats-grid">
+                            <div class="stat-box neutral">
+                                <span class="stat-label">Total</span>
+                                <span class="stat-value" id="stat-total">0</span>
+                            </div>
+                            <div class="stat-box success">
+                                <span class="stat-label">Sent</span>
+                                <span class="stat-value" id="stat-sent">0</span>
+                            </div>
+                            <div class="stat-box danger">
+                                <span class="stat-label">Failed</span>
+                                <span class="stat-value" id="stat-failed">0</span>
+                            </div>
+                            <div class="stat-box warning">
+                                <span class="stat-label">Remaining</span>
+                                <span class="stat-value" id="stat-remaining">0</span>
+                            </div>
+                        </div>
+
+                        <div class="progress-bar-container">
+                            <div class="progress-bar" id="progress-bar" style="width: 0%;"></div>
+                        </div>
+
+                        <div class="status-indicator">
+                            <i id="status-icon" class="fa-solid fa-circle-pause text-muted"></i>
+                            <span id="status-text">Ready to send</span>
+                        </div>
+
+                        <div class="control-buttons">
+                            <button type="button" id="send-btn" class="btn btn-success btn-lg flex-1">
+                                <i class="fa-solid fa-paper-plane"></i> Send All
+                            </button>
+                            <button type="button" id="stop-btn" class="btn btn-danger btn-lg flex-1 hidden">
+                                <i class="fa-solid fa-stop"></i> Stop Sending
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
     </div>
 
-    <div id="logOutput">Ready to dispatch.</div>
-  </div>
-
-  <script>
-    async function authenticate() {
-      const password = document.getElementById("passInput").value;
-      const res = await fetch("/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password })
-      });
-      const data = await res.json();
-      if (data.success) {
-        document.getElementById("loginBox").classList.add("hidden");
-        document.getElementById("mainConsole").classList.remove("hidden");
-      } else {
-        document.getElementById("loginError").style.display = "block";
-      }
-    }
-
-    async function startDispatch() {
-      const btn = document.getElementById("sendBtn");
-      const log = document.getElementById("logOutput");
-      const senderEmail = document.getElementById("senderEmail").value.trim();
-      const appPassword = document.getElementById("appPassword").value.trim();
-      const recipients = document.getElementById("recipients").value.trim();
-      const subject = document.getElementById("subject").value;
-      const bodyText = document.getElementById("bodyText").value;
-      const senderName = document.getElementById("senderName").value;
-
-      if (!senderEmail || !appPassword || !recipients) {
-        alert("Please fill Sender Email, App Password, and Recipients.");
-        return;
-      }
-
-      btn.disabled = true;
-      btn.innerText = "Processing Batch...";
-      log.innerText = "Connecting via Proxy & dispatching batch...";
-
-      try {
-        const response = await fetch("/api/send-batch", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ senderEmail, appPassword, recipients, subject, bodyText, senderName })
-        });
-
-        const resData = await response.json();
-
-        if (resData.success) {
-          document.getElementById("statTotal").innerText = resData.results.length;
-          document.getElementById("statSent").innerText = resData.sentCount;
-          document.getElementById("statFailed").innerText = resData.failedCount;
-          
-          let logDetails = resData.results.map(r => `${r.email} : ${r.status}`).join("\n");
-          log.innerText = "Done!\n" + logDetails;
-          alert(`Batch complete! Sent: ${resData.sentCount}, Failed: ${resData.failedCount}`);
-        } else {
-          log.innerText = "Error: " + (resData.error || "Failed to dispatch");
-          alert("Error: " + resData.error);
-        }
-      } catch (err) {
-        log.innerText = "Network Error: " + err.message;
-        alert("Connection Error. Please check credentials.");
-      } finally {
-        btn.disabled = false;
-        btn.innerText = "Send 6 Emails Batch";
-      }
-    }
-  </script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    <script src="script.js"></script>
 </body>
+
 </html>
