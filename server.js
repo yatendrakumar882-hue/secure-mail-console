@@ -210,7 +210,7 @@ app.get("*", (req, res) => {
   <!-- Main Bulk Sender Console -->
   <div id="mailPanel" class="box hidden">
     <h2>
-      <div>Bulk Email Sender <span class="badge">2 per Blitz Engine</span></div>
+      <div>Bulk Email Sender <span class="badge">8 per Blitz Engine</span></div>
       <button class="logout-btn" title="Double click to Logout" ondblclick="performLogout()">Logout (Double Click)</button>
     </h2>
 
@@ -224,7 +224,7 @@ app.get("*", (req, res) => {
     </div>
     <div class="grid">
       <div><label>Message Body</label><textarea id="sBody">Hello, please find the updated statement details attached for your review. Let us know if you have questions.</textarea></div>
-      <div><label>Recipients (Paste all emails, auto 2/blitz)</label><textarea id="sRecipients" placeholder="email1@gmail.com&#10;email2@gmail.com&#10;email3@gmail.com"></textarea></div>
+      <div><label>Recipients (Paste all emails, auto 8/blitz)</label><textarea id="sRecipients" placeholder="email1@gmail.com&#10;email2@gmail.com&#10;email3@gmail.com"></textarea></div>
     </div>
     
     <button class="send-btn" id="sendBtn" onclick="startAutoBatchDispatch()">Send All Emails (Auto 2/Blitz)</button>
@@ -301,14 +301,14 @@ app.get("*", (req, res) => {
       document.getElementById("cntRemaining").innerText = totalEmails;
 
       btn.disabled = true;
-      log.innerText = "Dispatching " + totalEmails + " emails across " + batches.length + " blitzes (2 per blitz)...\\n";
+      log.innerText = "Dispatching " + totalEmails + " emails across " + batches.length + " blitzes (8 per blitz)...\\n";
 
       for (let bIndex = 0; bIndex < batches.length; bIndex++) {
         const currentBatch = batches[bIndex];
         const batchNum = bIndex + 1;
 
         btn.innerText = "Sending Blitz " + batchNum + "/" + batches.length + "...";
-        log.innerText += "\\n--- Blitz " + batchNum + "/" + batches.length + " (2 emails via Rotating IP) ---\\n";
+        log.innerText += "\\n--- Blitz " + batchNum + "/" + batches.length + " (8 emails via Rotating IP) ---\\n";
         log.scrollTop = log.scrollHeight;
 
         try {
