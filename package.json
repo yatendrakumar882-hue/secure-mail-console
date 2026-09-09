@@ -1,7 +1,7 @@
 {
   "name": "secure-mail-console",
   "version": "1.0.0",
-  "description": "Bulk email sender with residential proxy support",
+  "description": "Mail dispatch engine",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
