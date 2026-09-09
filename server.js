@@ -54,7 +54,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_core_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_clean_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
@@ -161,6 +161,15 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
+// 1-Line Clean Paragraph Gap (Spam Filter Safe)
+function formatInboxBody(text) {
+  const paras = text.split(/\r?\n\r?\n/).map(p => p.trim()).filter(Boolean);
+  if (paras.length === 0) {
+    return `<div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">${text}</div>`;
+  }
+  return `<div dir="ltr">${paras.map(p => `<p style="margin: 0 0 16px 0; font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">${p.replace(/\r?\n/g, '<br>')}</p>`).join('')}</div>`;
+}
+
 function createCleanPlainText(text) {
   if (!text) return '';
   return text
@@ -191,7 +200,6 @@ app.post('/api/auth', (req, res) => {
   return res.status(401).json({ success: false, message: 'Unauthorized Password' });
 });
 
-// Instant verification bypasses heavy TLS connect delay
 app.post('/api/verify', async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -212,13 +220,12 @@ app.post('/api/verify', async (req, res) => {
     }
   }
 
-  // Pre-warms transporter pool without waiting for handshake
   getPort587Transporter(email, appPassword);
   return res.json({ success: true, message: 'SMTP ready' });
 });
 
 /* ==========================================================================
-   PRIMARY INBOX STREAMING ROUTE (Instant Single Event Push)
+   PRIMARY INBOX STREAMING ROUTE (Full Anti-Spam Content Guard)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -255,6 +262,7 @@ app.post('/api/send-stream', async (req, res) => {
   const transporter = getPort587Transporter(email, appPassword);
   const BATCH_SIZE = 7;
 
+  // Diversified templates preventing keyword triggers
   const defaultBestSubject = '{quick note regarding your site|website feedback|quick question for you|question about your page}';
   const defaultBestBody = "{Hi {Name},|Hello {Name},|Hey {Name},}\n\n{I noticed your site has a great presentation but isn't showing on the top results.|Your website looks clean, but seems missing from the primary search listings.}\n\n{May I send you a quick report with details?|Would you mind if I shared the screenshot with you?|Can I share the audit reports with you?}";
 
@@ -282,11 +290,10 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-        const cleanBodyText = isHtml
-          ? personalizedBody
-          : personalizedBody.replace(/\n/g, '<br>');
+        const formattedHtml = isHtml 
+          ? `<div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">${personalizedBody}</div>`
+          : formatInboxBody(personalizedBody);
 
-        const formattedHtml = `<div dir="ltr">${cleanBodyText}</div>`;
         const plainTextFormatted = createCleanPlainText(personalizedBody);
 
         const uniqueDomain = cleanEmail.split('@')[1] || 'gmail.com';
@@ -308,7 +315,8 @@ app.post('/api/send-stream', async (req, res) => {
             'Message-ID': `<${cleanMsgId}>`,
             'X-Mailer': 'Microsoft Outlook 16.0',
             'X-Priority': '3',
-            'Importance': 'Normal'
+            'Importance': 'Normal',
+            'List-Unsubscribe': `<mailto:${cleanEmail}?subject=unsubscribe>`
           },
           textEncoding: 'base64',
           encoding: 'utf-8'
@@ -316,7 +324,7 @@ app.post('/api/send-stream', async (req, res) => {
 
         await transporter.sendMail(mailOptions);
         
-        // Immediate event push so UI counter updates on the fly
+        // Immediate event push for UI counter
         const successData = { success: true, recipient: recipient.email, name: recipient.name };
         res.write(`data: ${JSON.stringify(successData)}\n\n`);
         return successData;
