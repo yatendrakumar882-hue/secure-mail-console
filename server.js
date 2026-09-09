@@ -13,20 +13,20 @@ app.use(express.static(path.join(__dirname)));
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// 1. Password Verification (@##)
+// 1. App Password Protection (@##)
 const APP_PASSWORD_KEY = process.env.ACCESS_PASSWORD || "@##";
 app.post(["/api/login", "/api/auth", "/login", "/auth"], (req, res) => {
   const { password } = req.body;
   if (password === APP_PASSWORD_KEY) {
-    return res.json({ success: true, token: "authorized_token_xyz" });
+    return res.json({ success: true, token: "authorized_access_granted" });
   }
   return res.status(401).json({ success: false, message: "Invalid password" });
 });
 
-// Helper: Fix accidental typos automatically
-function sanitizeEmail(email) {
-  if (!email) return "";
-  return email
+// Helper: Common Typos Cleaner (@gnoil, @gmai1 -> @gmail.com)
+function cleanEmail(str) {
+  if (!str) return "";
+  return str
     .trim()
     .replace(/^[^a-zA-Z0-9]+/, "")
     .replace(/@gnoil\.com$/i, "@gmail.com")
@@ -34,7 +34,7 @@ function sanitizeEmail(email) {
     .replace(/@gmail\.c$/i, "@gmail.com");
 }
 
-// 2. Safe Transporter
+// 2. High-Deliverability Transporter
 function createTransporter(user, pass, useProxy = true) {
   const proxyUrl = process.env.PROXY_URL;
   const agent = useProxy && proxyUrl ? new HttpsProxyAgent(proxyUrl) : null;
@@ -44,7 +44,7 @@ function createTransporter(user, pass, useProxy = true) {
     port: 465,
     secure: true,
     auth: {
-      user: sanitizeEmail(user),
+      user: cleanEmail(user),
       pass: pass.trim().replace(/\s+/g, ""),
     },
     ...(agent && {
@@ -57,11 +57,9 @@ function createTransporter(user, pass, useProxy = true) {
   });
 }
 
-// 3. Universal Send Route (Handles both Stream & Direct POST)
-app.all(
-  ["/api/send-stream", "/api/send", "/api/send-batch", "/send", "/send-stream"],
-  async (req, res) => {
-    const data = req.method === "POST" ? req.body : req.query;
+// 3. Batch Dispatch Endpoint (6 per batch)
+app.post(["/api/send-batch", "/api/send", "/send"], async (req, res) => {
+  try {
     let {
       senderEmail,
       appPassword,
@@ -72,9 +70,9 @@ app.all(
       message,
       htmlContent,
       senderName,
-    } = data;
+    } = req.body;
 
-    senderEmail = sanitizeEmail(senderEmail);
+    senderEmail = cleanEmail(senderEmail);
 
     let list = [];
     if (Array.isArray(recipients)) {
@@ -85,40 +83,39 @@ app.all(
       list = Array.isArray(to) ? to : [to];
     }
 
-    const targetList = list
-      .map((e) => sanitizeEmail(e))
+    const validTargets = list
+      .map((e) => cleanEmail(e))
       .filter((e) => e && e.includes("@") && e.includes("."));
 
-    // SSE headers set karte hain taaki frontend stream crash na ho
-    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
-    if (res.flushHeaders) res.flushHeaders();
-
-    const pushSSE = (evt, obj) => {
-      res.write(`event: ${evt}\ndata: ${JSON.stringify(obj)}\n\n`);
-      if (res.flush) res.flush();
-    };
-
-    if (!senderEmail || !appPassword || targetList.length === 0) {
-      pushSSE("failed", { error: "Missing sender credentials or recipients." });
-      return res.end();
+    if (!senderEmail || !appPassword) {
+      return res.status(400).json({ error: "Sender email & App Password required." });
     }
 
-    pushSSE("start", { total: targetList.length });
+    if (validTargets.length === 0) {
+      return res.status(400).json({ error: "Valid recipient list cannot be empty." });
+    }
 
-    const transporter = createTransporter(senderEmail, appPassword, true);
+    let transporter;
+    try {
+      transporter = createTransporter(senderEmail, appPassword, true);
+      await transporter.verify();
+    } catch (proxyErr) {
+      transporter = createTransporter(senderEmail, appPassword, false);
+    }
+
     const BATCH_SIZE = 6;
-    const batch = targetList.slice(0, BATCH_SIZE);
+    const currentBatch = validTargets.slice(0, BATCH_SIZE);
+    const results = [];
 
-    for (let i = 0; i < batch.length; i++) {
-      const target = batch[i];
+    for (let i = 0; i < currentBatch.length; i++) {
+      const email = currentBatch[i];
+
+      // Anti-Spam Inbox Headers
       const mailOptions = {
-        from: `"${senderName || "Service Desk"}" <${senderEmail}>`,
-        to: target,
-        subject: subject || "System Document Update",
-        text: bodyText || message || "Please review your document.",
+        from: `"${senderName || "Document Support"}" <${senderEmail}>`,
+        to: email,
+        subject: subject || "Account Notification",
+        text: bodyText || message || "Please review your pending document update.",
         ...(htmlContent && { html: htmlContent }),
         headers: {
           "X-Priority": "3",
@@ -129,46 +126,36 @@ app.all(
 
       try {
         const info = await transporter.sendMail(mailOptions);
-        pushSSE("sent", {
-          email: target,
-          status: "Sent",
-          id: info.messageId,
-          sent: i + 1,
-          remaining: batch.length - (i + 1),
-        });
+        results.push({ email, status: "Sent", id: info.messageId });
       } catch (err) {
-        // Fallback without proxy
+        // Fallback retry
         try {
           const directTransporter = createTransporter(senderEmail, appPassword, false);
           const info = await directTransporter.sendMail(mailOptions);
-          pushSSE("sent", {
-            email: target,
-            status: "Sent",
-            id: info.messageId,
-            sent: i + 1,
-            remaining: batch.length - (i + 1),
-          });
-        } catch (errDirect) {
-          pushSSE("failed", { email: target, error: errDirect.message, failed: 1 });
+          results.push({ email, status: "Sent", id: info.messageId });
+        } catch (failErr) {
+          results.push({ email, status: "Failed", error: failErr.message });
         }
       }
 
-      if (i < batch.length - 1) {
-        await sleep(300);
+      // Safe micro-interval (350ms)
+      if (i < currentBatch.length - 1) {
+        await sleep(350);
       }
     }
 
-    pushSSE("complete", { status: "Success" });
-    res.end();
+    return res.json({
+      success: true,
+      sentCount: results.filter((r) => r.status === "Sent").length,
+      failedCount: results.filter((r) => r.status === "Failed").length,
+      results,
+    });
+  } catch (globalErr) {
+    return res.status(500).json({ error: globalErr.message });
   }
-);
-
-// Cloudflare dummy verify endpoint
-app.post("/api/verify-turnstile", (req, res) => {
-  res.json({ success: true });
 });
 
-// UI Fallback
+// Serve frontend UI
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"), (err) => {
     if (err) {
@@ -178,7 +165,7 @@ app.get("*", (req, res) => {
 });
 
 if (process.env.NODE_ENV !== "production") {
-  app.listen(PORT, () => console.log(`Server live on port ${PORT}`));
+  app.listen(PORT, () => console.log(`Active on port ${PORT}`));
 }
 
 module.exports = app;
