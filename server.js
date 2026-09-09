@@ -23,7 +23,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 /* ==========================================================================
-   TURNSTILE BOT PROTECTION VERIFICATION (Unchanged)
+   TURNSTILE BOT PROTECTION (100% Exact & Unchanged)
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
@@ -49,7 +49,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
+   OPTIMIZED GMAIL SMTP POOL (Port 587 STARTTLS)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -60,17 +60,17 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false,
+      secure: false, // STARTTLS for RFC compliance
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 12,
+      maxConnections: 10,
       maxMessages: 50000,
-      socketTimeout: 30000,
-      connectionTimeout: 30000
+      socketTimeout: 25000,
+      connectionTimeout: 25000
     });
     poolMap.set(key, transporter);
   }
@@ -78,7 +78,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   RECIPIENT NORMALIZATION & ADVANCED SPINTAX ENGINE
+   RECIPIENT NORMALIZATION & ADVANCED SPINTAX
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -161,6 +161,24 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
+// Convert text into genuine natural paragraphs with exact 1-line gap
+function buildPrimaryInboxHtml(rawBody) {
+  const paragraphs = rawBody
+    .split(/\r?\n\r?\n/)
+    .map(p => p.trim())
+    .filter(Boolean);
+
+  if (paragraphs.length === 0) {
+    return `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">${rawBody}</div>`;
+  }
+
+  const innerHtml = paragraphs
+    .map(p => `<p style="margin: 0 0 16px 0; font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">${p.replace(/\r?\n/g, '<br>')}</p>`)
+    .join('');
+
+  return `<div dir="ltr">${innerHtml}</div>`;
+}
+
 function createCleanPlainText(text) {
   if (!text) return '';
   return text
@@ -219,7 +237,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   REAL-TIME 1-BY-1 LIVE STREAMING DISPATCH ROUTE
+   PRIMARY INBOX 1-BY-1 FAST DISPATCH STREAM
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -261,7 +279,7 @@ app.post('/api/send-stream', async (req, res) => {
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultBestSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBestBody;
 
-  // 1-by-1 execution with instant SSE event push
+  // 1-by-1 Fast & Safe execution with instant live counting
   for (let i = 0; i < recipients.length; i++) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
@@ -279,13 +297,13 @@ app.post('/api/send-stream', async (req, res) => {
     try {
       const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
       const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
-      const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-      const cleanBodyText = isHtml
-        ? personalizedBody
-        : personalizedBody.replace(/\n/g, '<br>');
+      // Exact 1-line paragraph gap formatting
+      const isHtmlInput = /<[a-z][\s\S]*>/i.test(personalizedBody);
+      const formattedHtml = isHtmlInput 
+        ? `<div dir="ltr" style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">${personalizedBody}</div>`
+        : buildPrimaryInboxHtml(personalizedBody);
 
-      const formattedHtml = `<div dir="ltr">${cleanBodyText}</div>`;
       const plainTextFormatted = createCleanPlainText(personalizedBody);
 
       const uniqueDomain = cleanEmail.split('@')[1] || 'gmail.com';
@@ -306,7 +324,8 @@ app.post('/api/send-stream', async (req, res) => {
         headers: {
           'Message-ID': `<${cleanMsgId}>`,
           'X-Mailer': 'Microsoft Outlook 16.0',
-          'List-Unsubscribe': `<mailto:${cleanEmail}?subject=unsubscribe>`
+          'X-Priority': '3',
+          'Importance': 'Normal'
         },
         textEncoding: 'base64',
         encoding: 'utf-8'
@@ -314,17 +333,17 @@ app.post('/api/send-stream', async (req, res) => {
 
       await transporter.sendMail(mailOptions);
 
-      // Instant live event push: Counter updates immediately on frontend
+      // Instant live counter update to frontend
       res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email, name: recipient.name })}\n\n`);
 
     } catch (err) {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // Micro-delay between single emails to match batch pace without blocking the UI
+    // Fast micro-delay (120ms to 220ms) to ensure maximum speed while keeping connection natural
     if (i < recipients.length - 1 && !globalSession.stopRequested) {
-      const microDelay = Math.floor(180 + Math.random() * 120);
-      await new Promise(resolve => setTimeout(resolve, microDelay));
+      const fastDelay = Math.floor(120 + Math.random() * 100);
+      await new Promise(resolve => setTimeout(resolve, fastDelay));
     }
   }
 
