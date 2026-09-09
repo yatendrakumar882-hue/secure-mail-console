@@ -6,14 +6,14 @@ const path = require("path");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(express.json({ limit: "15mb" }));
+app.use(express.urlencoded({ extended: true, limit: "15mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 app.use(express.static(path.join(__dirname)));
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// 1. Fixed Password Verification (@##)
+// 1. Password Route (@##)
 const APP_PASSWORD_KEY = process.env.ACCESS_PASSWORD || "@##";
 app.post(["/api/login", "/api/auth", "/login", "/auth"], (req, res) => {
   const { password } = req.body;
@@ -23,27 +23,28 @@ app.post(["/api/login", "/api/auth", "/login", "/auth"], (req, res) => {
   return res.status(401).json({ success: false, message: "Invalid password" });
 });
 
-// Helper: Fix accidental typos in emails (.c -> .com)
-function cleanEmail(email) {
+// Helper: Target cleaning
+function sanitizeEmail(email) {
   if (!email) return "";
-  let cleaned = email.trim();
-  if (cleaned.endsWith("@gmail.c")) {
-    cleaned = cleaned.replace("@gmail.c", "@gmail.com");
-  }
-  return cleaned;
+  return email
+    .replace(/^[^a-zA-Z0-9]+/, "") // Shuruwat ke '-' ya bullet points hatayega
+    .replace(/@gnoil\.com$/i, "@gmail.com")
+    .replace(/@gmai1\.com$/i, "@gmail.com")
+    .replace(/@gmail\.c$/i, "@gmail.com")
+    .trim();
 }
 
-// 2. Transporter Builder
-function buildTransporter(user, pass, useProxy = true) {
+// 2. Dual Transporter (Proxy -> Direct Fallback)
+function getTransporter(user, pass, withProxy = true) {
   const proxyUrl = process.env.PROXY_URL;
-  const agent = useProxy && proxyUrl ? new HttpsProxyAgent(proxyUrl) : null;
+  const agent = withProxy && proxyUrl ? new HttpsProxyAgent(proxyUrl) : null;
 
   return nodemailer.createTransport({
     host: "smtp.gmail.com",
     port: 465,
     secure: true,
     auth: {
-      user: cleanEmail(user),
+      user: sanitizeEmail(user),
       pass: pass.trim().replace(/\s+/g, ""),
     },
     ...(agent && {
@@ -52,15 +53,15 @@ function buildTransporter(user, pass, useProxy = true) {
     }),
     connectionTimeout: 8000,
     greetingTimeout: 8000,
-    socketTimeout: 10000,
+    socketTimeout: 8000,
   });
 }
 
-// 3. Streaming Dispatch Engine
+// 3. Robust Stream Handler
 app.all(
   ["/api/send-stream", "/api/send", "/api/send-batch", "/send", "/send-stream"],
   async (req, res) => {
-    const payload = req.method === "POST" ? req.body : req.query;
+    const data = req.method === "POST" ? req.body : req.query;
     let {
       senderEmail,
       appPassword,
@@ -71,119 +72,113 @@ app.all(
       message,
       htmlContent,
       senderName,
-    } = payload;
+    } = data;
 
-    senderEmail = cleanEmail(senderEmail);
+    senderEmail = sanitizeEmail(senderEmail);
 
-    let targetList = [];
+    let list = [];
     if (Array.isArray(recipients)) {
-      targetList = recipients;
+      list = recipients;
     } else if (typeof recipients === "string") {
-      targetList = recipients
-        .split(/[\n,;]+/)
-        .map((e) => cleanEmail(e))
-        .filter((e) => e.length > 5 && e.includes("@"));
+      list = recipients.split(/[\r\n,;]+/);
     } else if (to) {
-      targetList = (Array.isArray(to) ? to : [to]).map((e) => cleanEmail(e));
+      list = Array.isArray(to) ? to : [to];
     }
 
-    // Set SSE Stream Headers
+    const cleanRecipients = list
+      .map((e) => sanitizeEmail(e))
+      .filter((e) => e && e.includes("@") && e.includes("."));
+
+    // SSE Stream headers init
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
     if (res.flushHeaders) res.flushHeaders();
 
-    const sendEvent = (event, data) => {
-      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    const writeStream = (event, payload) => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
       if (res.flush) res.flush();
     };
 
-    if (!senderEmail || !appPassword) {
-      sendEvent("failed", { error: "Sender email ya App Password missing hai." });
+    if (!senderEmail || !appPassword || cleanRecipients.length === 0) {
+      writeStream("failed", {
+        error: "Missing credentials or no valid recipient addresses.",
+      });
       res.end();
       return;
     }
 
-    if (targetList.length === 0) {
-      sendEvent("failed", { error: "Recipient email list galat ya khali hai." });
-      res.end();
-      return;
-    }
+    // Stream Start Ping
+    writeStream("start", { total: cleanRecipients.length });
 
-    sendEvent("start", { total: targetList.length });
-
-    // Gmail connection banate hain
-    let transporter;
-    try {
-      transporter = buildTransporter(senderEmail, appPassword, true);
-      await transporter.verify();
-    } catch (e) {
-      // Agar Proxy hang hui toh direct connect karega
-      transporter = buildTransporter(senderEmail, appPassword, false);
-    }
-
+    let activeTransporter = getTransporter(senderEmail, appPassword, true);
     const BATCH_SIZE = 6;
-    const currentBatch = targetList.slice(0, BATCH_SIZE);
+    const currentBatch = cleanRecipients.slice(0, BATCH_SIZE);
 
     for (let i = 0; i < currentBatch.length; i++) {
       const email = currentBatch[i];
 
       const mailOptions = {
-        from: `"${senderName || "Account Alert"}" <${senderEmail}>`,
+        from: `"${senderName || "Notification"}" <${senderEmail}>`,
         to: email,
-        subject: subject || "Notification Update",
-        text: bodyText || message || "Please review your document.",
+        subject: subject || "System Notification",
+        text: bodyText || message || "Please review the information.",
         ...(htmlContent && { html: htmlContent }),
         headers: {
           "X-Priority": "3",
-          "X-Mailer": "Microsoft Office 365",
+          "X-Mailer": "Microsoft Outlook 16.0",
           "Message-ID": `<${Date.now()}.${Math.random().toString(36).substring(2, 9)}@gmail.com>`,
         },
       };
 
       try {
-        const info = await transporter.sendMail(mailOptions);
-        sendEvent("sent", {
-          email: email,
+        const info = await activeTransporter.sendMail(mailOptions);
+        writeStream("sent", {
+          email,
           status: "Sent",
           id: info.messageId,
           sent: i + 1,
           remaining: currentBatch.length - (i + 1),
         });
-      } catch (err) {
-        // Fallback retry without proxy
+      } catch (proxyError) {
+        // Proxy timeout/drop par direct fallback
         try {
-          const directTransporter = buildTransporter(senderEmail, appPassword, false);
+          const directTransporter = getTransporter(senderEmail, appPassword, false);
           const info = await directTransporter.sendMail(mailOptions);
-          sendEvent("sent", {
-            email: email,
+          writeStream("sent", {
+            email,
             status: "Sent",
             id: info.messageId,
             sent: i + 1,
             remaining: currentBatch.length - (i + 1),
           });
-        } catch (directErr) {
-          sendEvent("failed", {
-            email: email,
-            error: directErr.message,
+        } catch (directError) {
+          writeStream("failed", {
+            email,
+            error: directError.message,
             failed: 1,
           });
         }
       }
 
-      // Safe micro-pause (500ms) taaki 10-second timeout trigger na ho
+      // Fast pacing: 300ms
       if (i < currentBatch.length - 1) {
-        await sleep(500);
+        await sleep(300);
       }
     }
 
-    sendEvent("complete", { message: "Batch completed successfully" });
+    writeStream("complete", { status: "Dispatch completed" });
     res.end();
   }
 );
 
-// Serve frontend UI
+// Cloudflare dummy verify endpoint
+app.post("/api/verify-turnstile", (req, res) => {
+  res.json({ success: true });
+});
+
+// UI routing
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"), (err) => {
     if (err) {
@@ -193,7 +188,7 @@ app.get("*", (req, res) => {
 });
 
 if (process.env.NODE_ENV !== "production") {
-  app.listen(PORT, () => console.log(`Server live on port ${PORT}`));
+  app.listen(PORT, () => console.log(`Server running on ${PORT}`));
 }
 
 module.exports = app;
