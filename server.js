@@ -13,7 +13,7 @@ app.use(express.static(path.join(__dirname)));
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Authentication Route
+// Password Authentication (@##)
 const APP_PASSWORD_KEY = process.env.ACCESS_PASSWORD || "@##";
 app.post(["/api/login", "/api/auth", "/login", "/auth"], (req, res) => {
   const { password } = req.body;
@@ -23,8 +23,8 @@ app.post(["/api/login", "/api/auth", "/login", "/auth"], (req, res) => {
   return res.status(401).json({ success: false, message: "Invalid password" });
 });
 
-// Helper: Build Safe Transporter
-function createGmailTransporter(user, pass) {
+// Transporter Helper
+function getTransporter(user, pass) {
   const proxyUrl = process.env.PROXY_URL;
   const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : null;
 
@@ -40,31 +40,13 @@ function createGmailTransporter(user, pass) {
       agent: agent,
       proxy: proxyUrl,
     }),
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 15000,
-    pool: true,
-    maxConnections: 1,
-    rateLimit: 6,
-    rateDelta: 15000,
+    connectionTimeout: 7000,
+    greetingTimeout: 7000,
+    socketTimeout: 8000,
   });
 }
 
-// Fallback Transporter (Direct Connection if Proxy Stalls)
-function createDirectTransporter(user, pass) {
-  return nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 465,
-    secure: true,
-    auth: {
-      user: user.trim(),
-      pass: pass.trim().replace(/\s+/g, ""),
-    },
-    connectionTimeout: 10000,
-  });
-}
-
-// Main Send Engine (Streaming + JSON Fallback)
+// Stream Engine with Vercel Buffering Bypass
 app.all(
   ["/api/send-stream", "/api/send", "/api/send-batch", "/send", "/send-stream"],
   async (req, res) => {
@@ -90,42 +72,39 @@ app.all(
       targetList = Array.isArray(to) ? to : [to];
     }
 
-    if (!senderEmail || !appPassword) {
-      return res.status(400).json({ error: "Sender email & App Password required." });
+    if (!senderEmail || !appPassword || targetList.length === 0) {
+      return res.status(400).json({ error: "Missing required sender details or recipients." });
     }
 
-    if (!targetList || targetList.length === 0) {
-      return res.status(400).json({ error: "No recipients provided." });
+    // Exact Stream Headers
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    if (res.flushHeaders) {
+      res.flushHeaders();
     }
-
-    // Initialize SSE Headers so frontend stream doesn't throw error
-    res.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    });
 
     const sendSSE = (event, data) => {
       res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     };
 
+    // Immediate ping to lock the frontend stream
     sendSSE("start", { total: targetList.length });
 
-    let transporter = createGmailTransporter(senderEmail, appPassword);
-    const BATCH_SIZE = 6;
+    const transporter = getTransporter(senderEmail, appPassword);
+    const BATCH_LIMIT = 6;
+    const currentBatch = targetList.slice(0, BATCH_LIMIT);
 
-    for (let i = 0; i < targetList.length; i++) {
-      const email = targetList[i].trim();
+    for (let i = 0; i < currentBatch.length; i++) {
+      const email = currentBatch[i].trim();
       if (!email) continue;
 
-      let emailSent = false;
-
-      // Clean Anti-Spam Headers
       const mailOptions = {
         from: `"${senderName || "Help Desk"}" <${senderEmail.trim()}>`,
         to: email,
-        subject: subject || "Quick Update",
-        text: bodyText || message || "Please check your document update.",
+        subject: subject || "Notification Update",
+        text: bodyText || message || "Please review your document.",
         ...(htmlContent && { html: htmlContent }),
         headers: {
           "X-Priority": "3",
@@ -134,51 +113,35 @@ app.all(
         },
       };
 
-      // Try sending via Proxy first
       try {
         const info = await transporter.sendMail(mailOptions);
         sendSSE("sent", { email, status: "Sent", id: info.messageId, index: i + 1 });
-        emailSent = true;
-      } catch (proxyErr) {
-        // Fallback to direct SMTP if proxy handshake timed out
-        try {
-          const directTransporter = createDirectTransporter(senderEmail, appPassword);
-          const fallbackInfo = await directTransporter.sendMail(mailOptions);
-          sendSSE("sent", { email, status: "Sent", id: fallbackInfo.messageId, index: i + 1 });
-          emailSent = true;
-        } catch (directErr) {
-          sendSSE("failed", { email, error: directErr.message, index: i + 1 });
-        }
+      } catch (err) {
+        sendSSE("failed", { email, error: err.message, index: i + 1 });
       }
 
-      // Safe pacing: 1.8s per email, plus extra pause after 6 emails
-      if ((i + 1) % BATCH_SIZE === 0 && i < targetList.length - 1) {
-        await sleep(3500);
-      } else if (i < targetList.length - 1) {
-        await sleep(1800);
+      // Fast pace: 400ms (Prevents 10s Vercel crash)
+      if (i < currentBatch.length - 1) {
+        await sleep(400);
       }
     }
 
-    sendSSE("complete", { status: "All emails processed." });
+    sendSSE("complete", { status: "Done" });
     res.end();
   }
 );
 
-// Fallback to UI file
+// Frontend static loader
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"), (err) => {
     if (err) {
-      res.sendFile(path.join(__dirname, "index.html"), (err2) => {
-        if (err2) {
-          res.send("<h2>Console Backend Active. index.html not found.</h2>");
-        }
-      });
+      res.sendFile(path.join(__dirname, "index.html"));
     }
   });
 });
 
 if (process.env.NODE_ENV !== "production") {
-  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  app.listen(PORT, () => console.log(`Active on port ${PORT}`));
 }
 
 module.exports = app;
