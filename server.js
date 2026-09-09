@@ -4,6 +4,7 @@ import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,7 +24,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 /* ==========================================================================
-   TURNSTILE BOT PROTECTION VERIFICATION
+   1. TURNSTILE BOT PROTECTION VERIFICATION (100% Exact & Unchanged)
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
@@ -49,28 +50,31 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
+   2. GMAIL TRANSPORTER POOL (Residential Sticky Proxy + Port 465 SSL)
    ========================================================================== */
-function getPort587Transporter(email, appPassword) {
+function getTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `port587_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_ssl_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
+    const proxyUrl = process.env.PROXY_URL;
+    const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : null;
+
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
-      port: 587,
-      secure: false, // STARTTLS
-      requireTLS: true,
+      port: 465,
+      secure: true, // SSL avoids handshake throttling
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
+      ...(agent && { agent }),
       pool: true,
-      maxConnections: 4, // Aligned with 4-batch processing
-      maxMessages: 500,
-      socketTimeout: 30000,
-      connectionTimeout: 30000
+      maxConnections: 4, // Exact 4-connection pool
+      maxMessages: 2000,
+      socketTimeout: 20000,
+      connectionTimeout: 20000
     });
     poolMap.set(key, transporter);
   }
@@ -78,7 +82,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   RECIPIENT NORMALIZATION & SPINTAX RESOLVER
+   3. RECIPIENT NORMALIZATION & SPINTAX RESOLVER
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -179,7 +183,7 @@ function createPlainTextFromHtml(html) {
 }
 
 /* ==========================================================================
-   API ROUTES
+   4. API ROUTES
    ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -207,7 +211,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = getPort587Transporter(email, appPassword);
+    const transporter = getTransporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP verified successfully' });
   } catch (error) {
@@ -219,7 +223,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING DISPATCH ROUTE (4 Emails Per Batch)
+   5. STREAMING DISPATCH ROUTE (4 Emails Per Batch - Speed Same)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -253,8 +257,8 @@ app.post('/api/send-stream', async (req, res) => {
     res.write(': keep-alive\n\n');
   }, 4000);
 
-  const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 4; // Exact 4 emails per batch
+  const transporter = getTransporter(email, appPassword);
+  const BATCH_SIZE = 4; // Exactly same speed (4 emails batch)
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -273,7 +277,6 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedBody = personalizeContent(messageBody, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-        // 2-line top gap + 15px font + #0f172a deep dark text
         let formattedHtml = '';
         if (isHtml) {
           formattedHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #0f172a; line-height: 1.65; padding-top: 24px;">${personalizedBody}</div>`;
@@ -283,13 +286,27 @@ app.post('/api/send-stream', async (req, res) => {
 
         const plainTextFormatted = `\n\n${createPlainTextFromHtml(formattedHtml)}`;
 
+        // Dynamic RFC Message-ID & Authenticity Headers
+        const uniqueDomain = cleanEmail.split('@')[1] || 'gmail.com';
+        const cleanMsgId = `${Date.now()}.${Math.random().toString(36).substring(2, 9)}@${uniqueDomain}`;
+
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           subject: personalizedSubject || 'No Subject',
           html: formattedHtml,
-          text: plainTextFormatted
+          text: plainTextFormatted,
+          headers: {
+            'X-Priority': '3',
+            'X-MSMail-Priority': 'Normal',
+            'Importance': 'Normal',
+            'X-Mailer': 'Microsoft Outlook 16.0',
+            'Message-ID': `<${cleanMsgId}>`,
+            'Date': new Date().toUTCString(),
+            'MIME-Version': '1.0',
+            'List-Unsubscribe': `<mailto:${cleanEmail}?subject=unsubscribe>`
+          }
         };
 
         await transporter.sendMail(mailOptions);
@@ -308,7 +325,7 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Delay between 4-email batches
+    // Exact same sending speed delay
     if (i + BATCH_SIZE < recipients.length) {
       const batchDelay = Math.floor(350 + Math.random() * 50);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
