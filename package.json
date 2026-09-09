@@ -1,17 +1,20 @@
 {
   "name": "secure-mail-console",
   "version": "1.0.0",
-  "description": "Mail dispatch engine",
-  "main": "server.js",
+  "private": true,
+  "type": "module",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "node server.js"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "https-proxy-agent": "^7.0.4",
-    "nodemailer": "^6.9.13"
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "nodemailer": "^6.9.16",
+    "socket.io": "^4.8.1"
   }
 }
