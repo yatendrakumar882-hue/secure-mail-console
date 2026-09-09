@@ -55,25 +55,31 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-function getPort587Transporter(email, appPassword) {
+// 6 Dedicated Parallel Direct SSL Sockets (Port 465 - Zero Handshake Drop)
+function getInboxTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `native_${cleanEmail}_${cleanPass}`;
+  const key = `native_ssl_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
-      port: 587,
-      secure: false, // Standard STARTTLS
+      port: 465,
+      secure: true, // Direct SSL handshake prevents socket disconnects
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6,
-      maxMessages: 500,
-      socketTimeout: 30000,
-      connectionTimeout: 30000
+      maxConnections: 6, // Exactly 6 parallel pipes
+      maxMessages: 2000,
+      socketTimeout: 45000,
+      connectionTimeout: 35000,
+      greetingTimeout: 30000,
+      tls: {
+        rejectUnauthorized: true,
+        minVersion: 'TLSv1.2'
+      }
     });
     poolMap.set(key, transporter);
   }
@@ -182,9 +188,9 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = getPort587Transporter(email, appPassword);
+    const transporter = getInboxTransporter(email, appPassword);
     await transporter.verify();
-    return res.json({ success: true, message: 'SMTP verified successfully' });
+    return res.json({ success: true, message: 'SMTP connected & verified (SSL Port 465)' });
   } catch (error) {
     return res.status(401).json({
       success: false,
@@ -193,6 +199,7 @@ app.post('/api/verify', async (req, res) => {
   }
 });
 
+/* ---------------- 6-EMAIL PARALLEL BATCH DISPATCH STREAM ---------------- */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -223,9 +230,20 @@ app.post('/api/send-stream', async (req, res) => {
 
   const keepAlivePing = setInterval(() => {
     try { res.write(': keep-alive\n\n'); } catch {}
-  }, 4000);
+  }, 3000);
 
-  const transporter = getPort587Transporter(email, appPassword);
+  const transporter = getInboxTransporter(email, appPassword);
+
+  try {
+    await transporter.verify();
+  } catch (authErr) {
+    clearInterval(keepAlivePing);
+    res.write(`data: ${JSON.stringify({ success: false, error: 'SMTP Connection Failed: ' + authErr.message })}\n\n`);
+    res.end();
+    return;
+  }
+
+  // Exact 6 emails per glitch/batch
   const BATCH_SIZE = 6;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
@@ -240,41 +258,53 @@ app.post('/api/send-stream', async (req, res) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
+      // Micro human-stagger across the 6 parallel sockets
+      if (idx > 0) {
+        await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 100)));
+      }
+
+      const personalizedSubject = personalizeContent(subject, recipient);
+      const personalizedBody = personalizeContent(messageBody, recipient);
+      const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+
+      // Micro space-tail: words 100% same rehte hain, par duplicate template hash break ho jata hai
+      const entropyTail = ' '.repeat(Math.floor(Math.random() * 3) + 1);
+
+      const cleanBodyText = isHtml
+        ? personalizedBody
+        : personalizedBody.replace(/\n/g, '<br>');
+
+      const formattedHtml = `<div dir="ltr">${cleanBodyText}</div>`;
+      const plainText = personalizedBody.replace(/<[^>]+>/g, '') + entropyTail;
+
+      const mailOptions = {
+        from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
+        to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+        replyTo: cleanEmail,
+        subject: personalizedSubject || 'Hello',
+        html: formattedHtml,
+        text: plainText,
+        date: new Date()
+      };
+
       try {
-        if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 100)));
-        }
-
-        const personalizedSubject = personalizeContent(subject, recipient);
-        const personalizedBody = personalizeContent(messageBody, recipient);
-        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
-
-        const cleanBodyText = isHtml
-          ? personalizedBody
-          : personalizedBody.replace(/\n/g, '<br>');
-
-        // Pure standard native webmail formatting (No artificial styles, no wrappers)
-        const formattedHtml = `<div dir="ltr">${cleanBodyText}</div>`;
-
-        const mailOptions = {
-          from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
-          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-          replyTo: cleanEmail,
-          subject: personalizedSubject || 'Hello',
-          html: formattedHtml,
-          text: personalizedBody.replace(/<[^>]+>/g, '')
-        };
-
         await transporter.sendMail(mailOptions);
-        
         const payload = { success: true, recipient: recipient.email, name: recipient.name };
         io.emit('mail_sent', payload);
         return payload;
-
       } catch (err) {
-        const errPayload = { success: false, recipient: recipient.email, error: err.message };
-        io.emit('mail_error', errPayload);
-        return errPayload;
+        // Instant single retry for transient socket drops
+        try {
+          await new Promise(r => setTimeout(r, 600));
+          await transporter.sendMail(mailOptions);
+          const payload = { success: true, recipient: recipient.email, name: recipient.name };
+          io.emit('mail_sent', payload);
+          return payload;
+        } catch (retryErr) {
+          const errPayload = { success: false, recipient: recipient.email, error: retryErr.message };
+          io.emit('mail_error', errPayload);
+          return errPayload;
+        }
       }
     });
 
@@ -286,7 +316,8 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    if (i + BATCH_SIZE < recipients.length) {
+    // Inter-Batch Organic Cooldown between 6-email glitches
+    if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
       const batchDelay = Math.floor(800 + Math.random() * 400);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
