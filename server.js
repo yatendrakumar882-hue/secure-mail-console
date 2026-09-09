@@ -24,7 +24,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 /* ==========================================================================
-   TURNSTILE BOT PROTECTION VERIFICATION (100% Unchanged)
+   1. TURNSTILE BOT PROTECTION (100% Unchanged)
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
@@ -50,12 +50,12 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TRANSPORTER POOL (Residential Proxy IP + STARTTLS 587)
+   2. RESIDENTIAL STICKY TRANSPORTER (Port 465 SSL Direct Handshake)
    ========================================================================== */
-function getPort587Transporter(email, appPassword) {
+function getPortTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_proxy_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_ssl_proxy_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const proxyUrl = process.env.PROXY_URL;
@@ -63,19 +63,18 @@ function getPort587Transporter(email, appPassword) {
 
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
-      port: 587,
-      secure: false, // RFC Compliant STARTTLS
-      requireTLS: true,
+      port: 465,
+      secure: true, // SSL direct connection - highest reputation
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
-      ...(agent && { agent }), // Bound Residential Proxy IP
+      ...(agent && { agent }),
       pool: true,
-      maxConnections: 7, // 7-batch sync
-      maxMessages: 50000,
-      socketTimeout: 30000,
-      connectionTimeout: 30000
+      maxConnections: 3,
+      maxMessages: 20000,
+      socketTimeout: 20000,
+      connectionTimeout: 20000
     });
     poolMap.set(key, transporter);
   }
@@ -83,7 +82,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   RECIPIENT NORMALIZATION & ADVANCED SPINTAX ENGINE
+   3. RECIPIENT DATA & ADVANCED SPINTAX ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -166,7 +165,7 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// 1-Line Clean Paragraph Gap
+// Clean 1-line paragraph gap formatting
 function formatInboxBody(text) {
   const paras = text.split(/\r?\n\r?\n/).map(p => p.trim()).filter(Boolean);
   if (paras.length === 0) {
@@ -193,7 +192,7 @@ function createCleanPlainText(text) {
 }
 
 /* ==========================================================================
-   API ROUTES (Instant Zero-Lag Verification)
+   4. API ROUTES
    ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -225,13 +224,13 @@ app.post('/api/verify', async (req, res) => {
     }
   }
 
-  // Pre-warms proxy transporter pool
-  getPort587Transporter(email, appPassword);
+  // Pre-warms proxy transporter instantly
+  getPortTransporter(email, appPassword);
   return res.json({ success: true, message: 'SMTP ready' });
 });
 
 /* ==========================================================================
-   PRIMARY INBOX STREAMING ROUTE (Proxy IP + Real-time SSE Push)
+   5. CALIBRATED PRIMARY INBOX STREAM (3-Blitz + 2.2s Human Delay)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -265,11 +264,13 @@ app.post('/api/send-stream', async (req, res) => {
     res.write(': keep-alive\n\n');
   }, 3000);
 
-  const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 7;
+  const transporter = getPortTransporter(email, appPassword);
+
+  // Calibrated to 3 per blitz: Best speed without triggering spam flags
+  const BATCH_SIZE = 3;
 
   const defaultBestSubject = '{quick note regarding your site|website feedback|quick question for you|question about your page}';
-  const defaultBestBody = "{Hi {Name},|Hello {Name},|Hey {Name},}\n\n{I noticed your site has a great presentation but isn't showing on the top results.|Your website looks clean, but seems missing from the primary search listings.}\n\n{May I send you a quick report with details?|Would you mind if I shared the screenshot with you?|Can I share the audit reports with you?}";
+  const defaultBestBody = "Hello {Name},\n\nYour site offers a tidy design but isn't appearing on the front pages.\n\nCan I email you some reports?";
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultBestSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBestBody;
@@ -288,7 +289,7 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, idx * 30));
+          await new Promise(resolve => setTimeout(resolve, idx * 80));
         }
 
         const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
@@ -329,7 +330,7 @@ app.post('/api/send-stream', async (req, res) => {
 
         await transporter.sendMail(mailOptions);
         
-        // Immediate event push for UI counter
+        // Immediate event push for real-time live counter
         const successData = { success: true, recipient: recipient.email, name: recipient.name };
         res.write(`data: ${JSON.stringify(successData)}\n\n`);
         return successData;
@@ -343,9 +344,9 @@ app.post('/api/send-stream', async (req, res) => {
 
     await Promise.allSettled(sendPromises);
 
-    // Natural 1.8s delay between 7-email batches
+    // Human-grade 2.2 second cooldown between 3-email batches (Crucial for Primary Inbox)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      await new Promise(resolve => setTimeout(resolve, 1800));
+      await new Promise(resolve => setTimeout(resolve, 2200));
     }
   }
 
@@ -360,7 +361,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Mailer server running on port ${PORT}`);
+  console.log(`🚀 Primary Inbox Mailer running on port ${PORT}`);
 });
 
 export default app;
