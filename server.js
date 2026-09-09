@@ -1,438 +1,292 @@
-const express = require("express");
-const nodemailer = require("nodemailer");
-const { HttpsProxyAgent } = require("https-proxy-agent");
-const https = require("https");
+import 'dotenv/config';
+import express from 'express';
+import nodemailer from 'nodemailer';
+import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const SITE_PASSWORD = process.env.SITE_PASSWORD || '##';
+const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
-// ==========================================
-// 🛡️ INBOX REPUTATION & PACING CONTROLS
-// ==========================================
-const DELAY_BETWEEN_EMAILS = 600; // 60ms human typing/sending pause
-// ==========================================
+const globalSession = { stopRequested: false };
+const poolMap = new Map();
 
-app.use(express.json({ limit: "25mb" }));
-app.use(express.urlencoded({ extended: true, limit: "25mb" }));
+app.use(cors());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
+app.use(express.static(path.join(__dirname, "public")));
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function sanitizeEmail(str) {
-  if (!str) return "";
-  return str
-    .trim()
-    .replace(/^[^a-zA-Z0-9]+/, "")
-    .replace(/@gnoil\.com$/i, "@gmail.com")
-    .replace(/@gmai1\.com$/i, "@gmail.com")
-    .replace(/@gmail\.c$/i, "@gmail.com");
-}
-
-// 1. Password Verification (@##)
-app.post(["/api/login", "/api/auth", "/login"], (req, res) => {
-  const { password } = req.body;
-  if (password === "@##") return res.json({ success: true });
-  return res.status(401).json({ success: false });
-});
-
-// Helper: Check Proxy IP
-function getProxyIP(agent) {
-  return new Promise((resolve) => {
-    if (!agent) return resolve("Direct IP");
-    const req = https.get("https://api.ipify.org?format=json", { agent, timeout: 4000 }, (res) => {
-      let data = "";
-      res.on("data", (chunk) => (data += chunk));
-      res.on("end", () => {
-        try { resolve(JSON.parse(data).ip || "Proxy Active"); } catch (e) { resolve("Proxy Active"); }
-      });
-    });
-    req.on("error", () => resolve("Proxy Active"));
-    req.on("timeout", () => { req.destroy(); resolve("Proxy Active"); });
-  });
-}
-
-// Helper: Spintax Parser to vary words & bypass spam filters
-function parseSpintax(text) {
-  if (!text) return "";
-  const spintaxRegex = /\{([^{}]+)\}/g;
-  let matches;
-  while ((matches = spintaxRegex.exec(text)) !== null) {
-    const choices = matches[1].split("|");
-    const choice = choices[Math.floor(Math.random() * choices.length)];
-    text = text.replace(matches[0], choice);
-    spintaxRegex.lastIndex = 0;
-  }
-  return text;
-}
-
-// 2. Transporter Generator (Sticky Residential Proxy)
-function createStickyTransporter(user, pass) {
-  const proxyUrl = process.env.PROXY_URL;
-  const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : null;
-
-  const transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 465,
-    secure: true,
-    auth: {
-      user: sanitizeEmail(user),
-      pass: pass.trim().replace(/\s+/g, ""),
-    },
-    ...(agent && { agent }),
-    pool: true,
-    maxConnections: 1,
-    connectionTimeout: 9000,
-    greetingTimeout: 9000,
-    socketTimeout: 9000,
-  });
-
-  return { transporter, agent };
-}
-
-// 3. 1-by-1 Inbox Delivery Endpoint with Anti-Spam Headers
-app.post("/api/send-single", async (req, res) => {
-  let { senderEmail, appPassword, recipient, subject, bodyText, senderName } = req.body;
-
-  const target = sanitizeEmail(recipient);
-  if (!senderEmail || !appPassword || !target || !target.includes("@")) {
-    return res.status(400).json({ success: false, error: "Invalid email or credentials." });
-  }
-
-  const { transporter, agent } = createStickyTransporter(senderEmail, appPassword);
-  const usedIP = await getProxyIP(agent);
-
-  // Dynamic Word Variations so spam filters don't flag duplicate body text
-  const dynamicSubject = parseSpintax(subject || "Important Notice regarding Account Update");
-  const dynamicBody = parseSpintax(bodyText || "Please review the attached statement details at your earliest convenience.");
-
-  const uniqueDomain = senderEmail.split("@")[1] || "gmail.com";
-  const uniqueToken = Math.random().toString(36).substring(2, 9);
-  const cleanMsgId = `${Date.now()}.${uniqueToken}@${uniqueDomain}`;
-
-  // Authentic Corporate MIME & RFC Headers
-  const mailOptions = {
-    from: `"${senderName || "Service Support"}" <${sanitizeEmail(senderEmail)}>`,
-    to: target,
-    subject: dynamicSubject,
-    text: dynamicBody,
-    html: `<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #222;">
-            <p>${dynamicBody.replace(/\n/g, "<br>")}</p>
-           </div>`,
-    headers: {
-      "X-Priority": "3",
-      "X-MSMail-Priority": "Normal",
-      "Importance": "Normal",
-      "X-Mailer": "Microsoft Outlook 16.0",
-      "Message-ID": `<${cleanMsgId}>`,
-      "Date": new Date().toUTCString(),
-      "MIME-Version": "1.0",
-      "Content-Language": "en-US",
-      "List-Unsubscribe": `<mailto:${sanitizeEmail(senderEmail)}?subject=unsubscribe>`,
-      "Feedback-ID": `${uniqueToken}:account_notice:newsletter:google`,
-    },
-  };
+/* ---------------- 1. TURNSTILE BOT PROTECTION ---------------- */
+async function verifyTurnstileToken(token, remoteIp) {
+  if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) return true;
 
   try {
-    const info = await transporter.sendMail(mailOptions);
-    return res.json({ success: true, email: target, status: "Delivered to Inbox", ip: usedIP, id: info.messageId });
-  } catch (err) {
-    try {
-      const directTransporter = nodemailer.createTransport({
-        host: "smtp.gmail.com",
-        port: 465,
-        secure: true,
-        auth: { user: sanitizeEmail(senderEmail), pass: appPassword.trim().replace(/\s+/g, "") },
-        connectionTimeout: 6000,
-      });
-      const info = await directTransporter.sendMail(mailOptions);
-      return res.json({ success: true, email: target, status: "Delivered (Direct)", ip: "Fallback Direct", id: info.messageId });
-    } catch (directErr) {
-      return res.json({ success: false, email: target, status: "Failed", ip: usedIP, error: directErr.message });
+    const formData = new URLSearchParams();
+    formData.append('secret', TURNSTILE_SECRET_KEY);
+    formData.append('response', token);
+    if (remoteIp) formData.append('remoteip', remoteIp);
+
+    const result = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      body: formData,
+      headers: { 'content-type': 'application/x-www-form-urlencoded' }
+    });
+    const outcome = await result.json();
+    return outcome.success === true;
+  } catch (error) {
+    return false;
+  }
+}
+
+/* ---------------- 2. DIRECT GMAIL TLS TRANSPORTER ---------------- */
+function getDirectTransporter(email, appPassword) {
+  const cleanEmail = email.toLowerCase().trim();
+  const cleanPass = appPassword.replace(/\s+/g, '');
+  const key = `inbox_clean_${cleanEmail}_${cleanPass}`;
+
+  if (!poolMap.has(key)) {
+    const transporter = nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port: 587,
+      secure: false,
+      requireTLS: true,
+      auth: {
+        user: cleanEmail,
+        pass: cleanPass
+      },
+      pool: true,
+      maxConnections: 6, // 1 Blitch = 6 parallel connections
+      maxMessages: 4000
+    });
+    poolMap.set(key, transporter);
+  }
+  return poolMap.get(key);
+}
+
+/* ---------------- 3. RECIPIENT DATA & SPINTAX ENGINE ---------------- */
+function parseRecipientData(input) {
+  let email = "";
+  let rawName = "";
+
+  if (typeof input === 'object' && input !== null) {
+    email = (input.email || input.recipient || "").trim();
+    rawName = (input.name || input.fullName || input.first_name || "").trim();
+  } else if (typeof input === 'string') {
+    const str = input.trim();
+    const angleMatch = str.match(/^(?:"?([^"]*)"?\s)?<([^>]+)>$/);
+    if (angleMatch) {
+      rawName = angleMatch[1] ? angleMatch[1].trim() : "";
+      email = angleMatch[2].trim();
+    } else if (str.includes(',')) {
+      const parts = str.split(',');
+      if (parts[0].includes('@')) {
+        email = parts[0].trim();
+        rawName = parts[1].trim();
+      } else {
+        rawName = parts[0].trim();
+        email = parts[1].trim();
+      }
+    } else {
+      email = str;
     }
+  }
+
+  if (!rawName && email.includes('@')) {
+    const prefix = email.split('@')[0];
+    rawName = prefix.replace(/[0-9_.-]/g, ' ').trim();
+  }
+
+  const formattedName = rawName
+    ? rawName.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
+    : "";
+
+  const firstName = formattedName ? formattedName.split(' ')[0] : "";
+  const domain = email.includes('@') ? email.split('@')[1] : "";
+
+  return {
+    email: email.toLowerCase(),
+    name: formattedName,
+    firstName: firstName,
+    domain: domain
+  };
+}
+
+function parseSpintax(text) {
+  if (!text) return "";
+  let spun = String(text);
+  const regex = /\{([^{}]+)\}/s;
+  let iterations = 0;
+
+  while (regex.test(spun) && iterations < 30) {
+    spun = spun.replace(regex, (_, choices) => {
+      if (!choices.includes('|')) return choices;
+      const options = choices.split('|');
+      const pick = options[Math.floor(Math.random() * options.length)];
+      return pick ? pick.trim() : "";
+    });
+    iterations++;
+  }
+  return spun.replace(/[\{\}]/g, '').trim();
+}
+
+function personalizeContent(template, recipient) {
+  if (!template) return "";
+  let content = parseSpintax(template);
+
+  const displayName = recipient.name || recipient.firstName || "";
+  const displayFirstName = recipient.firstName || displayName || "";
+
+  content = content.replace(/{Name}/gi, displayName ? displayName : "there");
+  content = content.replace(/{FirstName}/gi, displayFirstName ? displayFirstName : "there");
+  content = content.replace(/{First_Name}/gi, displayFirstName ? displayFirstName : "there");
+  content = content.replace(/{Email}/gi, recipient.email);
+  content = content.replace(/{Domain}/gi, recipient.domain);
+
+  return content;
+}
+
+/* ---------------- 4. API ROUTES ---------------- */
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.post('/api/auth', (req, res) => {
+  const { password } = req.body;
+  if (password === SITE_PASSWORD) return res.json({ success: true, message: "Authorized" });
+  return res.status(401).json({ success: false, message: "Unauthorized Password" });
+});
+
+app.post("/api/verify", async (req, res) => {
+  const { email, appPassword, cfToken } = req.body;
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+
+  if (!email || !appPassword) return res.status(400).json({ success: false, message: "Credentials required" });
+
+  if (cfToken) {
+    const isHuman = await verifyTurnstileToken(cfToken, clientIp);
+    if (!isHuman) return res.status(403).json({ success: false, message: "Security Verification Failed" });
+  }
+
+  try {
+    const transporter = getDirectTransporter(email, appPassword);
+    await transporter.verify();
+    return res.json({ success: true, message: "SMTP verified successfully" });
+  } catch (error) {
+    return res.status(401).json({ success: false, message: error.message || "SMTP Auth Failed. Check 16-char App Password." });
   }
 });
 
-// 4. Clean White Theme UI with Cloudflare Spam Protection Box
-app.get("*", (req, res) => {
-  res.send(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>Bulk Email Console</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <style>
-    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-    body { background-color: #f8fafc; color: #1e293b; margin: 0; padding: 25px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-    .wrapper { width: 100%; max-width: 960px; }
-    .card { background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 4px 25px rgba(0,0,0,0.04); padding: 32px; margin-bottom: 20px; }
-    
-    .top-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-    .top-header h2 { margin: 0; font-size: 22px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 10px; }
-    .badge { background: #dcfce7; color: #15803d; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; border: 1px solid #bbf7d0; }
-    .btn-logout { background: #fee2e2; color: #ef4444; border: 1px solid #fca5a5; padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: 0.2s; }
-    .btn-logout:hover { background: #ef4444; color: #fff; }
+/* ---------------- 5. 6-EMAIL PARALLEL BATCH DISPATCH STREAM ---------------- */
+app.post('/api/send-stream', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
 
-    .main-grid { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 28px; }
-    .section-title { font-size: 15px; font-weight: 600; color: #0f172a; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
-    .subtext { font-size: 11px; color: #94a3b8; font-weight: normal; margin-left: auto; }
+  const { email, appPassword, senderName, subject, messageBody, recipients, cfToken } = req.body;
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
 
-    .input-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
-    label { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px; }
-    input[type="text"], input[type="password"], textarea {
-      width: 100%; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 12px; font-size: 13px; color: #0f172a; transition: border-color 0.2s;
+  if (!email || !appPassword || !Array.isArray(recipients) || recipients.length === 0) {
+    res.write(`data: ${JSON.stringify({ success: false, error: "Invalid Request Data" })}\n\n`);
+    res.end();
+    return;
+  }
+
+  if (cfToken) {
+    const isHuman = await verifyTurnstileToken(cfToken, clientIp);
+    if (!isHuman) {
+      res.write(`data: ${JSON.stringify({ success: false, error: "Turnstile Verification Failed" })}\n\n`);
+      res.end();
+      return;
     }
-    input:focus, textarea:focus { outline: none; border-color: #0d9488; }
-    textarea { height: 115px; resize: none; }
+  }
 
-    .monitor-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; margin-top: 18px; }
-    .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); text-align: center; gap: 10px; }
-    .stat-item h3 { margin: 0; font-size: 22px; font-weight: 700; color: #0f172a; }
-    .stat-item span { font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; margin-top: 4px; display: block; }
-    
-    .bottom-row { display: flex; justify-content: space-between; align-items: center; margin-top: 24px; gap: 20px; }
-    
-    /* Cloudflare Spam Protection Box */
-    .spam-badge-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 9px 15px; display: flex; align-items: center; gap: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
-    .spam-left { display: flex; align-items: center; gap: 8px; }
-    .spam-check { width: 18px; height: 18px; background: #22c55e; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; }
-    .spam-text { font-size: 13px; font-weight: 600; color: #1e293b; }
-    .spam-right { border-left: 1px solid #e2e8f0; padding-left: 12px; font-size: 10px; color: #64748b; text-align: left; }
+  const cleanEmail = email.toLowerCase().trim();
+  const cleanSenderName = (senderName || "").replace(/["\r\n]/g, "").trim();
+  globalSession.stopRequested = false;
 
-    .action-right { display: flex; align-items: center; gap: 14px; }
-    .ready-tag { font-size: 12px; color: #64748b; display: flex; align-items: center; gap: 6px; }
-    .ready-dot { width: 8px; height: 8px; background: #22c55e; border-radius: 50%; }
+  const keepAlivePing = setInterval(() => {
+    res.write(': keep-alive\n\n');
+  }, 4000);
 
-    .btn-send { background: #0d9488; color: #ffffff; border: none; padding: 12px 28px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: 0.2s; }
-    .btn-send:hover { background: #0f766e; }
-    .btn-send:disabled { background: #94a3b8; cursor: not-allowed; }
+  const transporter = getDirectTransporter(email, appPassword);
+  
+  // Exactly 6 emails per blitch/batch
+  const BATCH_SIZE = 6;
 
-    #logBox { background: #0f172a; color: #38bdf8; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 12px; max-height: 130px; overflow-y: auto; margin-top: 15px; }
-    .hidden { display: none !important; }
-  </style>
-</head>
-<body>
+  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
+    if (globalSession.stopRequested) {
+      res.write(`data: ${JSON.stringify({ success: false, error: "Stopped by User" })}\n\n`);
+      break;
+    }
 
-  <div class="wrapper">
-    <!-- Login Modal -->
-    <div id="authPanel" class="card" style="max-width: 400px; margin: 0 auto; text-align: center;">
-      <h2 style="justify-content: center; margin-bottom: 6px;"><i class="fa-solid fa-lock" style="color:#0d9488;"></i> Access Protected</h2>
-      <p style="font-size: 13px; color: #64748b; margin-top: 0;">Enter master password to access system</p>
-      <input type="password" id="sysPass" placeholder="Password (@##)" style="margin-bottom: 14px;" />
-      <button class="btn-send" style="width: 100%; justify-content: center;" onclick="login()">Enter Console</button>
-      <p id="authErr" style="color: #ef4444; font-size: 13px; margin-top: 10px; display: none;">Invalid Password</p>
-    </div>
+    const currentBatch = recipients.slice(i, i + BATCH_SIZE);
 
-    <!-- Main Console -->
-    <div id="mailPanel" class="card hidden">
-      <div class="top-header">
-        <h2>
-          <i class="fa-solid fa-paper-plane" style="color: #0d9488;"></i> Bulk Email Sender
-          <span class="badge"><i class="fa-solid fa-shield"></i> 100% Inbox Placement Guard</span>
-        </h2>
-        <button class="btn-logout" title="Double click to Logout" ondblclick="performLogout()">Logout (Double Click)</button>
-      </div>
+    // 1 Blitch: 6 emails sent in parallel
+    const sendPromises = currentBatch.map(async (rawRecipient, idx) => {
+      const recipient = parseRecipientData(rawRecipient);
 
-      <div class="main-grid">
-        <!-- Left: Compose Message -->
-        <div>
-          <div class="section-title"><i class="fa-solid fa-pen-to-square" style="color:#64748b;"></i> Compose Message</div>
-          <div class="input-row">
-            <div>
-              <label>Sender Name</label>
-              <input type="text" id="sName" placeholder="E.g., John Doe" value="Molly" />
-            </div>
-            <div>
-              <label>Your Gmail</label>
-              <input type="text" id="sEmail" placeholder="you@gmail.com" value="Mollyreid599@gmail.com" />
-            </div>
-          </div>
-          <div class="input-row">
-            <div>
-              <label>App Password</label>
-              <input type="password" id="sPass" placeholder="16-char app password" />
-            </div>
-            <div>
-              <label>Email Subject (Spintax supported: {Hi|Hello})</label>
-              <input type="text" id="sSub" placeholder="Subject..." value="{Important|Urgent|Requested} Account Document Update #8942" />
-            </div>
-          </div>
-          <div>
-            <label>Message Body (Plain Text / HTML with Spintax)</label>
-            <textarea id="sBody" placeholder="Write your email here...">Hello, {please find|here is} the updated statement details attached for your review. Let us know if you have questions.</textarea>
-          </div>
-        </div>
+      if (!recipient.email) {
+        return { success: false, recipient: "", error: "Invalid Email" };
+      }
 
-        <!-- Right: Recipients & Progress Monitor -->
-        <div>
-          <div class="section-title">
-            <i class="fa-solid fa-users" style="color:#64748b;"></i> Recipients
-            <span class="subtext" id="countFound">0 found</span>
-          </div>
-          <div>
-            <textarea id="sRecipients" placeholder="recipient1@example.com&#10;recipient2@example.com" oninput="updateRecipientCount()">riyabsr882@gmail.com</textarea>
-          </div>
+      // Micro human-stagger across the 6 sockets
+      if (idx > 0) {
+        await new Promise(r => setTimeout(r, idx * 80));
+      }
 
-          <div class="monitor-box">
-            <div class="section-title" style="margin-bottom: 10px;"><i class="fa-solid fa-chart-line" style="color:#64748b;"></i> Progress Monitor</div>
-            <div class="stat-grid">
-              <div class="stat-item"><h3 id="cntTotal">0</h3><span>TOTAL</span></div>
-              <div class="stat-item"><h3 id="cntSent" style="color:#22c55e;">0</h3><span>SENT</span></div>
-              <div class="stat-item"><h3 id="cntFail" style="color:#ef4444;">0</h3><span>FAILED</span></div>
-              <div class="stat-item"><h3 id="cntRemaining" style="color:#0ea5e9;">0</h3><span>REMAINING</span></div>
-            </div>
-          </div>
-        </div>
-      </div>
+      try {
+        const personalizedSubject = personalizeContent(subject, recipient);
+        const personalizedBody = personalizeContent(messageBody, recipient);
 
-      <!-- Bottom Spam Protection & Actions -->
-      <div class="bottom-row">
-        <!-- Cloudflare Spam Protection Badge -->
-        <div>
-          <label style="font-size: 11px; color: #64748b; margin-bottom: 4px;"><i class="fa-solid fa-shield-halved"></i> Spam Protection</label>
-          <div class="spam-badge-card">
-            <div class="spam-left">
-              <div class="spam-check"><i class="fa-solid fa-check"></i></div>
-              <span class="spam-text">Success!</span>
-            </div>
-            <div class="spam-right">
-              <strong>CLOUDFLARE</strong>
-              <div style="font-size: 9px; color: #94a3b8;">Privacy • Terms</div>
-            </div>
-          </div>
-        </div>
+        const mailOptions = {
+          from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
+          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+          replyTo: cleanEmail,
+          subject: personalizedSubject,
+          text: personalizedBody
+        };
 
-        <div class="action-right">
-          <div class="ready-tag"><div class="ready-dot"></div> Ready to send</div>
-          <button class="btn-send" id="sendBtn" onclick="startSingleEmailDispatch()">
-            <i class="fa-solid fa-paper-plane"></i> Send All
-          </button>
-        </div>
-      </div>
+        await transporter.sendMail(mailOptions);
+        return { success: true, recipient: recipient.email, name: recipient.name };
 
-      <div id="logBox">System Ready. Anti-Spam Headers & Spintax Active. Double-click Logout anytime.</div>
-    </div>
-  </div>
+      } catch (err) {
+        return { success: false, recipient: recipient.email, error: err.message };
+      }
+    });
 
-  <script>
-    function login() {
-      if (document.getElementById("sysPass").value === "@##") {
-        document.getElementById("authPanel").classList.add("hidden");
-        document.getElementById("mailPanel").classList.remove("hidden");
-        updateRecipientCount();
-      } else {
-        document.getElementById("authErr").style.display = "block";
+    const results = await Promise.allSettled(sendPromises);
+
+    for (const resItem of results) {
+      if (resItem.status === 'fulfilled') {
+        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
       }
     }
 
-    function performLogout() {
-      document.getElementById("sysPass").value = "";
-      document.getElementById("mailPanel").classList.add("hidden");
-      document.getElementById("authPanel").classList.remove("hidden");
-      alert("Logged out successfully.");
+    // Organic Inter-Batch Cooldown (700ms - 1.2s) after every 6 emails
+    if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
+      const batchCooldown = Math.floor(Math.random() * 500) + 700;
+      await new Promise(resolve => setTimeout(resolve, batchCooldown));
     }
+  }
 
-    function updateRecipientCount() {
-      const val = document.getElementById("sRecipients").value.trim();
-      const list = val ? val.split(/[\\r\\n,;]+/).filter(e => e.trim().length > 3) : [];
-      document.getElementById("countFound").innerText = list.length + " found";
-    }
-
-    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-    async function startSingleEmailDispatch() {
-      const btn = document.getElementById("sendBtn");
-      const log = document.getElementById("logBox");
-      const sEmail = document.getElementById("sEmail").value.trim();
-      const sPass = document.getElementById("sPass").value.trim();
-      const rawRecipients = document.getElementById("sRecipients").value.trim();
-      const sSub = document.getElementById("sSub").value;
-      const sBody = document.getElementById("sBody").value;
-      const sName = document.getElementById("sName").value;
-
-      if (!sEmail || !sPass || !rawRecipients) {
-        alert("Please fill Gmail, App Password, and Recipients!");
-        return;
-      }
-
-      const allEmails = rawRecipients
-        .split(/[\\r\\n,;]+/)
-        .map(e => e.trim().replace(/^[^a-zA-Z0-9]+/, ""))
-        .filter(e => e && e.includes("@"));
-
-      if (allEmails.length === 0) return alert("No valid recipients found!");
-
-      let totalSent = 0;
-      let totalFailed = 0;
-      const totalCount = allEmails.length;
-
-      document.getElementById("cntTotal").innerText = totalCount;
-      document.getElementById("cntSent").innerText = 0;
-      document.getElementById("cntFail").innerText = 0;
-      document.getElementById("cntRemaining").innerText = totalCount;
-
-      btn.disabled = true;
-      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Safe Dispatching...';
-      log.innerText = "Dispatching 1-by-1 with Anti-Spam Headers & Sticky IP for " + totalCount + " recipients...\\n";
-
-      for (let i = 0; i < allEmails.length; i++) {
-        const targetEmail = allEmails[i];
-        const currentIdx = i + 1;
-
-        log.innerText += "\\n[" + currentIdx + "/" + totalCount + "] Delivering to: " + targetEmail + "...\\n";
-        log.scrollTop = log.scrollHeight;
-
-        try {
-          const res = await fetch("/api/send-single", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              senderEmail: sEmail,
-              appPassword: sPass,
-              recipient: targetEmail,
-              subject: sSub,
-              bodyText: sBody,
-              senderName: sName
-            })
-          });
-
-          const data = await res.json();
-          if (data.success) {
-            totalSent++;
-            document.getElementById("cntSent").innerText = totalSent;
-            log.innerText += "✓ Primary Inbox -> " + targetEmail + " [IP: " + (data.ip || "Sticky") + "]\\n";
-          } else {
-            totalFailed++;
-            document.getElementById("cntFail").innerText = totalFailed;
-            log.innerText += "✗ Failed -> " + targetEmail + " (" + (data.error || "Error") + ")\\n";
-          }
-        } catch (netErr) {
-          totalFailed++;
-          document.getElementById("cntFail").innerText = totalFailed;
-          log.innerText += "✗ Network issue for " + targetEmail + "\\n";
-        }
-
-        document.getElementById("cntRemaining").innerText = totalCount - (totalSent + totalFailed);
-        log.scrollTop = log.scrollHeight;
-
-        // Natural Human Delay between emails
-        if (i < allEmails.length - 1) {
-          await sleep(${DELAY_BETWEEN_EMAILS});
-        }
-      }
-
-      btn.disabled = false;
-      btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send All';
-      log.innerText += "\\n=== ALL EMAILS DELIVERED TO INBOX ===";
-      log.scrollTop = log.scrollHeight;
-      alert("Completed!\\nSent: " + totalSent + "\\nFailed: " + totalFailed);
-    }
-  </script>
-</body>
-</html>`);
+  clearInterval(keepAlivePing);
+  res.write("data: [DONE]\n\n");
+  res.end();
 });
 
-if (process.env.NODE_ENV !== "production") {
-  app.listen(PORT, () => console.log(`Running on ${PORT}`));
-}
+app.post('/api/stop', (req, res) => {
+  globalSession.stopRequested = true;
+  res.json({ success: true, message: "Sending process stopped" });
+});
 
-module.exports = app;
+app.listen(PORT, () => {
+  console.log(`Server running on Port ${PORT}`);
+});
+
+export default app;
