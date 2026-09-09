@@ -4,6 +4,7 @@ import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,14 +50,17 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
+   GMAIL TRANSPORTER POOL (Residential Proxy IP + STARTTLS 587)
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_clean_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_proxy_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
+    const proxyUrl = process.env.PROXY_URL;
+    const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : null;
+
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
@@ -66,6 +70,7 @@ function getPort587Transporter(email, appPassword) {
         user: cleanEmail,
         pass: cleanPass
       },
+      ...(agent && { agent }), // Bound Residential Proxy IP
       pool: true,
       maxConnections: 7, // 7-batch sync
       maxMessages: 50000,
@@ -161,7 +166,7 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// 1-Line Clean Paragraph Gap (Spam Filter Safe)
+// 1-Line Clean Paragraph Gap
 function formatInboxBody(text) {
   const paras = text.split(/\r?\n\r?\n/).map(p => p.trim()).filter(Boolean);
   if (paras.length === 0) {
@@ -220,12 +225,13 @@ app.post('/api/verify', async (req, res) => {
     }
   }
 
+  // Pre-warms proxy transporter pool
   getPort587Transporter(email, appPassword);
   return res.json({ success: true, message: 'SMTP ready' });
 });
 
 /* ==========================================================================
-   PRIMARY INBOX STREAMING ROUTE (Full Anti-Spam Content Guard)
+   PRIMARY INBOX STREAMING ROUTE (Proxy IP + Real-time SSE Push)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -262,7 +268,6 @@ app.post('/api/send-stream', async (req, res) => {
   const transporter = getPort587Transporter(email, appPassword);
   const BATCH_SIZE = 7;
 
-  // Diversified templates preventing keyword triggers
   const defaultBestSubject = '{quick note regarding your site|website feedback|quick question for you|question about your page}';
   const defaultBestBody = "{Hi {Name},|Hello {Name},|Hey {Name},}\n\n{I noticed your site has a great presentation but isn't showing on the top results.|Your website looks clean, but seems missing from the primary search listings.}\n\n{May I send you a quick report with details?|Would you mind if I shared the screenshot with you?|Can I share the audit reports with you?}";
 
