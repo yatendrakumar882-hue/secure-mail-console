@@ -1,9 +1,18 @@
 {
   "version": 2,
-  "builds": [
+  "functions": {
+    "server.js": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  },
+  "headers": [
     {
-      "src": "server.js",
-      "use": "@vercel/node"
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Connection", "value": "keep-alive" }
+      ]
     }
   ],
   "routes": [
