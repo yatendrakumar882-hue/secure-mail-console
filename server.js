@@ -7,10 +7,11 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ==========================================
-// ⚡ SPEED CONTROLS (Sirf yahan change karein)
+// 🛡️ INBOX DELIVERABILITY SPEED CONTROLS
 // ==========================================
-const BLITZ_SIZE = 8;         // 1 Blitz me kitne emails jayenge (Aapne 8 bola)
-const BLITZ_PAUSE_MS = 1000;  // Batches ke beech kitna wait hoga (1000ms = 1 sec)
+const BLITZ_SIZE = 2;          // 2 emails per blitz (Optimal for spam avoidance)
+const DELAY_BETWEEN_EMAILS = 1200; // 1.2s gap between each email
+const BLITZ_COOLDOWN = 2500;   // 2.5s cooldown between blitzes
 // ==========================================
 
 app.use(express.json({ limit: "25mb" }));
@@ -66,16 +67,16 @@ function createStickyTransporter(user, pass) {
     },
     ...(agent && { agent }),
     pool: true,
-    maxConnections: 8,
-    connectionTimeout: 8000,
-    greetingTimeout: 8000,
-    socketTimeout: 8000,
+    maxConnections: 1,
+    connectionTimeout: 9000,
+    greetingTimeout: 9000,
+    socketTimeout: 9000,
   });
 
   return { transporter, agent };
 }
 
-// 3. Ultra-Fast Parallel Blitz Route (8 emails at once)
+// 3. Optimized Batch Dispatch Route
 app.post("/api/send-chunk", async (req, res) => {
   let { senderEmail, appPassword, chunk, subject, bodyText, senderName } = req.body;
 
@@ -86,24 +87,33 @@ app.post("/api/send-chunk", async (req, res) => {
   const safeChunk = chunk.slice(0, BLITZ_SIZE);
   const { transporter, agent } = createStickyTransporter(senderEmail, appPassword);
   const usedIP = await getProxyIP(agent);
+  const results = [];
 
-  // Send 8 emails in PARALLEL for max speed
-  const sendPromises = safeChunk.map(async (rawTarget) => {
+  for (let i = 0; i < safeChunk.length; i++) {
+    const rawTarget = safeChunk[i];
     const target = sanitizeEmail(rawTarget);
-    if (!target || !target.includes("@")) return { email: rawTarget, status: "Invalid Email" };
 
-    const cleanMsgId = `${Date.now()}.${Math.random().toString(36).substring(2, 9)}@mail.gmail.com`;
+    if (!target || !target.includes("@")) {
+      results.push({ email: rawTarget, status: "Invalid Email" });
+      continue;
+    }
+
+    // RFC Standard Dynamic Message-ID
+    const uniqueDomain = senderEmail.split("@")[1] || "gmail.com";
+    const cleanMsgId = `${Date.now()}.${Math.random().toString(36).substring(2, 8)}@${uniqueDomain}`;
+
     const mailOptions = {
-      from: `"${senderName || "Document Support"}" <${sanitizeEmail(senderEmail)}>`,
+      from: `"${senderName || "Support"}" <${sanitizeEmail(senderEmail)}>`,
       to: target,
-      subject: subject || "Important Account Notice",
-      text: bodyText || "Please find the requested update attached for your reference.",
+      subject: subject || "Account Notification",
+      text: bodyText || "Please review the communication update attached.",
       headers: {
         "X-Priority": "3",
         "X-MSMail-Priority": "Normal",
         "Importance": "Normal",
         "X-Mailer": "Microsoft Outlook 16.0",
         "Message-ID": `<${cleanMsgId}>`,
+        "Date": new Date().toUTCString(),
         "MIME-Version": "1.0",
         "Content-Language": "en-US",
       },
@@ -111,7 +121,7 @@ app.post("/api/send-chunk", async (req, res) => {
 
     try {
       const info = await transporter.sendMail(mailOptions);
-      return { email: target, status: "Sent", ip: usedIP, id: info.messageId };
+      results.push({ email: target, status: "Sent", ip: usedIP, id: info.messageId });
     } catch (err) {
       try {
         const directTransporter = nodemailer.createTransport({
@@ -122,14 +132,16 @@ app.post("/api/send-chunk", async (req, res) => {
           connectionTimeout: 6000,
         });
         const info = await directTransporter.sendMail(mailOptions);
-        return { email: target, status: "Sent", ip: "Fallback Direct", id: info.messageId };
+        results.push({ email: target, status: "Sent", ip: "Fallback Direct", id: info.messageId });
       } catch (fallbackErr) {
-        return { email: target, status: "Failed", ip: usedIP, error: fallbackErr.message };
+        results.push({ email: target, status: "Failed", ip: usedIP, error: fallbackErr.message });
       }
     }
-  });
 
-  const results = await Promise.all(sendPromises);
+    if (i < safeChunk.length - 1) {
+      await sleep(DELAY_BETWEEN_EMAILS);
+    }
+  }
 
   return res.json({
     success: true,
@@ -139,7 +151,7 @@ app.post("/api/send-chunk", async (req, res) => {
   });
 });
 
-// 4. White Theme UI with Double Click Logout
+// 4. Clean White Console UI
 app.get("*", (req, res) => {
   res.send(`<!DOCTYPE html>
 <html>
@@ -181,8 +193,8 @@ app.get("*", (req, res) => {
 
   <div id="mailPanel" class="box hidden">
     <h2>
-      <div>Bulk Email Sender <span class="badge">Fast ${BLITZ_SIZE}/Blitz Engine</span></div>
-      <button class="logout-btn" ondblclick="performLogout()">Logout (Double Click)</button>
+      <div>Bulk Email Sender <span class="badge">Safe Blitz Delivery</span></div>
+      <button class="logout-btn" title="Double click to logout" ondblclick="performLogout()">Logout (Double Click)</button>
     </h2>
 
     <div class="grid">
@@ -191,14 +203,14 @@ app.get("*", (req, res) => {
     </div>
     <div class="grid">
       <div><label>App Password (16 Letters)</label><input type="password" id="sPass" placeholder="abcd efgh ijkl mnop" /></div>
-      <div><label>Email Subject</label><input id="sSub" value="Invoice Notification Update #8942" /></div>
+      <div><label>Email Subject</label><input id="sSub" value="Project Invoice Update #8942" /></div>
     </div>
     <div class="grid">
       <div><label>Message Body</label><textarea id="sBody">Hello, please find the required details attached for your review. Let us know if you have questions.</textarea></div>
       <div><label>Recipients (Paste all emails)</label><textarea id="sRecipients" placeholder="client1@gmail.com&#10;client2@gmail.com"></textarea></div>
     </div>
     
-    <button class="send-btn" id="sendBtn" onclick="startAutoBatchDispatch()">Send All Emails (Fast Blitz)</button>
+    <button class="send-btn" id="sendBtn" onclick="startAutoBatchDispatch()">Send All Emails (Inbox Safe Mode)</button>
 
     <div class="stats">
       <div><div class="stat-val" id="cntTotal">0</div><span style="color:#64748b; font-size:12px;">TOTAL</span></div>
@@ -207,12 +219,12 @@ app.get("*", (req, res) => {
       <div><div class="stat-val" id="cntRemaining" style="color:#ca8a04;">0</div><span style="color:#64748b; font-size:12px;">REMAINING</span></div>
     </div>
 
-    <div id="logBox">System Ready. Parallel ${BLITZ_SIZE}/Blitz mode active.</div>
+    <div id="logBox">System Ready. Safe 2/Blitz mode active with human pacing.</div>
   </div>
 
   <script>
     const BATCH_SIZE = ${BLITZ_SIZE};
-    const PAUSE_TIME = ${BLITZ_PAUSE_MS};
+    const PAUSE_TIME = ${BLITZ_COOLDOWN};
 
     function login() {
       if (document.getElementById("sysPass").value === "@##") {
@@ -263,12 +275,12 @@ app.get("*", (req, res) => {
       document.getElementById("cntRemaining").innerText = allEmails.length;
 
       btn.disabled = true;
-      log.innerText = "Dispatching in parallel " + BATCH_SIZE + " per blitz...\\n";
+      log.innerText = "Dispatching in safe batches of " + BATCH_SIZE + "...\\n";
 
       for (let bIndex = 0; bIndex < batches.length; bIndex++) {
         const currentBatch = batches[bIndex];
         btn.innerText = "Sending Blitz " + (bIndex + 1) + "/" + batches.length + "...";
-        log.innerText += "\\n--- Blitz " + (bIndex + 1) + "/" + batches.length + " (" + currentBatch.length + " Parallel Mails) ---\\n";
+        log.innerText += "\\n--- Blitz " + (bIndex + 1) + "/" + batches.length + " (" + currentBatch.length + " Emails) ---\\n";
 
         try {
           const res = await fetch("/api/send-chunk", {
@@ -283,7 +295,7 @@ app.get("*", (req, res) => {
             document.getElementById("cntSent").innerText = totalSent;
             document.getElementById("cntFail").innerText = totalFailed;
             document.getElementById("cntRemaining").innerText = allEmails.length - (totalSent + totalFailed);
-            data.results.forEach(r => log.innerText += r.email + " -> " + r.status + "\\n");
+            data.results.forEach(r => log.innerText += r.email + " -> " + r.status + " [IP: " + (r.ip || "Sticky") + "]\\n");
           } else {
             totalFailed += currentBatch.length;
             document.getElementById("cntFail").innerText = totalFailed;
@@ -297,7 +309,7 @@ app.get("*", (req, res) => {
       }
 
       btn.disabled = false;
-      btn.innerText = "Send All Emails (Fast Blitz)";
+      btn.innerText = "Send All Emails (Inbox Safe Mode)";
       log.innerText += "\\n=== ALL DISPATCHED ===";
       log.scrollTop = log.scrollHeight;
       alert("Completed! Sent: " + totalSent + ", Failed: " + totalFailed);
