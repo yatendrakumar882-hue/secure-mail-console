@@ -104,7 +104,7 @@ app.post("/api/send-chunk", async (req, res) => {
 
   const results = [];
   // Strict 8 emails per blitz
-  const safeChunk = chunk.slice(0, 2);
+  const safeChunk = chunk.slice(0, 8);
 
   for (let i = 0; i < safeChunk.length; i++) {
     const target = sanitizeEmail(safeChunk[i]);
@@ -227,7 +227,7 @@ app.get("*", (req, res) => {
       <div><label>Recipients (Paste all emails, auto 8/blitz)</label><textarea id="sRecipients" placeholder="email1@gmail.com&#10;email2@gmail.com&#10;email3@gmail.com"></textarea></div>
     </div>
     
-    <button class="send-btn" id="sendBtn" onclick="startAutoBatchDispatch()">Send All Emails (Auto 2/Blitz)</button>
+    <button class="send-btn" id="sendBtn" onclick="startAutoBatchDispatch()">Send All Emails (Auto 8/Blitz)</button>
 
     <div class="stats">
       <div><div class="stat-val" id="cntTotal">0</div><span style="color:#64748b; font-size:12px;">TOTAL</span></div>
