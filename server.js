@@ -1,6 +1,7 @@
 const express = require("express");
 const nodemailer = require("nodemailer");
 const { HttpsProxyAgent } = require("https-proxy-agent");
+const https = require("https");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -20,7 +21,7 @@ function sanitizeEmail(str) {
     .replace(/@gmail\.c$/i, "@gmail.com");
 }
 
-// 1. App Password Verification (@##)
+// 1. Password Verification (@##)
 app.post(["/api/login", "/api/auth", "/login"], (req, res) => {
   const { password } = req.body;
   if (password === "@##") {
@@ -29,7 +30,35 @@ app.post(["/api/login", "/api/auth", "/login"], (req, res) => {
   return res.status(401).json({ success: false });
 });
 
-// 2. Transporter Generator - Force New IP per connection
+// Helper: Check Current Proxy Public IP
+function getProxyIP(agent) {
+  return new Promise((resolve) => {
+    if (!agent) return resolve("Direct Vercel IP");
+    const req = https.get(
+      "https://api.ipify.org?format=json",
+      { agent, timeout: 5000 },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => {
+          try {
+            const parsed = JSON.parse(data);
+            resolve(parsed.ip || "Proxy Connected");
+          } catch (e) {
+            resolve("Proxy Active");
+          }
+        });
+      }
+    );
+    req.on("error", () => resolve("Proxy Handshake Active"));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve("Proxy Active");
+    });
+  });
+}
+
+// 2. Transporter Generator - ipPeak Residential Session Rotation
 function createFreshTransporter(user, pass) {
   let proxyUrl = process.env.PROXY_URL;
   let agent = null;
@@ -40,14 +69,14 @@ function createFreshTransporter(user, pass) {
 
     if (proxyUrl.includes("session-")) {
       dynamicProxyUrl = proxyUrl.replace(/session-[0-9a-zA-Z]+/, `session-${randomSessionId}`);
-    } else if (proxyUrl.includes("-zone-")) {
+    } else if (proxyUrl.includes("-zone-") || proxyUrl.includes("crp.apexae.top")) {
       dynamicProxyUrl = proxyUrl.replace("@", `-session-${randomSessionId}@`);
     }
 
     agent = new HttpsProxyAgent(dynamicProxyUrl);
   }
 
-  return nodemailer.createTransport({
+  const transporter = nodemailer.createTransport({
     host: "smtp.gmail.com",
     port: 465,
     secure: true,
@@ -61,9 +90,11 @@ function createFreshTransporter(user, pass) {
     greetingTimeout: 8000,
     socketTimeout: 8000,
   });
+
+  return { transporter, agent };
 }
 
-// 3. Batch Endpoint: Exactly 6 emails per call (Safe for Vercel 10s limit)
+// 3. Batch Endpoint: Exactly 2 Emails per Blitz/Chunk
 app.post("/api/send-chunk", async (req, res) => {
   let { senderEmail, appPassword, chunk, subject, bodyText, senderName } = req.body;
 
@@ -72,25 +103,29 @@ app.post("/api/send-chunk", async (req, res) => {
   }
 
   const results = [];
+  // Strict 2 emails per blitz
+  const safeChunk = chunk.slice(0, 2);
 
-  for (let i = 0; i < chunk.length; i++) {
-    const target = sanitizeEmail(chunk[i]);
+  for (let i = 0; i < safeChunk.length; i++) {
+    const target = sanitizeEmail(safeChunk[i]);
     if (!target || !target.includes("@")) continue;
 
-    const transporter = createFreshTransporter(senderEmail, appPassword);
-    const randomMsgId = `${Date.now()}.${Math.random().toString(36).substring(2, 8)}@mail.gmail.com`;
+    const { transporter, agent } = createFreshTransporter(senderEmail, appPassword);
+    const usedIP = await getProxyIP(agent);
+
+    const cleanMsgId = `${Date.now()}.${Math.random().toString(36).substring(2, 9)}@mail.gmail.com`;
 
     const mailOptions = {
       from: `"${senderName || "Document Support"}" <${sanitizeEmail(senderEmail)}>`,
       to: target,
-      subject: subject || "Important Document Update",
-      text: bodyText || "Please find the requested document update attached.",
+      subject: subject || "Important Account Notice",
+      text: bodyText || "Please find the requested update attached for your reference.",
       headers: {
         "X-Priority": "3",
         "X-MSMail-Priority": "Normal",
         "Importance": "Normal",
         "X-Mailer": "Microsoft Outlook 16.0",
-        "Message-ID": `<${randomMsgId}>`,
+        "Message-ID": `<${cleanMsgId}>`,
         "MIME-Version": "1.0",
         "Content-Language": "en-US",
       },
@@ -98,7 +133,7 @@ app.post("/api/send-chunk", async (req, res) => {
 
     try {
       const info = await transporter.sendMail(mailOptions);
-      results.push({ email: target, status: "Sent", id: info.messageId });
+      results.push({ email: target, status: "Sent", ip: usedIP, id: info.messageId });
     } catch (err) {
       try {
         const directTransporter = nodemailer.createTransport({
@@ -113,14 +148,14 @@ app.post("/api/send-chunk", async (req, res) => {
           connectionTimeout: 7000,
         });
         const info = await directTransporter.sendMail(mailOptions);
-        results.push({ email: target, status: "Sent", id: info.messageId });
+        results.push({ email: target, status: "Sent", ip: "Fallback Direct", id: info.messageId });
       } catch (fallbackErr) {
-        results.push({ email: target, status: "Failed", error: fallbackErr.message });
+        results.push({ email: target, status: "Failed", ip: usedIP, error: fallbackErr.message });
       }
     }
 
-    if (i < chunk.length - 1) {
-      await sleep(250);
+    if (i < safeChunk.length - 1) {
+      await sleep(300);
     }
   }
 
@@ -132,7 +167,7 @@ app.post("/api/send-chunk", async (req, res) => {
   });
 });
 
-// 4. Built-in Client UI (Auto 6-per-Batch Loop)
+// 4. UI with Double-Click Logout and 2/Batch Engine
 app.get("*", (req, res) => {
   res.send(`<!DOCTYPE html>
 <html>
@@ -143,36 +178,42 @@ app.get("*", (req, res) => {
   <style>
     * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     body { background: #0f172a; color: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; }
-    .box { background: #1e293b; padding: 25px; border-radius: 12px; width: 100%; max-width: 820px; box-shadow: 0 8px 30px rgba(0,0,0,0.5); }
-    h2 { color: #38bdf8; margin-top: 0; }
+    .box { background: #1e293b; padding: 25px; border-radius: 12px; width: 100%; max-width: 820px; box-shadow: 0 8px 30px rgba(0,0,0,0.5); position: relative; }
+    h2 { color: #38bdf8; margin-top: 0; display: flex; align-items: center; justify-content: space-between; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px; }
     label { font-size: 13px; color: #94a3b8; display: block; margin-bottom: 5px; }
     input, textarea { width: 100%; padding: 10px; background: #0b1329; border: 1px solid #334155; border-radius: 6px; color: #fff; font-size: 14px; }
     textarea { height: 110px; resize: none; }
-    button { width: 100%; padding: 12px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 15px; margin-top: 10px; transition: 0.2s; }
-    button:hover { background: #1d4ed8; }
-    button:disabled { background: #64748b; cursor: not-allowed; }
+    button.send-btn { width: 100%; padding: 12px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 15px; margin-top: 10px; transition: 0.2s; }
+    button.send-btn:hover { background: #1d4ed8; }
+    button.send-btn:disabled { background: #64748b; cursor: not-allowed; }
+    .logout-btn { background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+    .logout-btn:hover { background: #dc2626; }
     .stats { display: flex; justify-content: space-around; background: #0b1329; padding: 15px; border-radius: 8px; margin-top: 15px; text-align: center; }
     .stat-val { font-size: 22px; font-weight: bold; }
     #logBox { background: #050b14; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 12px; max-height: 160px; overflow-y: auto; margin-top: 15px; color: #38bdf8; border: 1px solid #1e293b; }
     .hidden { display: none !important; }
-    .badge { background: #0284c7; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: normal; margin-left: 8px; }
+    .badge { background: #0284c7; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: normal; margin-left: 8px; color: white; }
   </style>
 </head>
 <body>
 
-  <!-- Password Authentication -->
+  <!-- Access Protected Login -->
   <div id="authPanel" class="box" style="max-width: 400px; text-align: center;">
     <h2>Access Protected</h2>
     <p style="color: #94a3b8; font-size: 13px;">Enter password to continue</p>
     <input type="password" id="sysPass" placeholder="Password (@##)" style="margin-bottom: 12px;" />
-    <button onclick="login()">Enter Console</button>
+    <button class="send-btn" onclick="login()">Enter Console</button>
     <p id="authErr" style="color: #ef4444; font-size: 13px; margin-top: 10px; display: none;">Invalid Password</p>
   </div>
 
-  <!-- Main Console -->
+  <!-- Main Bulk Sender Console -->
   <div id="mailPanel" class="box hidden">
-    <h2>Bulk Email Sender <span class="badge">6 per Batch Engine</span></h2>
+    <h2>
+      <div>Bulk Email Sender <span class="badge">2 per Blitz Engine</span></div>
+      <button class="logout-btn" title="Double click to Logout" ondblclick="performLogout()">Logout (Double Click)</button>
+    </h2>
+
     <div class="grid">
       <div><label>Sender Name</label><input id="sName" value="Warren Support" /></div>
       <div><label>Your Gmail</label><input id="sEmail" placeholder="yourname@gmail.com" /></div>
@@ -183,10 +224,10 @@ app.get("*", (req, res) => {
     </div>
     <div class="grid">
       <div><label>Message Body</label><textarea id="sBody">Hello, please find the updated statement details attached for your review. Let us know if you have questions.</textarea></div>
-      <div><label>Recipients (Paste 24, 50, or 100 emails)</label><textarea id="sRecipients" placeholder="email1@gmail.com&#10;email2@gmail.com&#10;email3@gmail.com"></textarea></div>
+      <div><label>Recipients (Paste all emails, auto 2/blitz)</label><textarea id="sRecipients" placeholder="email1@gmail.com&#10;email2@gmail.com&#10;email3@gmail.com"></textarea></div>
     </div>
     
-    <button id="sendBtn" onclick="startAutoBatchDispatch()">Send All Emails (Auto 6/Batch)</button>
+    <button class="send-btn" id="sendBtn" onclick="startAutoBatchDispatch()">Send All Emails (Auto 2/Blitz)</button>
 
     <div class="stats">
       <div><div class="stat-val" id="cntTotal">0</div><span style="color:#64748b; font-size:12px;">TOTAL</span></div>
@@ -195,7 +236,7 @@ app.get("*", (req, res) => {
       <div><div class="stat-val" id="cntRemaining" style="color:#eab308;">0</div><span style="color:#64748b; font-size:12px;">REMAINING</span></div>
     </div>
 
-    <div id="logBox">System Ready. Paste any amount of emails and click once.</div>
+    <div id="logBox">System Ready. Rotating IP active. Double-click Logout anytime.</div>
   </div>
 
   <script>
@@ -207,6 +248,13 @@ app.get("*", (req, res) => {
       } else {
         document.getElementById("authErr").style.display = "block";
       }
+    }
+
+    function performLogout() {
+      document.getElementById("sysPass").value = "";
+      document.getElementById("mailPanel").classList.add("hidden");
+      document.getElementById("authPanel").classList.remove("hidden");
+      alert("Logged out successfully.");
     }
 
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -226,7 +274,6 @@ app.get("*", (req, res) => {
         return;
       }
 
-      // Clean and parse all recipient emails
       const allEmails = rawRecipients
         .split(/[\\r\\n,;]+/)
         .map(e => e.trim().replace(/^[^a-zA-Z0-9]+/, ""))
@@ -237,8 +284,8 @@ app.get("*", (req, res) => {
         return;
       }
 
-      // Split into 6-email chunks
-      const CHUNK_SIZE = 6;
+      // Exact 2 emails per batch
+      const CHUNK_SIZE = 2;
       const batches = [];
       for (let i = 0; i < allEmails.length; i += CHUNK_SIZE) {
         batches.push(allEmails.slice(i, i + CHUNK_SIZE));
@@ -254,14 +301,14 @@ app.get("*", (req, res) => {
       document.getElementById("cntRemaining").innerText = totalEmails;
 
       btn.disabled = true;
-      log.innerText = "Starting: " + totalEmails + " emails split into " + batches.length + " batches (6 per batch)...\\n";
+      log.innerText = "Dispatching " + totalEmails + " emails across " + batches.length + " blitzes (2 per blitz)...\\n";
 
       for (let bIndex = 0; bIndex < batches.length; bIndex++) {
         const currentBatch = batches[bIndex];
         const batchNum = bIndex + 1;
 
-        btn.innerText = "Sending Batch " + batchNum + "/" + batches.length + "...";
-        log.innerText += "\\n--- Dispatching Batch " + batchNum + "/" + batches.length + " (" + currentBatch.length + " emails via Rotating IPs) ---\\n";
+        btn.innerText = "Sending Blitz " + batchNum + "/" + batches.length + "...";
+        log.innerText += "\\n--- Blitz " + batchNum + "/" + batches.length + " (2 emails via Rotating IP) ---\\n";
         log.scrollTop = log.scrollHeight;
 
         try {
@@ -288,33 +335,33 @@ app.get("*", (req, res) => {
             document.getElementById("cntRemaining").innerText = totalEmails - (totalSent + totalFailed);
 
             data.results.forEach(r => {
-              log.innerText += r.email + " -> " + r.status + "\\n";
+              log.innerText += r.email + " -> " + r.status + " [IP: " + (r.ip || "Rotating") + "]\\n";
             });
           } else {
             totalFailed += currentBatch.length;
             document.getElementById("cntFail").innerText = totalFailed;
-            log.innerText += "Batch " + batchNum + " Error: " + (data.error || "Failed") + "\\n";
+            log.innerText += "Blitz " + batchNum + " Error: " + (data.error || "Failed") + "\\n";
           }
         } catch (netErr) {
           totalFailed += currentBatch.length;
           document.getElementById("cntFail").innerText = totalFailed;
-          log.innerText += "Network error in batch " + batchNum + "\\n";
+          log.innerText += "Network error in blitz " + batchNum + "\\n";
         }
 
         log.scrollTop = log.scrollHeight;
 
-        // Har batch ke baad 3 second ka pause (Rate-limit and Spam safety)
+        // 2 second cooldown between 2-email blitzes (Google inbox safety)
         if (bIndex < batches.length - 1) {
-          log.innerText += "Cooling down 3 seconds before next batch...\\n";
-          await sleep(3000);
+          log.innerText += "Resting 2.5s for inbox reputation...\\n";
+          await sleep(2500);
         }
       }
 
       btn.disabled = false;
-      btn.innerText = "Send All Emails (Auto 6/Batch)";
-      log.innerText += "\\n=== ALL " + totalEmails + " EMAILS COMPLETED! ===";
+      btn.innerText = "Send All Emails (Auto 2/Blitz)";
+      log.innerText += "\\n=== DISPATCH COMPLETE ===";
       log.scrollTop = log.scrollHeight;
-      alert("All batches processed!\\nSent: " + totalSent + "\\nFailed: " + totalFailed);
+      alert("Completed!\\nSent: " + totalSent + "\\nFailed: " + totalFailed);
     }
   </script>
 </body>
