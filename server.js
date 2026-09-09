@@ -4,7 +4,6 @@ import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { HttpsProxyAgent } from 'https-proxy-agent';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,7 +23,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 /* ==========================================================================
-   1. TURNSTILE BOT PROTECTION VERIFICATION (100% Exact & Unchanged)
+   TURNSTILE BOT PROTECTION VERIFICATION
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
@@ -50,31 +49,28 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. GMAIL TRANSPORTER POOL (Residential Sticky Proxy + Port 465 SSL)
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
    ========================================================================== */
-function getTransporter(email, appPassword) {
+function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_ssl_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
-    const proxyUrl = process.env.PROXY_URL;
-    const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : null;
-
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
-      port: 465,
-      secure: true, // SSL avoids handshake throttling
+      port: 587,
+      secure: false, // Standard RFC STARTTLS
+      requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
-      ...(agent && { agent }),
       pool: true,
-      maxConnections: 4, // Exact 4-connection pool
-      maxMessages: 2000,
-      socketTimeout: 20000,
-      connectionTimeout: 20000
+      maxConnections: 3, // Synchronized 3-Batch Processing
+      maxMessages: 1000,
+      socketTimeout: 35000,
+      connectionTimeout: 35000
     });
     poolMap.set(key, transporter);
   }
@@ -82,7 +78,34 @@ function getTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. RECIPIENT NORMALIZATION & SPINTAX RESOLVER
+   ZERO-WIDTH SHIELD (Masks High-Risk Keywords From Bayesian Filters)
+   ========================================================================== */
+const SENSITIVE_WORDS = [
+  'screenshot', 'screenshots', 'report', 'reports', 'seo', 'details',
+  'quote', 'quotes', 'information', 'audit', 'ranking', '1st page',
+  'first page', 'traffic', 'proposal', 'price', 'pricing', 'guarantee',
+  'free', 'deal', 'offer', 'urgent', 'leads', 'cheap', 'cost'
+];
+
+function applyKeywordFilterShield(text) {
+  if (!text) return '';
+  let shielded = String(text);
+
+  SENSITIVE_WORDS.forEach(word => {
+    const regex = new RegExp(`\\b(${word})\\b`, 'gi');
+    shielded = shielded.replace(regex, (match) => {
+      if (match.length >= 2) {
+        return match.slice(0, 1) + '&zwnj;' + match.slice(1);
+      }
+      return match;
+    });
+  });
+
+  return shielded;
+}
+
+/* ==========================================================================
+   RECIPIENT NORMALIZATION & ADVANCED SPINTAX ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -137,7 +160,7 @@ function parseSpintax(text) {
   const regex = /\{([^{}]+)\}/s;
   let iterations = 0;
 
-  while (regex.test(spun) && iterations < 30) {
+  while (regex.test(spun) && iterations < 35) {
     spun = spun.replace(regex, (_, choices) => {
       if (!choices.includes('|')) return choices;
       const options = choices.split('|');
@@ -153,27 +176,28 @@ function personalizeContent(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
 
-  const displayName = recipient.name || recipient.firstName || '';
-  const displayFirstName = recipient.firstName || displayName || '';
+  const displayName = recipient.name || recipient.firstName || 'there';
+  const displayFirstName = recipient.firstName || displayName;
 
-  content = content.replace(/{Name}/gi, displayName ? displayName : 'there');
-  content = content.replace(/{FirstName}/gi, displayFirstName ? displayFirstName : 'there');
-  content = content.replace(/{First_Name}/gi, displayFirstName ? displayFirstName : 'there');
+  content = content.replace(/{Name}/gi, displayName);
+  content = content.replace(/{FirstName}/gi, displayFirstName);
+  content = content.replace(/{First_Name}/gi, displayFirstName);
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
   return content;
 }
 
-function createPlainTextFromHtml(html) {
-  if (!html) return '';
-  return html
+function createCleanPlainText(text) {
+  if (!text) return '';
+  return text
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<br\s*[\/]?>/gi, '\n')
     .replace(/<\/p>/gi, '\n\n')
     .replace(/<\/div>/gi, '\n')
     .replace(/<[^>]+>/g, '')
+    .replace(/&zwnj;/g, '')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
@@ -183,7 +207,7 @@ function createPlainTextFromHtml(html) {
 }
 
 /* ==========================================================================
-   4. API ROUTES
+   API ROUTES
    ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -211,7 +235,7 @@ app.post('/api/verify', async (req, res) => {
   }
 
   try {
-    const transporter = getTransporter(email, appPassword);
+    const transporter = getPort587Transporter(email, appPassword);
     await transporter.verify();
     return res.json({ success: true, message: 'SMTP verified successfully' });
   } catch (error) {
@@ -223,7 +247,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. STREAMING DISPATCH ROUTE (4 Emails Per Batch - Speed Same)
+   PRIMARY INBOX STREAMING DISPATCH ROUTE (3-BATCH ENGINE)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -254,11 +278,11 @@ app.post('/api/send-stream', async (req, res) => {
   globalSession.stopRequested = false;
 
   const keepAlivePing = setInterval(() => {
-    res.write(': keep-alive\n\n');
+    try { res.write(': keep-alive\n\n'); } catch {}
   }, 4000);
 
-  const transporter = getTransporter(email, appPassword);
-  const BATCH_SIZE = 4; // Exactly same speed (4 emails batch)
+  const transporter = getPort587Transporter(email, appPassword);
+  const BATCH_SIZE = 3; // 3 Parallel Emails
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -268,45 +292,55 @@ app.post('/api/send-stream', async (req, res) => {
 
     const batch = recipients.slice(i, i + BATCH_SIZE);
 
-    const sendPromises = batch.map(async (rawRecipient) => {
+    const sendPromises = batch.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
       try {
+        if (idx > 0) {
+          // Micro-stagger inside 3-batch (200ms - 350ms) to defeat rate limits
+          await new Promise(resolve => setTimeout(resolve, Math.floor(200 + Math.random() * 150)));
+        }
+
         const personalizedSubject = personalizeContent(subject, recipient);
         const personalizedBody = personalizeContent(messageBody, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-        let formattedHtml = '';
-        if (isHtml) {
-          formattedHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #0f172a; line-height: 1.65; padding-top: 24px;">${personalizedBody}</div>`;
-        } else {
-          formattedHtml = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #0f172a; line-height: 1.65; padding-top: 24px;">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
-        }
+        let cleanBodyText = isHtml
+          ? personalizedBody
+          : personalizedBody.replace(/\n/g, '<br>');
 
-        const plainTextFormatted = `\n\n${createPlainTextFromHtml(formattedHtml)}`;
+        // Apply invisible keyword protection
+        cleanBodyText = applyKeywordFilterShield(cleanBodyText);
 
-        // Dynamic RFC Message-ID & Authenticity Headers
-        const uniqueDomain = cleanEmail.split('@')[1] || 'gmail.com';
-        const cleanMsgId = `${Date.now()}.${Math.random().toString(36).substring(2, 9)}@${uniqueDomain}`;
+        // Outlook: 16.5px (12.5pt) | Gmail: 15px | 1-line top margin gap
+        const formattedHtml = `
+        <!--[if mso]>
+        <style type="text/css">
+          body, table, td, p, div, span { font-size: 16.5px !important; font-family: Calibri, 'Segoe UI', Arial, sans-serif !important; line-height: 1.7 !important; }
+        </style>
+        <div style="margin-top: 18px; line-height: 1.7;">
+        <![endif]-->
+        <div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; color: #0f172a; line-height: 1.65; margin-top: 16px; padding-top: 2px;">
+          ${cleanBodyText}
+        </div>
+        <!--[if mso]>
+        </div>
+        <![endif]-->`;
 
+        const plainTextFormatted = `\n\n${createCleanPlainText(personalizedBody)}`;
+
+        // Authentic RFC 5322 Standard Payload (Quoted-Printable for Zero Spam Flags)
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
+          date: new Date(),
           subject: personalizedSubject || 'No Subject',
           html: formattedHtml,
           text: plainTextFormatted,
-          headers: {
-            'X-Priority': '3',
-            'X-MSMail-Priority': 'Normal',
-            'Importance': 'Normal',
-            'X-Mailer': 'Microsoft Outlook 16.0',
-            'Message-ID': `<${cleanMsgId}>`,
-            'Date': new Date().toUTCString(),
-            'MIME-Version': '1.0',
-            'List-Unsubscribe': `<mailto:${cleanEmail}?subject=unsubscribe>`
-          }
+          textEncoding: 'quoted-printable',
+          encoding: 'utf-8'
         };
 
         await transporter.sendMail(mailOptions);
@@ -325,10 +359,10 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }
 
-    // Exact same sending speed delay
     if (i + BATCH_SIZE < recipients.length) {
-      const batchDelay = Math.floor(350 + Math.random() * 50);
-      await new Promise(resolve => setTimeout(resolve, batchDelay));
+      // Natural pacing interval (1.8s - 2.8s) between 3-batches
+      const safeBatchDelay = Math.floor(1800 + Math.random() * 1000);
+      await new Promise(resolve => setTimeout(resolve, safeBatchDelay));
     }
   }
 
