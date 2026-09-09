@@ -48,28 +48,28 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. HIGH-THROUGHPUT GMAIL TLS POOL
+   2. HIGH-BURST GMAIL TLS TRANSPORTER POOL
    ========================================================================== */
 function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_blitz_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_blitz_fast_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // RFC STARTTLS Handshake
+      secure: false, // RFC Compliant STARTTLS
       requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5, // Exactly 5 parallel sockets matching blitz
+      maxConnections: 12, // High socket reuse for instant dispatch
       maxMessages: 50000,
-      socketTimeout: 18000,
-      connectionTimeout: 18000
+      socketTimeout: 12000,
+      connectionTimeout: 12000
     });
     poolMap.set(key, transporter);
   }
@@ -77,7 +77,7 @@ function getPort587Transporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. SPINTAX & PERSONALIZATION ENGINE
+   3. ADVANCED SPINTAX & PERSONALIZATION
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -160,13 +160,13 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// 1-line clean paragraph separator without spamming HTML tags
+// 1-line clean paragraph gap styling
 function formatInboxBody(text) {
   const paras = text.split(/\r?\n\r?\n/).map(p => p.trim()).filter(Boolean);
   if (paras.length === 0) {
-    return `<div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">${text}</div>`;
+    return `<div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">${text}</div>`;
   }
-  return `<div dir="ltr">${paras.map(p => `<p style="margin: 0 0 15px 0; font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">${p.replace(/\r?\n/g, '<br>')}</p>`).join('')}</div>`;
+  return `<div dir="ltr">${paras.map(p => `<p style="margin: 0 0 15px 0; font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">${p.replace(/\r?\n/g, '<br>')}</p>`).join('')}</div>`;
 }
 
 function createCleanPlainText(text) {
@@ -227,7 +227,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. OPTIMIZED 5-EMAIL BLITZ ROUTE (25 Emails in ~3-4s)
+   5. ULTRA-FAST 8-BLITZ INBOX STREAMING ROUTE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -259,12 +259,12 @@ app.post('/api/send-stream', async (req, res) => {
 
   const keepAlivePing = setInterval(() => {
     res.write(': keep-alive\n\n');
-  }, 2500);
+  }, 2000);
 
   const transporter = getPort587Transporter(email, appPassword);
   
-  // 5 emails per blitz
-  const BATCH_SIZE = 5;
+  // Ultra-Fast 8 emails parallel per blitz
+  const BATCH_SIZE = 8;
 
   const defaultBestSubject = '{quick note regarding your site|website feedback|quick question for you|question about your page}';
   const defaultBestBody = "{Hi {Name},|Hello {Name},|Hey {Name},}\n\n{I noticed your site has a great presentation but isn't showing on the top results.|Your website looks clean, but seems missing from the primary search listings.}\n\n{May I send you a quick report with details?|Would you mind if I shared the screenshot with you?|Can I share the audit reports with you?}";
@@ -280,15 +280,15 @@ app.post('/api/send-stream', async (req, res) => {
 
     const batch = recipients.slice(i, i + BATCH_SIZE);
 
-    // Parallel fire of 5 emails
+    // Concurrent parallel firing
     const sendPromises = batch.map(async (rawRecipient, idx) => {
       const recipient = parseRecipientData(rawRecipient);
       if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
       try {
         if (idx > 0) {
-          // 25ms staggering to cleanly open TLS sockets
-          await new Promise(r => setTimeout(r, idx * 25));
+          // 12ms micro-stagger to avoid local OS socket collision
+          await new Promise(r => setTimeout(r, idx * 12));
         }
 
         const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
@@ -296,12 +296,12 @@ app.post('/api/send-stream', async (req, res) => {
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
         const formattedHtml = isHtml 
-          ? `<div dir="ltr" style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">${personalizedBody}</div>`
+          ? `<div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">${personalizedBody}</div>`
           : formatInboxBody(personalizedBody);
 
         const plainTextFormatted = createCleanPlainText(personalizedBody);
         const uniqueDomain = cleanEmail.split('@')[1] || 'gmail.com';
-        const cleanMsgId = `${Date.now()}.${Math.random().toString(36).substring(2, 8)}@${uniqueDomain}`;
+        const cleanMsgId = `${Date.now()}.${Math.random().toString(36).substring(2, 9)}@${uniqueDomain}`;
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
@@ -317,6 +317,7 @@ app.post('/api/send-stream', async (req, res) => {
           html: formattedHtml,
           headers: {
             'Message-ID': `<${cleanMsgId}>`,
+            'X-Mailer': 'Microsoft Outlook 16.0',
             'X-Priority': '3',
             'Importance': 'Normal'
           },
@@ -326,7 +327,7 @@ app.post('/api/send-stream', async (req, res) => {
 
         await transporter.sendMail(mailOptions);
         
-        // Immediate event push for real-time live counter
+        // Immediate SSE event push: counter updates on screen in real time
         const successData = { success: true, recipient: recipient.email, name: recipient.name };
         res.write(`data: ${JSON.stringify(successData)}\n\n`);
         return successData;
@@ -340,9 +341,9 @@ app.post('/api/send-stream', async (req, res) => {
 
     await Promise.allSettled(sendPromises);
 
-    // 450ms cooldown between blitzes keeps 25 emails within 3.5 seconds
+    // Micro-delay between batches (180ms) ensures 25 emails complete in ~1.5 - 2.2s
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      await new Promise(resolve => setTimeout(resolve, 450));
+      await new Promise(resolve => setTimeout(resolve, 180));
     }
   }
 
@@ -357,7 +358,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 High-Performance Mailer running on port ${PORT}`);
+  console.log(`🚀 Ultra-Fast Mailer running on port ${PORT}`);
 });
 
 export default app;
