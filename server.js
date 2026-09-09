@@ -9,14 +9,22 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static("public"));
+app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(path.join(__dirname)));
 
-// Delay helper function
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Status check route
-app.get("/api/health", (req, res) => {
-  res.json({ status: "running", proxyConfigured: Boolean(process.env.PROXY_URL) });
+// Homepage Load Route (Isse "Cannot GET /" theek ho jayega)
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"), (err) => {
+    if (err) {
+      res.sendFile(path.join(__dirname, "index.html"), (err2) => {
+        if (err2) {
+          res.send("<h2>Console Backend Active. API Endpoint: /api/send-batch</h2>");
+        }
+      });
+    }
+  });
 });
 
 // Bulk send API endpoint
@@ -31,11 +39,9 @@ app.post("/api/send-batch", async (req, res) => {
     return res.status(400).json({ error: "Recipients ki list honi chahiye." });
   }
 
-  // Vercel Environment Variable se Proxy uthayega
   const proxyUrl = process.env.PROXY_URL;
   const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : null;
 
-  // Gmail SMTP Transporter
   const transporter = nodemailer.createTransport({
     host: "smtp.gmail.com",
     port: 465,
@@ -62,7 +68,6 @@ app.post("/api/send-batch", async (req, res) => {
     const targetEmail = currentBatch[i].trim();
 
     try {
-      // Dynamic clean headers taaki spam filter trigger na ho
       const info = await transporter.sendMail({
         from: `"${senderName || "Support"}" <${senderEmail}>`,
         to: targetEmail,
@@ -77,7 +82,6 @@ app.post("/api/send-batch", async (req, res) => {
 
       results.push({ email: targetEmail, status: "Sent", id: info.messageId });
 
-      // Har mail ke beech 2.5 second ka safe pause
       if (i < currentBatch.length - 1) {
         await sleep(2500);
       }
@@ -93,11 +97,8 @@ app.post("/api/send-batch", async (req, res) => {
   });
 });
 
-// Vercel export aur local port listening
 if (process.env.NODE_ENV !== "production") {
-  app.listen(PORT, () => {
-    console.log(`Server chal raha hai port ${PORT} par`);
-  });
+  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }
 
 module.exports = app;
