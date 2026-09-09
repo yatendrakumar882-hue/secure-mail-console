@@ -6,6 +6,13 @@ const https = require("https");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ==========================================
+// ⚡ SPEED CONTROLS (Sirf yahan change karein)
+// ==========================================
+const BLITZ_SIZE = 8;         // 1 Blitz me kitne emails jayenge (Aapne 8 bola)
+const BLITZ_PAUSE_MS = 1000;  // Batches ke beech kitna wait hoga (1000ms = 1 sec)
+// ==========================================
+
 app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
@@ -21,60 +28,33 @@ function sanitizeEmail(str) {
     .replace(/@gmail\.c$/i, "@gmail.com");
 }
 
-// 1. Password Verification (@##)
+// 1. Password Route (@##)
 app.post(["/api/login", "/api/auth", "/login"], (req, res) => {
   const { password } = req.body;
-  if (password === "@##") {
-    return res.json({ success: true });
-  }
+  if (password === "@##") return res.json({ success: true });
   return res.status(401).json({ success: false });
 });
 
-// Helper: Check Current Proxy Public IP
+// Helper: Check Proxy IP
 function getProxyIP(agent) {
   return new Promise((resolve) => {
-    if (!agent) return resolve("Direct Vercel IP");
-    const req = https.get(
-      "https://api.ipify.org?format=json",
-      { agent, timeout: 5000 },
-      (res) => {
-        let data = "";
-        res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => {
-          try {
-            const parsed = JSON.parse(data);
-            resolve(parsed.ip || "Proxy Connected");
-          } catch (e) {
-            resolve("Proxy Active");
-          }
-        });
-      }
-    );
-    req.on("error", () => resolve("Proxy Handshake Active"));
-    req.on("timeout", () => {
-      req.destroy();
-      resolve("Proxy Active");
+    if (!agent) return resolve("Direct IP");
+    const req = https.get("https://api.ipify.org?format=json", { agent, timeout: 4000 }, (res) => {
+      let data = "";
+      res.on("data", (chunk) => (data += chunk));
+      res.on("end", () => {
+        try { resolve(JSON.parse(data).ip || "Proxy Active"); } catch (e) { resolve("Proxy Active"); }
+      });
     });
+    req.on("error", () => resolve("Proxy Active"));
+    req.on("timeout", () => { req.destroy(); resolve("Proxy Active"); });
   });
 }
 
-// 2. Transporter Generator - ipPeak Residential Session Rotation
-function createFreshTransporter(user, pass) {
-  let proxyUrl = process.env.PROXY_URL;
-  let agent = null;
-
-  if (proxyUrl) {
-    const randomSessionId = Math.floor(10000000 + Math.random() * 90000000);
-    let dynamicProxyUrl = proxyUrl;
-
-    if (proxyUrl.includes("session-")) {
-      dynamicProxyUrl = proxyUrl.replace(/session-[0-9a-zA-Z]+/, `session-${randomSessionId}`);
-    } else if (proxyUrl.includes("-zone-") || proxyUrl.includes("crp.apexae.top")) {
-      dynamicProxyUrl = proxyUrl.replace("@", `-session-${randomSessionId}@`);
-    }
-
-    agent = new HttpsProxyAgent(dynamicProxyUrl);
-  }
+// 2. Transporter Generator
+function createStickyTransporter(user, pass) {
+  const proxyUrl = process.env.PROXY_URL;
+  const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : null;
 
   const transporter = nodemailer.createTransport({
     host: "smtp.gmail.com",
@@ -85,7 +65,8 @@ function createFreshTransporter(user, pass) {
       pass: pass.trim().replace(/\s+/g, ""),
     },
     ...(agent && { agent }),
-    pool: false,
+    pool: true,
+    maxConnections: 8,
     connectionTimeout: 8000,
     greetingTimeout: 8000,
     socketTimeout: 8000,
@@ -94,27 +75,24 @@ function createFreshTransporter(user, pass) {
   return { transporter, agent };
 }
 
-// 3. Batch Endpoint: Exactly 8 Emails per Blitz/Chunk
+// 3. Ultra-Fast Parallel Blitz Route (8 emails at once)
 app.post("/api/send-chunk", async (req, res) => {
   let { senderEmail, appPassword, chunk, subject, bodyText, senderName } = req.body;
 
   if (!senderEmail || !appPassword || !chunk || !Array.isArray(chunk) || chunk.length === 0) {
-    return res.status(400).json({ error: "Missing required chunk details." });
+    return res.status(400).json({ error: "Missing required details." });
   }
 
-  const results = [];
-  // Strict 8 emails per blitz
-  const safeChunk = chunk.slice(0, 8);
+  const safeChunk = chunk.slice(0, BLITZ_SIZE);
+  const { transporter, agent } = createStickyTransporter(senderEmail, appPassword);
+  const usedIP = await getProxyIP(agent);
 
-  for (let i = 0; i < safeChunk.length; i++) {
-    const target = sanitizeEmail(safeChunk[i]);
-    if (!target || !target.includes("@")) continue;
-
-    const { transporter, agent } = createFreshTransporter(senderEmail, appPassword);
-    const usedIP = await getProxyIP(agent);
+  // Send 8 emails in PARALLEL for max speed
+  const sendPromises = safeChunk.map(async (rawTarget) => {
+    const target = sanitizeEmail(rawTarget);
+    if (!target || !target.includes("@")) return { email: rawTarget, status: "Invalid Email" };
 
     const cleanMsgId = `${Date.now()}.${Math.random().toString(36).substring(2, 9)}@mail.gmail.com`;
-
     const mailOptions = {
       from: `"${senderName || "Document Support"}" <${sanitizeEmail(senderEmail)}>`,
       to: target,
@@ -133,31 +111,25 @@ app.post("/api/send-chunk", async (req, res) => {
 
     try {
       const info = await transporter.sendMail(mailOptions);
-      results.push({ email: target, status: "Sent", ip: usedIP, id: info.messageId });
+      return { email: target, status: "Sent", ip: usedIP, id: info.messageId };
     } catch (err) {
       try {
         const directTransporter = nodemailer.createTransport({
           host: "smtp.gmail.com",
           port: 465,
           secure: true,
-          auth: {
-            user: sanitizeEmail(senderEmail),
-            pass: appPassword.trim().replace(/\s+/g, ""),
-          },
-          pool: false,
-          connectionTimeout: 7000,
+          auth: { user: sanitizeEmail(senderEmail), pass: appPassword.trim().replace(/\s+/g, "") },
+          connectionTimeout: 6000,
         });
         const info = await directTransporter.sendMail(mailOptions);
-        results.push({ email: target, status: "Sent", ip: "Fallback Direct", id: info.messageId });
+        return { email: target, status: "Sent", ip: "Fallback Direct", id: info.messageId };
       } catch (fallbackErr) {
-        results.push({ email: target, status: "Failed", ip: usedIP, error: fallbackErr.message });
+        return { email: target, status: "Failed", ip: usedIP, error: fallbackErr.message };
       }
     }
+  });
 
-    if (i < safeChunk.length - 1) {
-      await sleep(300);
-    }
-  }
+  const results = await Promise.all(sendPromises);
 
   return res.json({
     success: true,
@@ -167,7 +139,7 @@ app.post("/api/send-chunk", async (req, res) => {
   });
 });
 
-// 4. UI with Double-Click Logout and 2/Batch Engine
+// 4. White Theme UI with Double Click Logout
 app.get("*", (req, res) => {
   res.send(`<!DOCTYPE html>
 <html>
@@ -177,41 +149,40 @@ app.get("*", (req, res) => {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { background: #0f172a; color: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; }
-    .box { background: #1e293b; padding: 25px; border-radius: 12px; width: 100%; max-width: 820px; box-shadow: 0 8px 30px rgba(0,0,0,0.5); position: relative; }
-    h2 { color: #38bdf8; margin-top: 0; display: flex; align-items: center; justify-content: space-between; }
+    body { background: #f8fafc; color: #1e293b; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; }
+    .box { background: #ffffff; border: 1px solid #e2e8f0; padding: 25px; border-radius: 12px; width: 100%; max-width: 820px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); }
+    h2 { color: #0284c7; margin-top: 0; display: flex; align-items: center; justify-content: space-between; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px; }
-    label { font-size: 13px; color: #94a3b8; display: block; margin-bottom: 5px; }
-    input, textarea { width: 100%; padding: 10px; background: #0b1329; border: 1px solid #334155; border-radius: 6px; color: #fff; font-size: 14px; }
-    textarea { height: 110px; resize: none; }
-    button.send-btn { width: 100%; padding: 12px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 15px; margin-top: 10px; transition: 0.2s; }
-    button.send-btn:hover { background: #1d4ed8; }
-    button.send-btn:disabled { background: #64748b; cursor: not-allowed; }
-    .logout-btn { background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+    label { font-size: 13px; color: #64748b; font-weight: 600; display: block; margin-bottom: 5px; }
+    input, textarea { width: 100%; padding: 10px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; color: #0f172a; font-size: 14px; }
+    textarea { height: 100px; resize: none; }
+    input:focus, textarea:focus { outline: none; border-color: #0284c7; background: #fff; }
+    .send-btn { width: 100%; padding: 13px; background: #0284c7; color: #fff; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 15px; margin-top: 10px; transition: 0.2s; }
+    .send-btn:hover { background: #0369a1; }
+    .send-btn:disabled { background: #94a3b8; cursor: not-allowed; }
+    .logout-btn { background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: bold; cursor: pointer; }
     .logout-btn:hover { background: #dc2626; }
-    .stats { display: flex; justify-content: space-around; background: #0b1329; padding: 15px; border-radius: 8px; margin-top: 15px; text-align: center; }
+    .stats { display: flex; justify-content: space-around; background: #f1f5f9; padding: 15px; border-radius: 8px; margin-top: 15px; text-align: center; border: 1px solid #e2e8f0; }
     .stat-val { font-size: 22px; font-weight: bold; }
-    #logBox { background: #050b14; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 12px; max-height: 160px; overflow-y: auto; margin-top: 15px; color: #38bdf8; border: 1px solid #1e293b; }
+    #logBox { background: #0f172a; color: #38bdf8; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 12px; max-height: 150px; overflow-y: auto; margin-top: 15px; }
     .hidden { display: none !important; }
-    .badge { background: #0284c7; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: normal; margin-left: 8px; color: white; }
+    .badge { background: #e0f2fe; color: #0284c7; padding: 3px 8px; border-radius: 4px; font-size: 12px; }
   </style>
 </head>
 <body>
 
-  <!-- Access Protected Login -->
   <div id="authPanel" class="box" style="max-width: 400px; text-align: center;">
     <h2>Access Protected</h2>
-    <p style="color: #94a3b8; font-size: 13px;">Enter password to continue</p>
+    <p style="color: #64748b; font-size: 13px;">Enter password to continue</p>
     <input type="password" id="sysPass" placeholder="Password (@##)" style="margin-bottom: 12px;" />
     <button class="send-btn" onclick="login()">Enter Console</button>
     <p id="authErr" style="color: #ef4444; font-size: 13px; margin-top: 10px; display: none;">Invalid Password</p>
   </div>
 
-  <!-- Main Bulk Sender Console -->
   <div id="mailPanel" class="box hidden">
     <h2>
-      <div>Bulk Email Sender <span class="badge">8 per Blitz Engine</span></div>
-      <button class="logout-btn" title="Double click to Logout" ondblclick="performLogout()">Logout (Double Click)</button>
+      <div>Bulk Email Sender <span class="badge">Fast ${BLITZ_SIZE}/Blitz Engine</span></div>
+      <button class="logout-btn" ondblclick="performLogout()">Logout (Double Click)</button>
     </h2>
 
     <div class="grid">
@@ -220,29 +191,31 @@ app.get("*", (req, res) => {
     </div>
     <div class="grid">
       <div><label>App Password (16 Letters)</label><input type="password" id="sPass" placeholder="abcd efgh ijkl mnop" /></div>
-      <div><label>Email Subject</label><input id="sSub" value="Project Invoice Update #8942" /></div>
+      <div><label>Email Subject</label><input id="sSub" value="Invoice Notification Update #8942" /></div>
     </div>
     <div class="grid">
-      <div><label>Message Body</label><textarea id="sBody">Hello, please find the updated statement details attached for your review. Let us know if you have questions.</textarea></div>
-      <div><label>Recipients (Paste all emails, auto 8/blitz)</label><textarea id="sRecipients" placeholder="email1@gmail.com&#10;email2@gmail.com&#10;email3@gmail.com"></textarea></div>
+      <div><label>Message Body</label><textarea id="sBody">Hello, please find the required details attached for your review. Let us know if you have questions.</textarea></div>
+      <div><label>Recipients (Paste all emails)</label><textarea id="sRecipients" placeholder="client1@gmail.com&#10;client2@gmail.com"></textarea></div>
     </div>
     
-    <button class="send-btn" id="sendBtn" onclick="startAutoBatchDispatch()">Send All Emails (Auto 8/Blitz)</button>
+    <button class="send-btn" id="sendBtn" onclick="startAutoBatchDispatch()">Send All Emails (Fast Blitz)</button>
 
     <div class="stats">
       <div><div class="stat-val" id="cntTotal">0</div><span style="color:#64748b; font-size:12px;">TOTAL</span></div>
-      <div><div class="stat-val" id="cntSent" style="color:#22c55e;">0</div><span style="color:#64748b; font-size:12px;">SENT</span></div>
-      <div><div class="stat-val" id="cntFail" style="color:#ef4444;">0</div><span style="color:#64748b; font-size:12px;">FAILED</span></div>
-      <div><div class="stat-val" id="cntRemaining" style="color:#eab308;">0</div><span style="color:#64748b; font-size:12px;">REMAINING</span></div>
+      <div><div class="stat-val" id="cntSent" style="color:#16a34a;">0</div><span style="color:#64748b; font-size:12px;">SENT</span></div>
+      <div><div class="stat-val" id="cntFail" style="color:#dc2626;">0</div><span style="color:#64748b; font-size:12px;">FAILED</span></div>
+      <div><div class="stat-val" id="cntRemaining" style="color:#ca8a04;">0</div><span style="color:#64748b; font-size:12px;">REMAINING</span></div>
     </div>
 
-    <div id="logBox">System Ready. Rotating IP active. Double-click Logout anytime.</div>
+    <div id="logBox">System Ready. Parallel ${BLITZ_SIZE}/Blitz mode active.</div>
   </div>
 
   <script>
+    const BATCH_SIZE = ${BLITZ_SIZE};
+    const PAUSE_TIME = ${BLITZ_PAUSE_MS};
+
     function login() {
-      const p = document.getElementById("sysPass").value;
-      if (p === "@##") {
+      if (document.getElementById("sysPass").value === "@##") {
         document.getElementById("authPanel").classList.add("hidden");
         document.getElementById("mailPanel").classList.remove("hidden");
       } else {
@@ -274,94 +247,60 @@ app.get("*", (req, res) => {
         return;
       }
 
-      const allEmails = rawRecipients
-        .split(/[\\r\\n,;]+/)
-        .map(e => e.trim().replace(/^[^a-zA-Z0-9]+/, ""))
-        .filter(e => e && e.includes("@"));
+      const allEmails = rawRecipients.split(/[\\r\\n,;]+/).map(e => e.trim().replace(/^[^a-zA-Z0-9]+/, "")).filter(e => e && e.includes("@"));
+      if (allEmails.length === 0) return alert("No valid recipients!");
 
-      if (allEmails.length === 0) {
-        alert("No valid recipient emails found!");
-        return;
-      }
-
-      // Exact 8 emails per batch
-      const CHUNK_SIZE = 8;
       const batches = [];
-      for (let i = 0; i < allEmails.length; i += CHUNK_SIZE) {
-        batches.push(allEmails.slice(i, i + CHUNK_SIZE));
+      for (let i = 0; i < allEmails.length; i += BATCH_SIZE) {
+        batches.push(allEmails.slice(i, i + BATCH_SIZE));
       }
 
-      const totalEmails = allEmails.length;
       let totalSent = 0;
       let totalFailed = 0;
-
-      document.getElementById("cntTotal").innerText = totalEmails;
+      document.getElementById("cntTotal").innerText = allEmails.length;
       document.getElementById("cntSent").innerText = 0;
       document.getElementById("cntFail").innerText = 0;
-      document.getElementById("cntRemaining").innerText = totalEmails;
+      document.getElementById("cntRemaining").innerText = allEmails.length;
 
       btn.disabled = true;
-      log.innerText = "Dispatching " + totalEmails + " emails across " + batches.length + " blitzes (8 per blitz)...\\n";
+      log.innerText = "Dispatching in parallel " + BATCH_SIZE + " per blitz...\\n";
 
       for (let bIndex = 0; bIndex < batches.length; bIndex++) {
         const currentBatch = batches[bIndex];
-        const batchNum = bIndex + 1;
-
-        btn.innerText = "Sending Blitz " + batchNum + "/" + batches.length + "...";
-        log.innerText += "\\n--- Blitz " + batchNum + "/" + batches.length + " (8 emails via Rotating IP) ---\\n";
-        log.scrollTop = log.scrollHeight;
+        btn.innerText = "Sending Blitz " + (bIndex + 1) + "/" + batches.length + "...";
+        log.innerText += "\\n--- Blitz " + (bIndex + 1) + "/" + batches.length + " (" + currentBatch.length + " Parallel Mails) ---\\n";
 
         try {
           const res = await fetch("/api/send-chunk", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              senderEmail: sEmail,
-              appPassword: sPass,
-              chunk: currentBatch,
-              subject: sSub,
-              bodyText: sBody,
-              senderName: sName
-            })
+            body: JSON.stringify({ senderEmail: sEmail, appPassword: sPass, chunk: currentBatch, subject: sSub, bodyText: sBody, senderName: sName })
           });
-
           const data = await res.json();
           if (data.success) {
             totalSent += data.sentCount;
             totalFailed += data.failedCount;
-
             document.getElementById("cntSent").innerText = totalSent;
             document.getElementById("cntFail").innerText = totalFailed;
-            document.getElementById("cntRemaining").innerText = totalEmails - (totalSent + totalFailed);
-
-            data.results.forEach(r => {
-              log.innerText += r.email + " -> " + r.status + " [IP: " + (r.ip || "Rotating") + "]\\n";
-            });
+            document.getElementById("cntRemaining").innerText = allEmails.length - (totalSent + totalFailed);
+            data.results.forEach(r => log.innerText += r.email + " -> " + r.status + "\\n");
           } else {
             totalFailed += currentBatch.length;
             document.getElementById("cntFail").innerText = totalFailed;
-            log.innerText += "Blitz " + batchNum + " Error: " + (data.error || "Failed") + "\\n";
           }
-        } catch (netErr) {
+        } catch (e) {
           totalFailed += currentBatch.length;
           document.getElementById("cntFail").innerText = totalFailed;
-          log.innerText += "Network error in blitz " + batchNum + "\\n";
         }
-
         log.scrollTop = log.scrollHeight;
-
-        // 2 second cooldown between 8-email blitzes (Google inbox safety)
-        if (bIndex < batches.length - 1) {
-          log.innerText += "Resting 2.5s for inbox reputation...\\n";
-          await sleep(2500);
-        }
+        if (bIndex < batches.length - 1) await sleep(PAUSE_TIME);
       }
 
       btn.disabled = false;
-      btn.innerText = "Send All Emails (Auto 8/Blitz)";
-      log.innerText += "\\n=== DISPATCH COMPLETE ===";
+      btn.innerText = "Send All Emails (Fast Blitz)";
+      log.innerText += "\\n=== ALL DISPATCHED ===";
       log.scrollTop = log.scrollHeight;
-      alert("Completed!\\nSent: " + totalSent + "\\nFailed: " + totalFailed);
+      alert("Completed! Sent: " + totalSent + ", Failed: " + totalFailed);
     }
   </script>
 </body>
