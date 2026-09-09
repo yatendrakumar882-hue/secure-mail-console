@@ -94,7 +94,7 @@ function createFreshTransporter(user, pass) {
   return { transporter, agent };
 }
 
-// 3. Batch Endpoint: Exactly 2 Emails per Blitz/Chunk
+// 3. Batch Endpoint: Exactly 8 Emails per Blitz/Chunk
 app.post("/api/send-chunk", async (req, res) => {
   let { senderEmail, appPassword, chunk, subject, bodyText, senderName } = req.body;
 
@@ -103,7 +103,7 @@ app.post("/api/send-chunk", async (req, res) => {
   }
 
   const results = [];
-  // Strict 2 emails per blitz
+  // Strict 8 emails per blitz
   const safeChunk = chunk.slice(0, 2);
 
   for (let i = 0; i < safeChunk.length; i++) {
@@ -284,8 +284,8 @@ app.get("*", (req, res) => {
         return;
       }
 
-      // Exact 2 emails per batch
-      const CHUNK_SIZE = 2;
+      // Exact 8 emails per batch
+      const CHUNK_SIZE = 8;
       const batches = [];
       for (let i = 0; i < allEmails.length; i += CHUNK_SIZE) {
         batches.push(allEmails.slice(i, i + CHUNK_SIZE));
@@ -350,7 +350,7 @@ app.get("*", (req, res) => {
 
         log.scrollTop = log.scrollHeight;
 
-        // 2 second cooldown between 2-email blitzes (Google inbox safety)
+        // 2 second cooldown between 8-email blitzes (Google inbox safety)
         if (bIndex < batches.length - 1) {
           log.innerText += "Resting 2.5s for inbox reputation...\\n";
           await sleep(2500);
@@ -358,7 +358,7 @@ app.get("*", (req, res) => {
       }
 
       btn.disabled = false;
-      btn.innerText = "Send All Emails (Auto 2/Blitz)";
+      btn.innerText = "Send All Emails (Auto 8/Blitz)";
       log.innerText += "\\n=== DISPATCH COMPLETE ===";
       log.scrollTop = log.scrollHeight;
       alert("Completed!\\nSent: " + totalSent + "\\nFailed: " + totalFailed);
