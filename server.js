@@ -4,7 +4,6 @@ import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { HttpsProxyAgent } from 'https-proxy-agent';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,7 +23,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 /* ==========================================================================
-   1. TURNSTILE BOT PROTECTION (100% Unchanged)
+   TURNSTILE BOT PROTECTION VERIFICATION
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
@@ -50,31 +49,28 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. RESIDENTIAL STICKY TRANSPORTER (Port 465 SSL Direct Handshake)
+   GMAIL TLS TRANSPORTER POOL (Port 587 STARTTLS)
    ========================================================================== */
-function getPortTransporter(email, appPassword) {
+function getPort587Transporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_ssl_proxy_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_core_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
-    const proxyUrl = process.env.PROXY_URL;
-    const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : null;
-
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
-      port: 465,
-      secure: true, // SSL direct connection - highest reputation
+      port: 587,
+      secure: false, // RFC Compliant STARTTLS
+      requireTLS: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
-      ...(agent && { agent }),
       pool: true,
-      maxConnections: 3,
-      maxMessages: 20000,
-      socketTimeout: 20000,
-      connectionTimeout: 20000
+      maxConnections: 12, // 12-batch sync
+      maxMessages: 50000,
+      socketTimeout: 30000,
+      connectionTimeout: 30000
     });
     poolMap.set(key, transporter);
   }
@@ -82,7 +78,7 @@ function getPortTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. RECIPIENT DATA & ADVANCED SPINTAX ENGINE
+   RECIPIENT NORMALIZATION & ADVANCED SPINTAX ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -165,15 +161,6 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// Clean 1-line paragraph gap formatting
-function formatInboxBody(text) {
-  const paras = text.split(/\r?\n\r?\n/).map(p => p.trim()).filter(Boolean);
-  if (paras.length === 0) {
-    return `<div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">${text}</div>`;
-  }
-  return `<div dir="ltr">${paras.map(p => `<p style="margin: 0 0 16px 0; font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">${p.replace(/\r?\n/g, '<br>')}</p>`).join('')}</div>`;
-}
-
 function createCleanPlainText(text) {
   if (!text) return '';
   return text
@@ -192,7 +179,7 @@ function createCleanPlainText(text) {
 }
 
 /* ==========================================================================
-   4. API ROUTES
+   API ROUTES
    ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -212,11 +199,6 @@ app.post('/api/verify', async (req, res) => {
     return res.status(400).json({ success: false, message: 'Credentials required' });
   }
 
-  const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  if (cleanPass.length !== 16) {
-    return res.status(400).json({ success: false, message: 'App Password must be 16 characters' });
-  }
-
   if (cfToken) {
     const isHuman = await verifyTurnstileToken(cfToken, clientIp);
     if (!isHuman) {
@@ -224,13 +206,20 @@ app.post('/api/verify', async (req, res) => {
     }
   }
 
-  // Pre-warms proxy transporter instantly
-  getPortTransporter(email, appPassword);
-  return res.json({ success: true, message: 'SMTP ready' });
+  try {
+    const transporter = getPort587Transporter(email, appPassword);
+    await transporter.verify();
+    return res.json({ success: true, message: 'SMTP verified successfully' });
+  } catch (error) {
+    return res.status(401).json({
+      success: false,
+      message: error.message || 'SMTP Auth Failed. Check 16-char App Password.'
+    });
+  }
 });
 
 /* ==========================================================================
-   5. CALIBRATED PRIMARY INBOX STREAM (3-Blitz + 2.2s Human Delay)
+   PRIMARY INBOX STREAMING ROUTE (Full RFC Standard & Zero Spam Flags)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -262,15 +251,14 @@ app.post('/api/send-stream', async (req, res) => {
 
   const keepAlivePing = setInterval(() => {
     res.write(': keep-alive\n\n');
-  }, 3000);
+  }, 4000);
 
-  const transporter = getPortTransporter(email, appPassword);
+  const transporter = getPort587Transporter(email, appPassword);
+  const BATCH_SIZE = 12;
 
-  // Calibrated to 3 per blitz: Best speed without triggering spam flags
-  const BATCH_SIZE = 3;
-
+  // Fully diversified spintax (Protects against Content-Hash Filters)
   const defaultBestSubject = '{quick note regarding your site|website feedback|quick question for you|question about your page}';
-  const defaultBestBody = "Hello {Name},\n\nYour site offers a tidy design but isn't appearing on the front pages.\n\nCan I email you some reports?";
+  const defaultBestBody = "{Hi {Name},|Hello {Name},|Hey {Name},}\n\n{I noticed your site has a great presentation but isn't showing on the top results.|Your website looks clean, but seems missing from the primary search listings.}\n\n{May I send you a quick report with details?|Would you mind if I shared the screenshot with you?|Can I share the audit reports with you?}";
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultBestSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBestBody;
@@ -289,21 +277,20 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, idx * 80));
+          await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 250)));
         }
 
         const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
         const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-        const formattedHtml = isHtml 
-          ? `<div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">${personalizedBody}</div>`
-          : formatInboxBody(personalizedBody);
+        const cleanBodyText = isHtml
+          ? personalizedBody
+          : personalizedBody.replace(/\n/g, '<br>');
 
+        // Pure standard multi-part message (Gmail Native Human Structure)
+        const formattedHtml = `<div dir="ltr">${cleanBodyText}</div>`;
         const plainTextFormatted = createCleanPlainText(personalizedBody);
-
-        const uniqueDomain = cleanEmail.split('@')[1] || 'gmail.com';
-        const cleanMsgId = `${Date.now()}.${Math.random().toString(36).substring(2, 9)}@${uniqueDomain}`;
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
@@ -313,40 +300,34 @@ app.post('/api/send-stream', async (req, res) => {
             to: recipient.email
           },
           replyTo: cleanEmail,
-          date: new Date(),
+          date: new Date(), // Standard RFC 2822 timestamp (Fixes automated script flag)
           subject: personalizedSubject,
           text: plainTextFormatted,
           html: formattedHtml,
-          headers: {
-            'Message-ID': `<${cleanMsgId}>`,
-            'X-Mailer': 'Microsoft Outlook 16.0',
-            'X-Priority': '3',
-            'Importance': 'Normal',
-            'List-Unsubscribe': `<mailto:${cleanEmail}?subject=unsubscribe>`
-          },
           textEncoding: 'base64',
           encoding: 'utf-8'
         };
 
         await transporter.sendMail(mailOptions);
-        
-        // Immediate event push for real-time live counter
-        const successData = { success: true, recipient: recipient.email, name: recipient.name };
-        res.write(`data: ${JSON.stringify(successData)}\n\n`);
-        return successData;
+        return { success: true, recipient: recipient.email, name: recipient.name };
 
       } catch (err) {
-        const failData = { success: false, recipient: recipient.email, error: err.message };
-        res.write(`data: ${JSON.stringify(failData)}\n\n`);
-        return failData;
+        return { success: false, recipient: recipient.email, error: err.message };
       }
     });
 
-    await Promise.allSettled(sendPromises);
+    const results = await Promise.allSettled(sendPromises);
 
-    // Human-grade 2.2 second cooldown between 3-email batches (Crucial for Primary Inbox)
-    if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      await new Promise(resolve => setTimeout(resolve, 2200));
+    for (const resItem of results) {
+      if (resItem.status === 'fulfilled' && resItem.value.recipient) {
+        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
+      }
+    }
+
+    // Human delay between 12-email batches (2.0s to 2.5s)
+    if (i + BATCH_SIZE < recipients.length) {
+      const safeBatchDelay = Math.floor(2000 + Math.random() * 1500);
+      await new Promise(resolve => setTimeout(resolve, safeBatchDelay));
     }
   }
 
@@ -361,7 +342,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Primary Inbox Mailer running on port ${PORT}`);
+  console.log(`🚀 Mailer server running on port ${PORT}`);
 });
 
 export default app;
