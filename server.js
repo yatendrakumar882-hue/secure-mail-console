@@ -49,12 +49,12 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   NATIVE GMAIL TRANSPORTER WITH PROXY BINDING
+   GMAIL TRANSPORTER POOL (6 Parallel Connections)
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_perfect_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_blitz6_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const proxyUrl = process.env.PROXY_URL;
@@ -68,10 +68,10 @@ function getNativeTransporter(email, appPassword) {
       },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 1, // Single connection for ultra-human behavior
-      maxMessages: 10000,
-      socketTimeout: 30000,
-      connectionTimeout: 30000
+      maxConnections: 6, // Exact 6 parallel connections for 6-blitz sending
+      maxMessages: 20000,
+      socketTimeout: 25000,
+      connectionTimeout: 25000
     });
     poolMap.set(key, transporter);
   }
@@ -79,7 +79,7 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   PARSER & SPINTAX ENGINE
+   RECIPIENT & SPINTAX ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -200,7 +200,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   HUMAN-GRADE SINGLE EMAIL STREAMING (1 Email every 2.5s)
+   STREAMING ROUTE (Exact 6 Emails Blitz Batching)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -236,52 +236,65 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getNativeTransporter(email, appPassword);
 
-  // Default templates matching screenshot
+  // Exact 6 Blitz Batch Size
+  const BATCH_SIZE = 6;
+
   const defaultSubject = 'Google';
   const defaultBody = `Your site looks great, but it's not showing on Google yet. Can I email the quote?\n\nBest regards,\n${cleanSenderName}\nClient Relations & Business Development\n${cleanEmail}`;
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
 
-  for (let i = 0; i < recipients.length; i++) {
+  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
       break;
     }
 
-    const recipient = parseRecipientData(recipients[i]);
-    if (!recipient.email) continue;
+    const batch = recipients.slice(i, i + BATCH_SIZE);
 
-    try {
-      const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
-      const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
+    const sendPromises = batch.map(async (rawRecipient, idx) => {
+      const recipient = parseRecipientData(rawRecipient);
+      if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      // Exact Gmail Native Plain-Text Format matching image
-      const mailOptions = {
-        from: `"${cleanSenderName}" <${cleanEmail}>`,
-        to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-        replyTo: cleanEmail,
-        subject: personalizedSubject,
-        text: personalizedBody, // Plain text drives smart-replies and 100% Primary Inbox
-        headers: {
-          'X-Priority': '3',
-          'Importance': 'Normal'
+      try {
+        if (idx > 0) {
+          await new Promise(resolve => setTimeout(resolve, idx * 50));
         }
-      };
 
-      await transporter.sendMail(mailOptions);
-      
-      const successData = { success: true, recipient: recipient.email, name: recipient.name };
-      res.write(`data: ${JSON.stringify(successData)}\n\n`);
+        const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
+        const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
-    } catch (err) {
-      const failData = { success: false, recipient: recipient.email, error: err.message };
-      res.write(`data: ${JSON.stringify(failData)}\n\n`);
-    }
+        const mailOptions = {
+          from: `"${cleanSenderName}" <${cleanEmail}>`,
+          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+          replyTo: cleanEmail,
+          subject: personalizedSubject,
+          text: personalizedBody, // Plain Text triggers Google Smart Replies
+          headers: {
+            'X-Priority': '3',
+            'Importance': 'Normal'
+          }
+        };
 
-    // Natural 100 ms delay between emails
-    if (i < recipients.length - 1 && !globalSession.stopRequested) {
-      await new Promise(resolve => setTimeout(resolve, 100));
+        await transporter.sendMail(mailOptions);
+        
+        const successData = { success: true, recipient: recipient.email, name: recipient.name };
+        res.write(`data: ${JSON.stringify(successData)}\n\n`);
+        return successData;
+
+      } catch (err) {
+        const failData = { success: false, recipient: recipient.email, error: err.message };
+        res.write(`data: ${JSON.stringify(failData)}\n\n`);
+        return failData;
+      }
+    });
+
+    await Promise.allSettled(sendPromises);
+
+    // Natural 2-second cooldown between 6-email blitz batches for safety
+    if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }
 
@@ -296,7 +309,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Perfect Inbox Mailer running on port ${PORT}`);
+  console.log(`🚀 6-Blitz Primary Inbox Mailer running on port ${PORT}`);
 });
 
 export default app;
