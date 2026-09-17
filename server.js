@@ -5,6 +5,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,7 +24,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 /* ==========================================================================
-   TURNSTILE BOT PROTECTION
+   1. TURNSTILE BOT PROTECTION
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
@@ -49,12 +50,12 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   NATIVE GMAIL TRANSPORTER WITH PROXY BINDING
+   2. GMAIL TRANSPORTER POOL
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_perfect_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_clean_fast_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const proxyUrl = process.env.PROXY_URL;
@@ -68,7 +69,7 @@ function getNativeTransporter(email, appPassword) {
       },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 1, // Single connection for ultra-human behavior
+      maxConnections: 1,
       maxMessages: 10000,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -79,7 +80,7 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   PARSER & SPINTAX ENGINE
+   3. PARSER & SPINTAX ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -163,7 +164,7 @@ function personalizeContent(template, recipient) {
 }
 
 /* ==========================================================================
-   API ROUTES
+   4. API ROUTES
    ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -200,7 +201,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   HUMAN-GRADE SINGLE EMAIL STREAMING (1 Email every 2.5s)
+   5. ULTRA-CLEAN STREAMING ROUTE (100 ms Speed + Native Gmail Headers)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -236,7 +237,6 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getNativeTransporter(email, appPassword);
 
-  // Default templates matching screenshot
   const defaultSubject = 'Google';
   const defaultBody = `Your site looks great, but it's not showing on Google yet. Can I email the quote?\n\nBest regards,\n${cleanSenderName}\nClient Relations & Business Development\n${cleanEmail}`;
 
@@ -256,14 +256,19 @@ app.post('/api/send-stream', async (req, res) => {
       const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
       const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
-      // Exact Gmail Native Plain-Text Format matching image
+      // Authentic Google Native Message-ID Structure
+      const randomHex = crypto.randomBytes(12).toString('hex');
+      const customMessageId = `<${randomHex}@mail.gmail.com>`;
+
       const mailOptions = {
         from: `"${cleanSenderName}" <${cleanEmail}>`,
         to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
         replyTo: cleanEmail,
         subject: personalizedSubject,
-        text: personalizedBody, // Plain text drives smart-replies and 100% Primary Inbox
+        text: personalizedBody, // Clean raw text drives Google Quick Response Buttons
+        messageId: customMessageId,
         headers: {
+          'X-Mailer': 'Gmail Web Console',
           'X-Priority': '3',
           'Importance': 'Normal'
         }
@@ -279,7 +284,7 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify(failData)}\n\n`);
     }
 
-    // Natural 100 ms delay between emails
+    // Exact 100 ms sending delay
     if (i < recipients.length - 1 && !globalSession.stopRequested) {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
@@ -296,7 +301,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Perfect Inbox Mailer running on port ${PORT}`);
+  console.log(`🚀 Primary Inbox Mailer running on port ${PORT}`);
 });
 
 export default app;
