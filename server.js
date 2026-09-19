@@ -15,8 +15,9 @@ const PORT = process.env.PORT || 3000;
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
-// High-Safety Batching: 2 emails at a time with Human-like Delays
-const BATCH_SIZE = 2; 
+// High Throughput Settings (25 emails per batch with minimal delay)
+const BATCH_SIZE = 25;
+const BATCH_DELAY_MS = 100;
 
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
@@ -26,12 +27,8 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Dynamic Natural Delay (1.2s to 2.5s per batch) to mimic human composition
-const getHumanDelay = (min = 1200, max = 2500) => 
-  Math.floor(Math.random() * (max - min + 1)) + min;
-
 /* ==========================================================================
-   1. BOT PROTECTION
+   1. BOT PROTECTION (TURNSTILE)
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
@@ -57,12 +54,12 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. AUTHENTIC TRANSPORTER
+   2. HIGH-SPEED TRANSPORTER POOL
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_guarantee_${cleanEmail}_${cleanPass}`;
+  const key = `fast_pool_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const proxyUrl = process.env.PROXY_URL;
@@ -78,10 +75,10 @@ function getNativeTransporter(email, appPassword) {
       },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 3,
-      maxMessages: 100,
-      socketTimeout: 30000,
-      connectionTimeout: 30000
+      maxConnections: 25,
+      maxMessages: 1000,
+      socketTimeout: 15000,
+      connectionTimeout: 15000
     });
     poolMap.set(key, transporter);
   }
@@ -89,7 +86,7 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. SPINTAX & RECIPIENT PARSER
+   3. SPINTAX & RECIPIENT PARSER ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -210,7 +207,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. STREAMING ROUTE (ZERO-SPAM INBOX GUARANTEE ENGINE)
+   5. STREAMING ROUTE (FAST BATCH PROCESSING)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -262,9 +259,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       const plainTextBody = `${rawPersonalizedBody}\n\n`;
 
-      // Real Gmail Web interface Message-ID Generation
       const domainHost = cleanEmail.split('@')[1] || 'gmail.com';
-      const randomHash = crypto.randomBytes(12).toString('hex');
+      const randomHash = crypto.randomBytes(8).toString('hex');
       const uniqueMsgId = `<CAG=${randomHash}@${domainHost}>`;
 
       const mailOptions = {
@@ -274,10 +270,8 @@ app.post('/api/send-stream', async (req, res) => {
         subject: personalizedSubject,
         text: plainTextBody,
         headers: {
-          'X-Mailer': 'Gmail Web Client',
-          'Message-ID': uniqueMsgId,
-          'X-Priority': '3',
-          'Priority': 'normal'
+          'X-Mailer': 'Gmail Web Interface',
+          'Message-ID': uniqueMsgId
         }
       };
 
@@ -298,8 +292,7 @@ app.post('/api/send-stream', async (req, res) => {
     await Promise.all(currentBatch.map(item => sendSingleMail(item)));
 
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      const delay = getHumanDelay();
-      await new Promise(resolve => setTimeout(resolve, delay));
+      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
     }
   }
 
@@ -314,7 +307,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Safe Mailer Running on Port ${PORT}`);
+  console.log(`🚀 Fast Mailer Running on Port ${PORT}`);
 });
 
 export default app;
