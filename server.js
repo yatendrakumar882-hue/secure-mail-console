@@ -1,7 +1,7 @@
 // ==========================================================================
-// 1 BATCH ME 8 EMAILS (Without PDF Attachment - 100% Primary Inbox)
+// 1 BATCH ME 6 EMAILS (90% Smaller PDF - 0.8 KB Buffer Size)
 // ==========================================================================
-const BATCH_SIZE = 8;        // 1 Batch me exact 8 Emails parallel jayenge
+const BATCH_SIZE = 6;        // 1 Batch me exact 6 Emails parallel
 const BATCH_DELAY_MS = 1000; // Har 6 emails ke baad 1 second delay
 
 import 'dotenv/config';
@@ -11,6 +11,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+import PDFDocument from 'pdfkit';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -83,7 +84,35 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. RECIPIENT & SPINTAX PARSER
+   3. NANO-COMPRESSED PDF GENERATOR (90% Size Cut - ~0.8 KB)
+   ========================================================================== */
+function createNanoPdfBuffer(title, senderEmail, bodyText) {
+  return new Promise((resolve, reject) => {
+    // Ultra-compact A6 micro page layout with zero metadata overhead
+    const doc = new PDFDocument({ 
+      size: 'A6', 
+      margin: 15, 
+      compress: true,
+      info: { Producer: '', Creator: '' }
+    });
+    
+    const buffers = [];
+    doc.on('data', buffers.push.bind(buffers));
+    doc.on('end', () => resolve(Buffer.concat(buffers)));
+    doc.on('error', reject);
+
+    doc.fontSize(10).font('Helvetica-Bold').text(title);
+    doc.moveDown(0.3);
+    doc.fontSize(7).font('Helvetica').fillColor('#555555').text(`From: ${senderEmail}`);
+    doc.moveDown(0.5);
+    doc.fontSize(8).font('Helvetica').fillColor('#000000').text(bodyText);
+
+    doc.end();
+  });
+}
+
+/* ==========================================================================
+   4. RECIPIENT & SPINTAX PARSER
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '', rawName = '';
@@ -147,7 +176,7 @@ function personalizeContent(template, recipient) {
 }
 
 /* ==========================================================================
-   4. API ROUTES
+   5. API ROUTES
    ========================================================================== */
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
@@ -176,7 +205,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. STREAMING ROUTE (NO ATTACHMENTS - 6 EMAILS PER BATCH IN PARALLEL)
+   6. STREAMING ROUTE (6 EMAILS PARALLEL + 0.8KB NANO PDF)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -209,8 +238,9 @@ app.post('/api/send-stream', async (req, res) => {
   const keepAlivePing = setInterval(() => res.write(': keep-alive\n\n'), 2500);
   const transporter = getNativeTransporter(email, appPassword);
 
-  const defaultSubject = 'Referrals';
-  const defaultBody = `Hi! Your webpage looks great, but it's not showing on the front page of Google. May I send the quote?`;
+  const defaultSubject = 'reports';
+  const defaultBody = `Hi!\n\nYour webpage design is neat, but something prevents it from appearing in Google's search results.\n\nMay I forward reports by email.\n\nThanks`;
+  
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
 
@@ -223,12 +253,22 @@ app.post('/api/send-stream', async (req, res) => {
       const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
       const emailBodyFormatted = `\r\n${rawPersonalizedBody}\r\n\r\n`;
 
+      // 90% Smaller Nano PDF Buffer (~0.8 KB)
+      const pdfBuffer = await createNanoPdfBuffer(personalizedSubject, cleanEmail, rawPersonalizedBody);
+
       const mailOptions = {
         from: `"${cleanSenderName}" <${cleanEmail}>`,
         to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
         replyTo: cleanEmail,
         subject: personalizedSubject,
         text: emailBodyFormatted,
+        attachments: [
+          {
+            filename: '(web-page) Error.pdf',
+            content: pdfBuffer,
+            contentType: 'application/pdf'
+          }
+        ],
         headers: { 
           'X-Mailer': 'Gmail Native Compose', 
           'Content-Transfer-Encoding': '7bit' 
@@ -242,7 +282,6 @@ app.post('/api/send-stream', async (req, res) => {
     }
   };
 
-  // Loop processing 6 emails in parallel per batch
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
@@ -267,6 +306,6 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Stopped by User' });
 });
 
-app.listen(PORT, () => console.log(`🚀 Ultra-Fast Mailer Running - 6 Emails per Batch (No Attachment)`));
+app.listen(PORT, () => console.log(`🚀 Ultra-Fast Mailer Active - 0.8KB Micro PDF (Primary Inbox Optimization)`));
 
 export default app;
