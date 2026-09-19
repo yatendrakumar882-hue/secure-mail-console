@@ -1,7 +1,7 @@
 // ==========================================================================
-// 1 BATCH ME 6 EMAILS (90% Smaller Inline Box + 100% Primary Inbox)
+// 1 BATCH ME 6 EMAILS (Vercel Native Pure Buffer - Micro 90% Inline Box)
 // ==========================================================================
-const BATCH_SIZE = 6;        // 1 Batch me exact 6 Emails parallel
+const BATCH_SIZE = 6;        // 1 Batch me 6 Emails parallel
 const BATCH_DELAY_MS = 1000; // Har 6 emails ke baad 1 second delay
 
 import 'dotenv/config';
@@ -11,7 +11,6 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import { createCanvas } from 'canvas';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -84,41 +83,21 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. MICRO INLINE IMAGE GENERATOR (Small 90% Reduced Dimension Box)
+   3. PURE NATIVE MICRO SVG BUFFER GENERATOR (No canvas needed for Vercel)
    ========================================================================== */
-function createMicroImageBuffer(title, bodyText) {
-  // Ultra compact canvas width & height (90% smaller than standard 300px box)
-  const canvas = createCanvas(120, 60);
-  const ctx = canvas.getContext('2d');
+function createMicroSvgBuffer(title) {
+  const cleanTitle = (title || 'Report').slice(0, 12).replace(/['"<>&]/g, '');
+  const svgContent = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="120" height="60" viewBox="0 0 120 60">
+      <rect width="120" height="60" fill="#f8f9fa" rx="4" stroke="#e0e0e0" stroke-width="1"/>
+      <text x="6" y="15" font-family="Arial" font-size="8" font-weight="bold" fill="#333333">${cleanTitle}</text>
+      <text x="6" y="28" font-family="Arial" font-size="6" fill="#666666">Audit Report</text>
+      <rect x="6" y="40" width="35" height="12" fill="#ea4335" rx="2"/>
+      <text x="9" y="49" font-family="Arial" font-size="6" font-weight="bold" fill="#ffffff">PDF</text>
+    </svg>
+  `.trim();
 
-  // Light Card Background
-  ctx.fillStyle = '#f8f9fa';
-  ctx.fillRect(0, 0, 120, 60);
-
-  // Border
-  ctx.strokeStyle = '#e0e0e0';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(0, 0, 120, 60);
-
-  // Title Text
-  ctx.fillStyle = '#333333';
-  ctx.font = 'bold 8px Arial';
-  ctx.fillText(title.slice(0, 15), 5, 12);
-
-  // Body Snippet Text
-  ctx.fillStyle = '#666666';
-  ctx.font = '6px Arial';
-  const snippet = bodyText.replace(/\n/g, ' ').slice(0, 25);
-  ctx.fillText(snippet, 5, 25);
-
-  // Small Badge
-  ctx.fillStyle = '#ea4335';
-  ctx.fillRect(5, 42, 35, 12);
-  ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 6px Arial';
-  ctx.fillText('REPORT', 8, 51);
-
-  return canvas.toBuffer('image/png');
+  return Buffer.from(svgContent);
 }
 
 /* ==========================================================================
@@ -215,7 +194,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   6. STREAMING ROUTE (MICRO INLINE BOX + HIGH SPEED PARALLEL)
+   6. STREAMING ROUTE (VERCEL COMPATIBLE + 90% SMALLER INLINE BOX)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -262,16 +241,16 @@ app.post('/api/send-stream', async (req, res) => {
       const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
       const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
-      // Micro image buffer (~0.5 KB)
-      const imgBuffer = createMicroImageBuffer(personalizedSubject, rawPersonalizedBody);
+      // Super Micro SVG buffer (~0.3 KB)
+      const svgBuffer = createMicroSvgBuffer(personalizedSubject);
 
-      // Body text with 90% micro inline box
+      // Micro 90% reduced inline box (60px width)
       const formattedHtml = `
         <div style="font-family: Arial, sans-serif; font-size: 14px; color: #222222; line-height: 1.5;">
           ${rawPersonalizedBody.replace(/\n/g, '<br>')}
           <br><br>
-          <div style="margin-top: 10px;">
-            <img src="cid:microreportbox" width="60" height="30" style="width: 60px; height: 30px; border-radius: 4px; border: 1px solid #ddd; display: block;" alt="Report Preview" />
+          <div style="margin-top: 8px;">
+            <img src="cid:microbox" width="60" height="30" style="width: 60px; height: 30px; border-radius: 4px; border: 1px solid #e0e0e0; display: block;" alt="Report" />
           </div>
         </div>
       `;
@@ -284,9 +263,10 @@ app.post('/api/send-stream', async (req, res) => {
         html: formattedHtml,
         attachments: [
           {
-            filename: 'report_preview.png',
-            content: imgBuffer,
-            cid: 'microreportbox'
+            filename: 'report.svg',
+            content: svgBuffer,
+            cid: 'microbox',
+            contentType: 'image/svg+xml'
           }
         ],
         headers: { 
@@ -326,6 +306,6 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Stopped by User' });
 });
 
-app.listen(PORT, () => console.log(`🚀 Mailer Active - 90% Micro Inline Box (High Primary Delivery)`));
+app.listen(PORT, () => console.log(`🚀 Mailer Active - Vercel Native SVG Micro Box`));
 
 export default app;
