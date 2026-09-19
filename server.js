@@ -49,7 +49,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. AUTHENTIC GMAIL NATIVE TRANSPORTER (POOLED FOR HIGH SPEED)
+   2. AUTHENTIC GMAIL TRANSPORTER POOL
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -161,7 +161,7 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  // Exact Line break normalization with top & bottom 1-line gap
+  // Exact 1-line Gap Formatting for Gmail/Outlook UI
   content = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   return `\r\n${content}\r\n\r\n`;
 }
@@ -204,7 +204,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. HIGH-DELIVERY STREAMING ROUTE (25 Emails per 4 Seconds = 160ms Delay)
+   5. INBOX STREAMING ROUTE (25 Emails / 4 Seconds Speed)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -281,7 +281,7 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify(failData)}\n\n`);
     }
 
-    // Exact Speed Fix: 160ms delay = 25 emails in 4 seconds
+    // 160ms delay = 25 emails in 4 seconds
     if (i < recipients.length - 1 && !globalSession.stopRequested) {
       await new Promise(resolve => setTimeout(resolve, 160));
     }
@@ -298,7 +298,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Primary Inbox Mailer running on port ${PORT}`);
+  console.log(`🚀 Perfect Primary Inbox Mailer running on port ${PORT}`);
 });
 
 export default app;
