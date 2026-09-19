@@ -7,6 +7,13 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 
+/* ==========================================================================
+   ⚡ SPEED CONFIGURATION (YAHAN SE SPEED CONTROL KAREIN)
+   ========================================================================== */
+const BATCH_SIZE = 3;         // Ek baar me kitne email bhejenge (Default: 3)
+const BATCH_DELAY_MS = 150;   // Har batch ke beech ka delay (150ms = Fast & Safe)
+/* ========================================================================== */
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -14,12 +21,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
-
-/* ==========================================================================
-   SPEED CONFIGURATION: 1 email per batch | ~24 emails in ~7-8 seconds 
-   ========================================================================== */
-const BATCH_SIZE = 1; 
-const getNaturalDelay = () => Math.floor(Math.random() * (450 - 300 + 1)) + 300; // 300ms-450ms dynamic delay
 
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
@@ -56,12 +57,12 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. STABLE TRANSPORTER POOL
+   2. HIGH SPEED & INBOX TRANSPORTER POOL
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_pool_${cleanEmail}_${cleanPass}`;
+  const key = `fast_inbox_pool_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const proxyUrl = process.env.PROXY_URL;
@@ -77,10 +78,10 @@ function getNativeTransporter(email, appPassword) {
       },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 3,
-      maxMessages: 1000,
-      socketTimeout: 15000,
-      connectionTimeout: 15000
+      maxConnections: 5,     // Parallel connections for fast sending
+      maxMessages: 10000,
+      socketTimeout: 12000,
+      connectionTimeout: 12000
     });
     poolMap.set(key, transporter);
   }
@@ -209,7 +210,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. STREAMING ROUTE WITH INBOX GUARANTEE HEADERS
+   5. STREAMING ROUTE (INBOX LANDING + ADJUSTABLE SPEED)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -245,7 +246,7 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getNativeTransporter(email, appPassword);
 
-  const defaultSubject = '{Quick question|Website inquiry|Feedback regarding {Domain}}';
+  const defaultSubject = '{Quick question|Website inquiry|Regarding {Domain}}';
   const defaultBody = `Hi {FirstName},\n\nHope you are well.\n\nBest,`;
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
@@ -261,7 +262,6 @@ app.post('/api/send-stream', async (req, res) => {
         const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
         const plainTextBody = `${rawPersonalizedBody}\n`;
-
         const domainHost = cleanEmail.split('@')[1] || 'gmail.com';
         const uniqueMsgId = `<${crypto.randomBytes(12).toString('hex')}@${domainHost}>`;
 
@@ -285,7 +285,7 @@ app.post('/api/send-stream', async (req, res) => {
         if (attempt === retries) {
           res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
         } else {
-          await new Promise(resolve => setTimeout(resolve, 300));
+          await new Promise(resolve => setTimeout(resolve, 200));
         }
       }
     }
@@ -301,7 +301,7 @@ app.post('/api/send-stream', async (req, res) => {
     await Promise.all(currentBatch.map(item => sendSingleMail(item)));
 
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      await new Promise(resolve => setTimeout(resolve, getNaturalDelay()));
+      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
     }
   }
 
