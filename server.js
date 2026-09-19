@@ -10,7 +10,7 @@ import { HttpsProxyAgent } from 'https-proxy-agent';
 /* ==========================================================================
    ⚡ SPEED CONFIGURATION (YAHAN SE SPEED CONTROL KAREIN)
    ========================================================================== */
-const BATCH_SIZE = 3;         // Ek baar me kitne email bhejenge (Default: 3)
+const BATCH_SIZE = 5;         // Ek baar me kitne email bhejenge (Default: 5)
 const BATCH_DELAY_MS = 150;   // Har batch ke beech ka delay (150ms = Fast & Safe)
 /* ========================================================================== */
 
