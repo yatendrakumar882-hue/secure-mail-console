@@ -16,9 +16,9 @@ const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 /* ==========================================================================
-   SPEED CONFIGURATION: 6 emails per batch | 4 batches = 24 emails in 7 seconds
+   SPEED CONFIGURATION: 1 email per batch | 24 emails in ~7 seconds (250ms delay)
    ========================================================================== */
-const BATCH_SIZE = 6; const BATCH_DELAY_MS = 1500; 
+const BATCH_SIZE = 1; const BATCH_DELAY_MS = 250;
 
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
@@ -60,7 +60,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `batch6_pool_${cleanEmail}_${cleanPass}`;
+  const key = `batch1_pool_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const proxyUrl = process.env.PROXY_URL;
@@ -76,10 +76,10 @@ function getNativeTransporter(email, appPassword) {
       },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 6, // Optimized for 6 concurrent connections
+      maxConnections: 3,
       maxMessages: 500,
-      socketTimeout: 15000,
-      connectionTimeout: 15000
+      socketTimeout: 10000,
+      connectionTimeout: 10000
     });
     poolMap.set(key, transporter);
   }
@@ -208,7 +208,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. STREAMING ROUTE WITH AUTO-RETRY (0 FAILS GUARANTEE)
+   5. STREAMING ROUTE WITH AUTO-RETRY (1-BY-1 SENDING)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -250,7 +250,7 @@ app.post('/api/send-stream', async (req, res) => {
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
 
-  // Auto-retry logic (max 3 tries) to prevent dropped emails
+  // Single mail sender with retry logic
   const sendSingleMail = async (rawRecipient, retries = 3) => {
     const recipient = parseRecipientData(rawRecipient);
     if (!recipient.email) return;
@@ -282,13 +282,12 @@ app.post('/api/send-stream', async (req, res) => {
 
         await transporter.sendMail(mailOptions);
         res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email, name: recipient.name })}\n\n`);
-        return; // Success -> Break out of retry loop
+        return;
       } catch (err) {
         if (attempt === retries) {
           res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
         } else {
-          // Short delay before retry
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise(resolve => setTimeout(resolve, 200));
         }
       }
     }
@@ -302,10 +301,10 @@ app.post('/api/send-stream', async (req, res) => {
 
     const currentBatch = recipients.slice(i, i + BATCH_SIZE);
     
-    // Execute 6 emails simultaneously
+    // 1-by-1 execution
     await Promise.all(currentBatch.map(item => sendSingleMail(item)));
 
-    // 1.5s delay between batches (4 batches of 6 = total ~7 seconds)
+    // 250ms delay between emails (24 emails in ~7 seconds total)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
       await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
     }
