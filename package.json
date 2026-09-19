@@ -1,7 +1,7 @@
 {
   "name": "ultra-fast-mailer",
   "version": "1.0.0",
-  "description": "High Speed Mailer for Vercel Deployment",
+  "description": "High Speed Mailer with Mini PDF Preview",
   "main": "server.js",
   "type": "module",
   "scripts": {
