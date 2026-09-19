@@ -49,7 +49,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. AUTHENTIC GMAIL TRANSPORTER POOL
+   2. AUTHENTIC GMAIL NATIVE TRANSPORTER
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -70,7 +70,7 @@ function getNativeTransporter(email, appPassword) {
       },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 5,
+      maxConnections: 1,
       maxMessages: 10000,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -161,9 +161,16 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  // Exact 1-line Gap Formatting for Gmail/Outlook UI
-  content = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-  return `\r\n${content}\r\n\r\n`;
+  // Normalizing Line Breaks for Gmail & Outlook Rendering
+  content = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  content = content.split('\n').join('\r\n');
+
+  // Ensure exact 1-line empty gap at the end for reply threading
+  if (!content.endsWith('\r\n\r\n')) {
+    content = content.trimEnd() + '\r\n\r\n';
+  }
+
+  return content;
 }
 
 /* ==========================================================================
@@ -204,7 +211,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. INBOX STREAMING ROUTE (25 Emails / 4 Seconds Speed)
+   5. HIGH-DELIVERY STREAMING ROUTE (100 ms Speed)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -240,8 +247,8 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getNativeTransporter(email, appPassword);
 
-  const defaultSubject = 'reports';
-  const defaultBody = `Hey, Your site is good, but a error is stopping it from showing up on the Google's search result. May I forward the reports.`;
+  const defaultSubject = 'results';
+  const defaultBody = `Hi! Your website looks fine, but a error prevents it from showing on Google's search result. Can I forward reports.`;
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
@@ -264,11 +271,7 @@ app.post('/api/send-stream', async (req, res) => {
         to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
         replyTo: cleanEmail,
         subject: personalizedSubject,
-        text: personalizedBody,
-        headers: {
-          'X-Mailer': 'Gmail Native Compose',
-          'Content-Transfer-Encoding': '7bit'
-        }
+        text: personalizedBody
       };
 
       await transporter.sendMail(mailOptions);
@@ -281,9 +284,9 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify(failData)}\n\n`);
     }
 
-    // 160ms delay = 25 emails in 4 seconds
+    // Exact 100 ms delay
     if (i < recipients.length - 1 && !globalSession.stopRequested) {
-      await new Promise(resolve => setTimeout(resolve, 160));
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
   }
 
@@ -298,7 +301,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Perfect Primary Inbox Mailer running on port ${PORT}`);
+  console.log(`🚀 Primary Inbox Mailer running on port ${PORT}`);
 });
 
 export default app;
