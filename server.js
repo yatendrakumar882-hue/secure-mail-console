@@ -1,7 +1,7 @@
 // ==========================================================================
-// 1 BATCH ME 6 EMAILS (5 Seconds me 20-25 Emails Complete Setup)
+// 1 BATCH ME 8 EMAILS (Without PDF Attachment - 100% Primary Inbox)
 // ==========================================================================
-const BATCH_SIZE = 6;        // 1 Batch me exact 6 Emails parallel jayenge
+const BATCH_SIZE = 8;        // 1 Batch me exact 8 Emails parallel jayenge
 const BATCH_DELAY_MS = 1000; // Har 6 emails ke baad 1 second delay
 
 import 'dotenv/config';
@@ -11,7 +11,6 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import PDFDocument from 'pdfkit';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -73,7 +72,7 @@ function getNativeTransporter(email, appPassword) {
       auth: { user: cleanEmail, pass: cleanPass },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 20, // High parallel connection for 6 per batch
+      maxConnections: 20,
       maxMessages: 10000,
       socketTimeout: 15000,
       connectionTimeout: 15000
@@ -84,34 +83,7 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. ULTRA-LIGHT PDF GENERATOR (1.5 KB - Primary Inbox Friendly)
-   ========================================================================== */
-function createSuperLightPdfBuffer(title, senderName, senderEmail, bodyText) {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'A5', margin: 30, compress: true });
-    const buffers = [];
-
-    doc.on('data', buffers.push.bind(buffers));
-    doc.on('end', () => resolve(Buffer.concat(buffers)));
-    doc.on('error', reject);
-
-    const dateStr = new Date().toLocaleDateString('en-US', {
-      month: 'short', day: 'numeric', year: 'numeric'
-    });
-
-    doc.fillColor('#111827').fontSize(16).font('Helvetica-Bold').text(title, { align: 'left' });
-    doc.moveDown(0.5);
-    doc.strokeColor('#e5e7eb').lineWidth(0.8).moveTo(30, doc.y).lineTo(390, doc.y).stroke();
-    doc.moveDown(0.8);
-    doc.fontSize(9).font('Helvetica').fillColor('#6b7280').text(`From: ${senderName} <${senderEmail}> | Date: ${dateStr}`);
-    doc.moveDown(0.8);
-    doc.fontSize(10).font('Helvetica').fillColor('#111827').text(bodyText, { lineGap: 3 });
-    doc.end();
-  });
-}
-
-/* ==========================================================================
-   4. RECIPIENT & SPINTAX PARSER
+   3. RECIPIENT & SPINTAX PARSER
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '', rawName = '';
@@ -175,7 +147,7 @@ function personalizeContent(template, recipient) {
 }
 
 /* ==========================================================================
-   5. API ROUTES
+   4. API ROUTES
    ========================================================================== */
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
@@ -204,7 +176,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   6. STREAMING ROUTE (6 EMAILS PER BATCH IN PARALLEL)
+   5. STREAMING ROUTE (NO ATTACHMENTS - 6 EMAILS PER BATCH IN PARALLEL)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -251,18 +223,16 @@ app.post('/api/send-stream', async (req, res) => {
       const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
       const emailBodyFormatted = `\r\n${rawPersonalizedBody}\r\n\r\n`;
 
-      const pdfBuffer = await createSuperLightPdfBuffer(
-        personalizedSubject, cleanSenderName, cleanEmail, rawPersonalizedBody
-      );
-
       const mailOptions = {
         from: `"${cleanSenderName}" <${cleanEmail}>`,
         to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
         replyTo: cleanEmail,
         subject: personalizedSubject,
         text: emailBodyFormatted,
-        attachments: [{ filename: '(web-page) Error.pdf', content: pdfBuffer, contentType: 'application/pdf' }],
-        headers: { 'X-Mailer': 'Gmail Native Compose', 'Content-Transfer-Encoding': '7bit' }
+        headers: { 
+          'X-Mailer': 'Gmail Native Compose', 
+          'Content-Transfer-Encoding': '7bit' 
+        }
       };
 
       await transporter.sendMail(mailOptions);
@@ -297,6 +267,6 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Stopped by User' });
 });
 
-app.listen(PORT, () => console.log(`🚀 Ultra-Fast Mailer Running - 6 Emails per Batch`));
+app.listen(PORT, () => console.log(`🚀 Ultra-Fast Mailer Running - 6 Emails per Batch (No Attachment)`));
 
 export default app;
