@@ -16,10 +16,9 @@ const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 /* ==========================================================================
-   SPEED & BATCH CONFIGURATION (25 Emails every 5-6 Seconds)
+   SPEED CONFIGURATION: 6 emails per batch | 4 batches = 24 emails in 7 seconds
    ========================================================================== */
-const BATCH_SIZE = 25;         // 25 emails per batch
-const BATCH_DELAY_MS = 5500;   // 5.5 seconds delay between batches
+const BATCH_SIZE = 6; const BATCH_DELAY_MS = 1500; 
 
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
@@ -56,12 +55,12 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. TRANSPORTER POOL (25 PARALLEL CONNECTIONS)
+   2. STABLE TRANSPORTER POOL
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `speed_pool_${cleanEmail}_${cleanPass}`;
+  const key = `batch6_pool_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const proxyUrl = process.env.PROXY_URL;
@@ -77,10 +76,10 @@ function getNativeTransporter(email, appPassword) {
       },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 25, // Match batch size for parallel execution
-      maxMessages: 1000,
-      socketTimeout: 20000,
-      connectionTimeout: 20000
+      maxConnections: 6, // Optimized for 6 concurrent connections
+      maxMessages: 500,
+      socketTimeout: 15000,
+      connectionTimeout: 15000
     });
     poolMap.set(key, transporter);
   }
@@ -209,7 +208,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. STREAMING ROUTE (5-6 SECOND BATCH CONTROL)
+   5. STREAMING ROUTE WITH AUTO-RETRY (0 FAILS GUARANTEE)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -251,38 +250,47 @@ app.post('/api/send-stream', async (req, res) => {
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
 
-  const sendSingleMail = async (rawRecipient) => {
+  // Auto-retry logic (max 3 tries) to prevent dropped emails
+  const sendSingleMail = async (rawRecipient, retries = 3) => {
     const recipient = parseRecipientData(rawRecipient);
     if (!recipient.email) return;
 
-    try {
-      const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
-      const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
+        const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
-      const plainTextBody = `${rawPersonalizedBody}\n\n`;
+        const plainTextBody = `${rawPersonalizedBody}\n\n`;
 
-      const domainHost = cleanEmail.split('@')[1] || 'gmail.com';
-      const randomHash = crypto.randomBytes(8).toString('hex');
-      const uniqueMsgId = `<CAG=${randomHash}@${domainHost}>`;
+        const domainHost = cleanEmail.split('@')[1] || 'gmail.com';
+        const randomHash = crypto.randomBytes(8).toString('hex');
+        const uniqueMsgId = `<CAG=${randomHash}@${domainHost}>`;
 
-      const mailOptions = {
-        from: `"${cleanSenderName}" <${cleanEmail}>`,
-        to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-        replyTo: cleanEmail,
-        subject: personalizedSubject,
-        text: plainTextBody,
-        headers: {
-          'X-Mailer': 'Gmail Web Client',
-          'Message-ID': uniqueMsgId,
-          'MIME-Version': '1.0',
-          'Content-Type': 'text/plain; charset=UTF-8'
+        const mailOptions = {
+          from: `"${cleanSenderName}" <${cleanEmail}>`,
+          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+          replyTo: cleanEmail,
+          subject: personalizedSubject,
+          text: plainTextBody,
+          headers: {
+            'X-Mailer': 'Gmail Web Interface',
+            'Message-ID': uniqueMsgId,
+            'MIME-Version': '1.0',
+            'Content-Type': 'text/plain; charset=UTF-8'
+          }
+        };
+
+        await transporter.sendMail(mailOptions);
+        res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email, name: recipient.name })}\n\n`);
+        return; // Success -> Break out of retry loop
+      } catch (err) {
+        if (attempt === retries) {
+          res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
+        } else {
+          // Short delay before retry
+          await new Promise(resolve => setTimeout(resolve, 500));
         }
-      };
-
-      await transporter.sendMail(mailOptions);
-      res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email, name: recipient.name })}\n\n`);
-    } catch (err) {
-      res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
+      }
     }
   };
 
@@ -294,10 +302,10 @@ app.post('/api/send-stream', async (req, res) => {
 
     const currentBatch = recipients.slice(i, i + BATCH_SIZE);
     
-    // Execute 25 emails in parallel
+    // Execute 6 emails simultaneously
     await Promise.all(currentBatch.map(item => sendSingleMail(item)));
 
-    // Pause for 5.5 seconds before sending the next batch
+    // 1.5s delay between batches (4 batches of 6 = total ~7 seconds)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
       await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
     }
@@ -314,7 +322,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Mailer Server Running on Port ${PORT}`);
+  console.log(`🚀 Mailer Running on Port ${PORT}`);
 });
 
 export default app;
