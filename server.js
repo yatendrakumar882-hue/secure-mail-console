@@ -16,9 +16,10 @@ const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 /* ==========================================================================
-   SPEED CONFIGURATION: 1 email per batch | 24 emails in ~7 seconds (250ms delay)
+   SPEED CONFIGURATION: 1 email per batch | ~24 emails in ~7-8 seconds 
    ========================================================================== */
-const BATCH_SIZE = 1; const BATCH_DELAY_MS = 250;
+const BATCH_SIZE = 1; 
+const getNaturalDelay = () => Math.floor(Math.random() * (450 - 300 + 1)) + 300; // 300ms-450ms dynamic delay
 
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
@@ -60,7 +61,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `batch1_pool_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_pool_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const proxyUrl = process.env.PROXY_URL;
@@ -77,9 +78,9 @@ function getNativeTransporter(email, appPassword) {
       ...(agent && { agent }),
       pool: true,
       maxConnections: 3,
-      maxMessages: 500,
-      socketTimeout: 10000,
-      connectionTimeout: 10000
+      maxMessages: 1000,
+      socketTimeout: 15000,
+      connectionTimeout: 15000
     });
     poolMap.set(key, transporter);
   }
@@ -208,7 +209,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. STREAMING ROUTE WITH AUTO-RETRY (1-BY-1 SENDING)
+   5. STREAMING ROUTE WITH INBOX GUARANTEE HEADERS
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -235,7 +236,7 @@ app.post('/api/send-stream', async (req, res) => {
   }
 
   const cleanEmail = email.toLowerCase().trim();
-  const cleanSenderName = (senderName || 'Dheeru').replace(/["\r\n]/g, '').trim();
+  const cleanSenderName = (senderName || 'Dylan').replace(/["\r\n]/g, '').trim();
   globalSession.stopRequested = false;
 
   const keepAlivePing = setInterval(() => {
@@ -244,13 +245,12 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getNativeTransporter(email, appPassword);
 
-  const defaultSubject = '{Quick note|Hello|Quick question}';
-  const defaultBody = `Hi {FirstName},\n\nHope you are doing well.\n\nBest regards,`;
+  const defaultSubject = '{Quick question|Website inquiry|Feedback regarding {Domain}}';
+  const defaultBody = `Hi {FirstName},\n\nHope you are well.\n\nBest,`;
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
 
-  // Single mail sender with retry logic
   const sendSingleMail = async (rawRecipient, retries = 3) => {
     const recipient = parseRecipientData(rawRecipient);
     if (!recipient.email) return;
@@ -260,11 +260,10 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
         const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
-        const plainTextBody = `${rawPersonalizedBody}\n\n`;
+        const plainTextBody = `${rawPersonalizedBody}\n`;
 
         const domainHost = cleanEmail.split('@')[1] || 'gmail.com';
-        const randomHash = crypto.randomBytes(8).toString('hex');
-        const uniqueMsgId = `<CAG=${randomHash}@${domainHost}>`;
+        const uniqueMsgId = `<${crypto.randomBytes(12).toString('hex')}@${domainHost}>`;
 
         const mailOptions = {
           from: `"${cleanSenderName}" <${cleanEmail}>`,
@@ -273,10 +272,9 @@ app.post('/api/send-stream', async (req, res) => {
           subject: personalizedSubject,
           text: plainTextBody,
           headers: {
-            'X-Mailer': 'Gmail Web Interface',
             'Message-ID': uniqueMsgId,
-            'MIME-Version': '1.0',
-            'Content-Type': 'text/plain; charset=UTF-8'
+            'List-Unsubscribe': `<mailto:${cleanEmail}?subject=unsubscribe>`,
+            'X-Report-Abuse-To': cleanEmail
           }
         };
 
@@ -287,7 +285,7 @@ app.post('/api/send-stream', async (req, res) => {
         if (attempt === retries) {
           res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
         } else {
-          await new Promise(resolve => setTimeout(resolve, 200));
+          await new Promise(resolve => setTimeout(resolve, 300));
         }
       }
     }
@@ -300,13 +298,10 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     const currentBatch = recipients.slice(i, i + BATCH_SIZE);
-    
-    // 1-by-1 execution
     await Promise.all(currentBatch.map(item => sendSingleMail(item)));
 
-    // 250ms delay between emails (24 emails in ~7 seconds total)
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+      await new Promise(resolve => setTimeout(resolve, getNaturalDelay()));
     }
   }
 
@@ -321,7 +316,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Mailer Running on Port ${PORT}`);
+  console.log(`🚀 Mailer Server Running on Port ${PORT}`);
 });
 
 export default app;
