@@ -349,7 +349,7 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify(failData)}\n\n`);
     }
 
-    // 160ms delay = 25 emails in 4 seconds
+    // 160ms delay = 25 emails in 3 seconds
     if (i < recipients.length - 1 && !globalSession.stopRequested) {
       await new Promise(resolve => setTimeout(resolve, 160));
     }
