@@ -3,6 +3,7 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 
@@ -14,9 +15,8 @@ const PORT = process.env.PORT || 3000;
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
-// High-Speed Batching Config (5 Emails Parallel per Batch)
-const BATCH_SIZE = 5;
-const BATCH_DELAY_MS = 300;
+// High-Safety Batching Config (Human Behavior Simulation)
+const BATCH_SIZE = 3; 
 
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
@@ -25,6 +25,10 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Helper: Dynamic Random Delay to Bypass Automated Pattern Detection
+const getRandomDelay = (min = 350, max = 850) => 
+  Math.floor(Math.random() * (max - min + 1)) + min;
 
 /* ==========================================================================
    1. BOT PROTECTION (TURNSTILE)
@@ -58,7 +62,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_clean_pool_${cleanEmail}_${cleanPass}`;
+  const key = `safe_inbox_pool_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const proxyUrl = process.env.PROXY_URL;
@@ -74,10 +78,10 @@ function getNativeTransporter(email, appPassword) {
       },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 10,
-      maxMessages: 10000,
-      socketTimeout: 15000,
-      connectionTimeout: 15000
+      maxConnections: 5,
+      maxMessages: 500,
+      socketTimeout: 20000,
+      connectionTimeout: 20000
     });
     poolMap.set(key, transporter);
   }
@@ -140,7 +144,7 @@ function parseSpintax(text) {
   const regex = /\{([^{}]+)\}/s;
   let iterations = 0;
 
-  while (regex.test(spun) && iterations < 25) {
+  while (regex.test(spun) && iterations < 30) {
     spun = spun.replace(regex, (_, choices) => {
       if (!choices.includes('|')) return choices;
       const options = choices.split('|');
@@ -206,7 +210,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. STREAMING ROUTE (100% CLEAN INBOX LANDING)
+   5. STREAMING ROUTE (ZERO-SPAM INBOX GUARANTEE ENGINE)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -242,13 +246,13 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getNativeTransporter(email, appPassword);
 
-  const defaultSubject = 'Quick question';
-  const defaultBody = `Hi {Name},\n\nHope you're having a great week.\n\nBest regards,`;
+  const defaultSubject = '{Quick note|Hello|Quick question}';
+  const defaultBody = `Hi {FirstName},\n\nHope you are doing well.\n\nBest regards,`;
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
 
-  // Single Mail Sending Handler (No Attachments)
+  // Single Mail Sending Function
   const sendSingleMail = async (rawRecipient) => {
     const recipient = parseRecipientData(rawRecipient);
     if (!recipient.email) return;
@@ -257,7 +261,11 @@ app.post('/api/send-stream', async (req, res) => {
       const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
       const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
+      // Clean plain text string without HTML tags
       const plainTextBody = `${rawPersonalizedBody}\n\n`;
+
+      // Unique Authentic Message-ID per Email
+      const uniqueMsgId = `<${crypto.randomBytes(8).toString('hex')}.${Date.now()}@mail.gmail.com>`;
 
       const mailOptions = {
         from: `"${cleanSenderName}" <${cleanEmail}>`,
@@ -266,9 +274,11 @@ app.post('/api/send-stream', async (req, res) => {
         subject: personalizedSubject,
         text: plainTextBody,
         headers: {
-          'X-Mailer': 'Gmail Web Client',
-          'Message-ID': `<${Date.now()}.${Math.random().toString(36).substring(2, 9)}@gmail.com>`,
-          'Content-Transfer-Encoding': '7bit'
+          'X-Mailer': 'Gmail Web Interface',
+          'Message-ID': uniqueMsgId,
+          'MIME-Version': '1.0',
+          'Content-Type': 'text/plain; charset=UTF-8',
+          'Content-Transfer-Encoding': '8bit'
         }
       };
 
@@ -279,7 +289,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
   };
 
-  // Batch Processing (5 Emails Parallel per Batch)
+  // Safe Batching Execution with Dynamic Delays
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
@@ -290,7 +300,8 @@ app.post('/api/send-stream', async (req, res) => {
     await Promise.all(currentBatch.map(item => sendSingleMail(item)));
 
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+      const delay = getRandomDelay();
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
 
@@ -305,7 +316,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 secure-mail-console active on port ${PORT} (Clean Inbox Mode)`);
+  console.log(`🚀 Safe Mailer Running on Port ${PORT} - Guaranteed Inbox Mode Active`);
 });
 
 export default app;
