@@ -17,7 +17,7 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x000000000000
 
 // High Throughput Settings (25 emails per batch with minimal delay)
 const BATCH_SIZE = 25;
-const BATCH_DELAY_MS = 100;
+const BATCH_DELAY_MS = 500;
 
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
