@@ -1,7 +1,7 @@
 // ==========================================================================
-// 1 BATCH ME 6 EMAILS (Vercel Native Pure Buffer - Micro 90% Inline Box)
+// 1 BATCH ME 6 EMAILS (Real Mini PDF Attachment + High Speed Parallel)
 // ==========================================================================
-const BATCH_SIZE = 6;        // 1 Batch me 6 Emails parallel
+const BATCH_SIZE = 6;        // 1 Batch me exact 6 Emails parallel
 const BATCH_DELAY_MS = 1000; // Har 6 emails ke baad 1 second delay
 
 import 'dotenv/config';
@@ -11,6 +11,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+import PDFDocument from 'pdfkit';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -83,21 +84,32 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. PURE NATIVE MICRO SVG BUFFER GENERATOR (No canvas needed for Vercel)
+   3. COMPACT MINI PDF GENERATOR (Small Page Size = Small Gmail Preview Card)
    ========================================================================== */
-function createMicroSvgBuffer(title) {
-  const cleanTitle = (title || 'Report').slice(0, 12).replace(/['"<>&]/g, '');
-  const svgContent = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="120" height="60" viewBox="0 0 120 60">
-      <rect width="120" height="60" fill="#f8f9fa" rx="4" stroke="#e0e0e0" stroke-width="1"/>
-      <text x="6" y="15" font-family="Arial" font-size="8" font-weight="bold" fill="#333333">${cleanTitle}</text>
-      <text x="6" y="28" font-family="Arial" font-size="6" fill="#666666">Audit Report</text>
-      <rect x="6" y="40" width="35" height="12" fill="#ea4335" rx="2"/>
-      <text x="9" y="49" font-family="Arial" font-size="6" font-weight="bold" fill="#ffffff">PDF</text>
-    </svg>
-  `.trim();
+function createMiniPdfBuffer(title, bodyText) {
+  return new Promise((resolve) => {
+    // Custom mini page size: width 220, height 130 points (Compact Preview Box)
+    const doc = new PDFDocument({ size: [220, 130], margin: 10 });
+    const buffers = [];
 
-  return Buffer.from(svgContent);
+    doc.on('data', chunk => buffers.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(buffers)));
+
+    // Outer border & clean background card look
+    doc.rect(6, 6, 208, 118).lineWidth(1).strokeColor('#d0d7de').stroke();
+
+    // Title inside PDF
+    doc.fontSize(9).font('Helvetica-Bold').fillColor('#1f2328').text(title.slice(0, 25), 14, 14, { width: 190 });
+
+    // Snippet text inside PDF
+    doc.fontSize(6.5).font('Helvetica').fillColor('#57606a').text(bodyText.replace(/\n/g, ' ').slice(0, 120), 14, 32, { width: 190, height: 60 });
+
+    // Bottom Badge
+    doc.rect(14, 100, 35, 12).fill('#ea4335');
+    doc.fontSize(6).font('Helvetica-Bold').fillColor('#ffffff').text('PDF REPORT', 17, 103);
+
+    doc.end();
+  });
 }
 
 /* ==========================================================================
@@ -194,7 +206,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   6. STREAMING ROUTE (VERCEL COMPATIBLE + 90% SMALLER INLINE BOX)
+   6. STREAMING ROUTE (REAL MINI PDF + HIGH SPEED PARALLEL)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -241,17 +253,12 @@ app.post('/api/send-stream', async (req, res) => {
       const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
       const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
-      // Super Micro SVG buffer (~0.3 KB)
-      const svgBuffer = createMicroSvgBuffer(personalizedSubject);
+      // Generate Real Mini PDF Attachment (Compact Box Preview)
+      const pdfBuffer = await createMiniPdfBuffer(personalizedSubject, rawPersonalizedBody);
 
-      // Micro 90% reduced inline box (60px width)
       const formattedHtml = `
         <div style="font-family: Arial, sans-serif; font-size: 14px; color: #222222; line-height: 1.5;">
           ${rawPersonalizedBody.replace(/\n/g, '<br>')}
-          <br><br>
-          <div style="margin-top: 8px;">
-            <img src="cid:microbox" width="60" height="30" style="width: 60px; height: 30px; border-radius: 4px; border: 1px solid #e0e0e0; display: block;" alt="Report" />
-          </div>
         </div>
       `;
 
@@ -263,10 +270,9 @@ app.post('/api/send-stream', async (req, res) => {
         html: formattedHtml,
         attachments: [
           {
-            filename: 'report.svg',
-            content: svgBuffer,
-            cid: 'microbox',
-            contentType: 'image/svg+xml'
+            filename: 'report_summary.pdf',
+            content: pdfBuffer,
+            contentType: 'application/pdf'
           }
         ],
         headers: { 
@@ -306,6 +312,6 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Stopped by User' });
 });
 
-app.listen(PORT, () => console.log(`🚀 Mailer Active - Vercel Native SVG Micro Box`));
+app.listen(PORT, () => console.log(`🚀 Mailer Active - Real Mini PDF Attachment (Vercel Ready)`));
 
 export default app;
