@@ -5,14 +5,13 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const SITE_PASSWORD = process.env.SITE_PASSWORD || '@##';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const globalSession = { stopRequested: false };
@@ -50,26 +49,28 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. GMAIL TRANSPORTER POOL
+   2. AUTHENTIC GMAIL NATIVE TRANSPORTER (POOLED FOR HIGH SPEED)
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_clean_fast_${cleanEmail}_${cleanPass}`;
+  const key = `perfect_inbox_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const proxyUrl = process.env.PROXY_URL;
     const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : null;
 
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 1,
+      maxConnections: 5,
       maxMessages: 10000,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -80,7 +81,7 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. PARSER & SPINTAX ENGINE
+   3. RECIPIENT DATA & SPINTAX ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -144,7 +145,7 @@ function parseSpintax(text) {
     });
     iterations++;
   }
-  return spun.replace(/[\{\}]/g, '').trim();
+  return spun.replace(/[\{\}]/g, '');
 }
 
 function personalizeContent(template, recipient) {
@@ -160,7 +161,9 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  return content;
+  // Exact Line break normalization with top & bottom 1-line gap
+  content = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  return `\r\n${content}\r\n\r\n`;
 }
 
 /* ==========================================================================
@@ -201,7 +204,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. ULTRA-CLEAN STREAMING ROUTE (100 ms Speed + Native Gmail Headers)
+   5. HIGH-DELIVERY STREAMING ROUTE (25 Emails per 4 Seconds = 160ms Delay)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -237,8 +240,8 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getNativeTransporter(email, appPassword);
 
-  const defaultSubject = 'Google';
-  const defaultBody = `Your site looks great, but it's not showing on Google yet. Can I email the quote?\n\nBest regards,\n${cleanSenderName}\nClient Relations & Business Development\n${cleanEmail}`;
+  const defaultSubject = 'reports';
+  const defaultBody = `Hey, Your site is good, but a error is stopping it from showing up on the Google's search result. May I forward the reports.`;
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
@@ -256,21 +259,15 @@ app.post('/api/send-stream', async (req, res) => {
       const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
       const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
-      // Authentic Google Native Message-ID Structure
-      const randomHex = crypto.randomBytes(12).toString('hex');
-      const customMessageId = `<${randomHex}@mail.gmail.com>`;
-
       const mailOptions = {
         from: `"${cleanSenderName}" <${cleanEmail}>`,
         to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
         replyTo: cleanEmail,
         subject: personalizedSubject,
-        text: personalizedBody, // Clean raw text drives Google Quick Response Buttons
-        messageId: customMessageId,
+        text: personalizedBody,
         headers: {
-          'X-Mailer': 'Gmail Web Console',
-          'X-Priority': '3',
-          'Importance': 'Normal'
+          'X-Mailer': 'Gmail Native Compose',
+          'Content-Transfer-Encoding': '7bit'
         }
       };
 
@@ -284,9 +281,9 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify(failData)}\n\n`);
     }
 
-    // Exact 100 ms sending delay
+    // Exact Speed Fix: 160ms delay = 25 emails in 4 seconds
     if (i < recipients.length - 1 && !globalSession.stopRequested) {
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 160));
     }
   }
 
@@ -297,7 +294,7 @@ app.post('/api/send-stream', async (req, res) => {
 
 app.post('/api/stop', (req, res) => {
   globalSession.stopRequested = true;
-  res.json({ success: true, message: 'Sending process stopped' });
+  res.json({ success: true, message: 'Stopped by User' });
 });
 
 app.listen(PORT, () => {
