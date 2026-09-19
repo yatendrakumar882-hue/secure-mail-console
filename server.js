@@ -15,7 +15,7 @@ const PORT = process.env.PORT || 3000;
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
-// High-Safety Batching Config (Human Behavior Simulation)
+// High Safety Delays to Avoid Rate-Limit & Spam Flags
 const BATCH_SIZE = 3; 
 
 const globalSession = { stopRequested: false };
@@ -26,12 +26,12 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Helper: Dynamic Random Delay to Bypass Automated Pattern Detection
-const getRandomDelay = (min = 350, max = 850) => 
+// Dynamic Random Delay (Human-like behavior simulation)
+const getRandomDelay = (min = 500, max = 1200) => 
   Math.floor(Math.random() * (max - min + 1)) + min;
 
 /* ==========================================================================
-   1. BOT PROTECTION (TURNSTILE)
+   1. BOT PROTECTION
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
@@ -62,7 +62,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `safe_inbox_pool_${cleanEmail}_${cleanPass}`;
+  const key = `safe_inbox_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const proxyUrl = process.env.PROXY_URL;
@@ -210,7 +210,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. STREAMING ROUTE (ZERO-SPAM INBOX GUARANTEE ENGINE)
+   5. STREAMING ROUTE (MAXIMUM INBOX DELIVERABILITY)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -252,7 +252,6 @@ app.post('/api/send-stream', async (req, res) => {
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
 
-  // Single Mail Sending Function
   const sendSingleMail = async (rawRecipient) => {
     const recipient = parseRecipientData(rawRecipient);
     if (!recipient.email) return;
@@ -261,10 +260,7 @@ app.post('/api/send-stream', async (req, res) => {
       const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
       const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
-      // Clean plain text string without HTML tags
       const plainTextBody = `${rawPersonalizedBody}\n\n`;
-
-      // Unique Authentic Message-ID per Email
       const uniqueMsgId = `<${crypto.randomBytes(8).toString('hex')}.${Date.now()}@mail.gmail.com>`;
 
       const mailOptions = {
@@ -289,7 +285,6 @@ app.post('/api/send-stream', async (req, res) => {
     }
   };
 
-  // Safe Batching Execution with Dynamic Delays
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
@@ -316,7 +311,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Safe Mailer Running on Port ${PORT} - Guaranteed Inbox Mode Active`);
+  console.log(`🚀 Safe Mailer Active on Port ${PORT}`);
 });
 
 export default app;
