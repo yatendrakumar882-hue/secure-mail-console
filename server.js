@@ -8,9 +8,9 @@ import { fileURLToPath } from 'url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 
 /* ==========================================================================
-   ⚡ SPEED CONFIGURATION (UNCHANGED & FAST)
+   ⚡ SPEED CONFIGURATION (SAME RATE AS REQUESTED)
    ========================================================================== */
-const BATCH_SIZE = 4;         // 4 emails per batch
+const BATCH_SIZE = 3;         // 3 emails per batch
 const BATCH_DELAY_MS = 150;   // 150ms delay between batches
 /* ========================================================================== */
 
@@ -57,12 +57,12 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. HIGH DELIVERABILITY TRANSPORTER POOL
+   2. HIGH INBOX SMTP TRANSPORTER POOL
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_direct_pool_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_master_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const proxyUrl = process.env.PROXY_URL;
@@ -78,10 +78,10 @@ function getNativeTransporter(email, appPassword) {
       },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 5,
-      maxMessages: 1000,
-      socketTimeout: 12000,
-      connectionTimeout: 12000
+      maxConnections: 3,      // Reduced slightly to prevent Gmail Drop
+      maxMessages: 200,
+      socketTimeout: 15000,
+      connectionTimeout: 15000
     });
     poolMap.set(key, transporter);
   }
@@ -210,7 +210,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. STREAMING ROUTE (PURE INBOX LANDING, NO FOOTER / NO LINKS)
+   5. STREAMING ROUTE (INBOX OPTIMIZED ENGINE)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -261,23 +261,34 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
         const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
-        // Standard 1-line spacing for clean email text
+        // Plain Text Formatting
         const plainTextBody = rawPersonalizedBody
           .replace(/\r\n/g, '\n')
           .replace(/\n{3,}/g, '\n\n');
 
-        const domainHost = cleanEmail.split('@')[1] || 'gmail.com';
-        const uniqueMsgId = `<${crypto.randomBytes(12).toString('hex')}@${domainHost}>`;
+        // Simple Clean HTML Version (Prevents Spam Filter Trigger for Missing MIME-Type)
+        const htmlBody = `
+          <div style="font-family: Arial, sans-serif; font-size: 14px; color: #111111; line-height: 1.5;">
+            ${plainTextBody.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>')}
+          </div>
+        `.trim();
+
+        // Unique RFC 2822 Message-ID & Boundary Simulation
+        const messageIdHost = cleanEmail.split('@')[1] || 'gmail.com';
+        const randomHex = crypto.randomBytes(16).toString('hex');
+        const uniqueMsgId = `<${randomHex}.${Date.now()}@${messageIdHost}>`;
 
         const mailOptions = {
           from: `"${cleanSenderName}" <${cleanEmail}>`,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-          replyTo: cleanEmail,
           subject: personalizedSubject,
           text: plainTextBody,
+          html: htmlBody,
+          messageId: uniqueMsgId,
           headers: {
-            'Message-ID': uniqueMsgId,
-            'X-Mailer': 'Gmail Webmail'
+            'X-Priority': '3',
+            'X-MSMail-Priority': 'Normal',
+            'Importance': 'Normal'
           }
         };
 
@@ -288,7 +299,7 @@ app.post('/api/send-stream', async (req, res) => {
         if (attempt === retries) {
           res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
         } else {
-          await new Promise(resolve => setTimeout(resolve, 200));
+          await new Promise(resolve => setTimeout(resolve, 300));
         }
       }
     }
