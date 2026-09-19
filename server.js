@@ -5,13 +5,14 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+import PDFDocument from 'pdfkit';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const SITE_PASSWORD = process.env.SITE_PASSWORD || '@##';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const globalSession = { stopRequested: false };
@@ -49,7 +50,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. AUTHENTIC GMAIL NATIVE TRANSPORTER
+   2. AUTHENTIC GMAIL TRANSPORTER POOL
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -70,7 +71,7 @@ function getNativeTransporter(email, appPassword) {
       },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 1,
+      maxConnections: 5,
       maxMessages: 10000,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -81,7 +82,60 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. RECIPIENT DATA & SPINTAX ENGINE
+   3. ULTRA-LIGHT PDF GENERATOR (3-5 KB Size)
+   ========================================================================== */
+function createLightweightPdfBuffer(title, senderName, senderEmail, bodyText) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
+    const buffers = [];
+
+    doc.on('data', buffers.push.bind(buffers));
+    doc.on('end', () => resolve(Buffer.concat(buffers)));
+    doc.on('error', reject);
+
+    const dateStr = new Date().toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+
+    // Heading Title
+    doc.fillColor('#1a1a1a')
+       .fontSize(18)
+       .font('Helvetica-Bold')
+       .text(title, { align: 'left' });
+
+    doc.moveDown(0.8);
+
+    // Separator line
+    doc.strokeColor('#e5e7eb')
+       .lineWidth(1)
+       .moveTo(50, doc.y)
+       .lineTo(545, doc.y)
+       .stroke();
+
+    doc.moveDown(1);
+
+    // Metadata line
+    doc.fontSize(10)
+       .font('Helvetica')
+       .fillColor('#6b7280')
+       .text(`From: ${senderName}  |  <${senderEmail}>  |  Date: ${dateStr}`);
+
+    doc.moveDown(1);
+
+    // Body content
+    doc.fontSize(11)
+       .font('Helvetica')
+       .fillColor('#111827')
+       .text(bodyText, { lineGap: 4 });
+
+    doc.end();
+  });
+}
+
+/* ==========================================================================
+   4. RECIPIENT DATA & SPINTAX ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -145,7 +199,7 @@ function parseSpintax(text) {
     });
     iterations++;
   }
-  return spun.replace(/[\{\}]/g, '').trim();
+  return spun.replace(/[\{\}]/g, '');
 }
 
 function personalizeContent(template, recipient) {
@@ -161,14 +215,12 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  // Cross-client line break normalization (Gmail + Outlook compatibility)
-  content = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n/g, '\r\n');
-
+  content = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   return content;
 }
 
 /* ==========================================================================
-   4. API ROUTES
+   5. API ROUTES
    ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -205,7 +257,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. HIGH-DELIVERY STREAMING ROUTE (100 ms Speed)
+   6. INBOX STREAMING ROUTE WITH LIGHTWEIGHT PDF ATTACHMENT
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -232,7 +284,7 @@ app.post('/api/send-stream', async (req, res) => {
   }
 
   const cleanEmail = email.toLowerCase().trim();
-  const cleanSenderName = (senderName || 'Sam').replace(/["\r\n]/g, '').trim();
+  const cleanSenderName = (senderName || 'Natalie').replace(/["\r\n]/g, '').trim();
   globalSession.stopRequested = false;
 
   const keepAlivePing = setInterval(() => {
@@ -241,9 +293,8 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getNativeTransporter(email, appPassword);
 
-  // Standard Plain-Text Template matching the exact spacing requirement
-  const defaultSubject = 'reports';
-  const defaultBody = `Hey, Your site is good, but a error is stopping it from showing up on the Google's search result. May I forward the reports?\r\n\r\nBest regards,\r\n${cleanSenderName}\r\nClient Relations & Business Development\r\n${cleanEmail}`;
+  const defaultSubject = 'information';
+  const defaultBody = `Hi! Your webpage looks great, but it's not showing on the 1st page. May I send the information?`;
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
@@ -259,14 +310,36 @@ app.post('/api/send-stream', async (req, res) => {
 
     try {
       const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
-      const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
+      const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
+
+      // Email body spacing (1 line top & bottom gap)
+      const emailBodyFormatted = `\r\n${rawPersonalizedBody}\r\n\r\n`;
+
+      // Dynamic Ultra-light PDF generation (size 3-5 KB)
+      const pdfBuffer = await createLightweightPdfBuffer(
+        personalizedSubject,
+        cleanSenderName,
+        cleanEmail,
+        rawPersonalizedBody
+      );
 
       const mailOptions = {
         from: `"${cleanSenderName}" <${cleanEmail}>`,
         to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
         replyTo: cleanEmail,
         subject: personalizedSubject,
-        text: personalizedBody
+        text: emailBodyFormatted,
+        attachments: [
+          {
+            filename: 'webpage information.pdf',
+            content: pdfBuffer,
+            contentType: 'application/pdf'
+          }
+        ],
+        headers: {
+          'X-Mailer': 'Gmail Native Compose',
+          'Content-Transfer-Encoding': '7bit'
+        }
       };
 
       await transporter.sendMail(mailOptions);
@@ -279,9 +352,9 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify(failData)}\n\n`);
     }
 
-    // Exact 100 ms delay
+    // Delay setting: 160ms = 25 emails in 4 seconds
     if (i < recipients.length - 1 && !globalSession.stopRequested) {
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 160));
     }
   }
 
@@ -296,7 +369,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Primary Inbox Mailer running on port ${PORT}`);
+  console.log(`🚀 Primary Inbox Mailer with Lightweight PDF running on port ${PORT}`);
 });
 
 export default app;
