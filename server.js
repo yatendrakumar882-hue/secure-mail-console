@@ -1,7 +1,8 @@
 // ==========================================================================
-// CONFIGURATION & SPEED CONTROL (25 emails in 4 seconds = 160ms delay)
+// CONFIGURATION & PARALLEL SPEED CONTROL (Real 25 emails in 5s)
 // ==========================================================================
-const SENDING_SPEED_MS = 160;
+const CONCURRENCY_LIMIT = 5; // Parallel emails sending per batch
+const BATCH_DELAY_MS = 800;  // Delay between parallel batches
 
 import 'dotenv/config';
 import express from 'express';
@@ -28,14 +29,10 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-/* ==========================================================================
-   1. TURNSTILE BOT PROTECTION
-   ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
     return true;
   }
-
   try {
     const formData = new URLSearchParams();
     formData.append('secret', TURNSTILE_SECRET_KEY);
@@ -54,9 +51,6 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
-/* ==========================================================================
-   2. AUTHENTIC GMAIL TRANSPORTER POOL
-   ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
@@ -70,25 +64,19 @@ function getNativeTransporter(email, appPassword) {
       host: 'smtp.gmail.com',
       port: 465,
       secure: true,
-      auth: {
-        user: cleanEmail,
-        pass: cleanPass
-      },
+      auth: { user: cleanEmail, pass: cleanPass },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 10,
+      maxConnections: 15,
       maxMessages: 10000,
-      socketTimeout: 30000,
-      connectionTimeout: 30000
+      socketTimeout: 15000,
+      connectionTimeout: 15000
     });
     poolMap.set(key, transporter);
   }
   return poolMap.get(key);
 }
 
-/* ==========================================================================
-   3. ULTRA-LIGHT COMPRESSED PDF GENERATOR (1.5 - 2 KB Size)
-   ========================================================================== */
 function createSuperLightPdfBuffer(title, senderName, senderEmail, bodyText) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A5', margin: 30, compress: true });
@@ -99,49 +87,22 @@ function createSuperLightPdfBuffer(title, senderName, senderEmail, bodyText) {
     doc.on('error', reject);
 
     const dateStr = new Date().toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
+      month: 'short', day: 'numeric', year: 'numeric'
     });
 
-    doc.fillColor('#111827')
-       .fontSize(16)
-       .font('Helvetica-Bold')
-       .text(title, { align: 'left' });
-
+    doc.fillColor('#111827').fontSize(16).font('Helvetica-Bold').text(title, { align: 'left' });
     doc.moveDown(0.5);
-
-    doc.strokeColor('#e5e7eb')
-       .lineWidth(0.8)
-       .moveTo(30, doc.y)
-       .lineTo(390, doc.y)
-       .stroke();
-
+    doc.strokeColor('#e5e7eb').lineWidth(0.8).moveTo(30, doc.y).lineTo(390, doc.y).stroke();
     doc.moveDown(0.8);
-
-    doc.fontSize(9)
-       .font('Helvetica')
-       .fillColor('#6b7280')
-       .text(`From: ${senderName} <${senderEmail}> | Date: ${dateStr}`);
-
+    doc.fontSize(9).font('Helvetica').fillColor('#6b7280').text(`From: ${senderName} <${senderEmail}> | Date: ${dateStr}`);
     doc.moveDown(0.8);
-
-    doc.fontSize(10)
-       .font('Helvetica')
-       .fillColor('#111827')
-       .text(bodyText, { lineGap: 3 });
-
+    doc.fontSize(10).font('Helvetica').fillColor('#111827').text(bodyText, { lineGap: 3 });
     doc.end();
   });
 }
 
-/* ==========================================================================
-   4. RECIPIENT DATA & SPINTAX ENGINE
-   ========================================================================== */
 function parseRecipientData(input) {
-  let email = '';
-  let rawName = '';
-
+  let email = '', rawName = '';
   if (typeof input === 'object' && input !== null) {
     email = (input.email || input.recipient || '').trim();
     rawName = (input.name || input.fullName || input.first_name || '').trim();
@@ -153,36 +114,20 @@ function parseRecipientData(input) {
       email = angleMatch[2].trim();
     } else if (str.includes(',')) {
       const parts = str.split(',');
-      if (parts[0].includes('@')) {
-        email = parts[0].trim();
-        rawName = parts[1].trim();
-      } else {
-        rawName = parts[0].trim();
-        email = parts[1].trim();
-      }
-    } else {
-      email = str;
-    }
+      if (parts[0].includes('@')) { email = parts[0].trim(); rawName = parts[1].trim(); }
+      else { rawName = parts[0].trim(); email = parts[1].trim(); }
+    } else { email = str; }
   }
 
   if (!rawName && email.includes('@')) {
-    const prefix = email.split('@')[0];
-    rawName = prefix.replace(/[0-9_.-]/g, ' ').trim();
+    rawName = email.split('@')[0].replace(/[0-9_.-]/g, ' ').trim();
   }
 
-  const formattedName = rawName
-    ? rawName.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
-    : '';
-
+  const formattedName = rawName ? rawName.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ') : '';
   const firstName = formattedName ? formattedName.split(' ')[0] : '';
   const domain = email.includes('@') ? email.split('@')[1] : '';
 
-  return {
-    email: email.toLowerCase(),
-    name: formattedName,
-    firstName: firstName,
-    domain: domain
-  };
+  return { email: email.toLowerCase(), name: formattedName, firstName, domain };
 }
 
 function parseSpintax(text) {
@@ -190,7 +135,6 @@ function parseSpintax(text) {
   let spun = String(text);
   const regex = /\{([^{}]+)\}/s;
   let iterations = 0;
-
   while (regex.test(spun) && iterations < 25) {
     spun = spun.replace(regex, (_, choices) => {
       if (!choices.includes('|')) return choices;
@@ -206,7 +150,6 @@ function parseSpintax(text) {
 function personalizeContent(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
-
   const displayName = recipient.name || recipient.firstName || 'there';
   const displayFirstName = recipient.firstName || displayName;
 
@@ -219,12 +162,7 @@ function personalizeContent(template, recipient) {
   return content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
 }
 
-/* ==========================================================================
-   5. API ROUTES
-   ========================================================================== */
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 app.post('/api/auth', (req, res) => {
   const { password } = req.body;
@@ -236,29 +174,21 @@ app.post('/api/verify', async (req, res) => {
   const { email, appPassword, cfToken } = req.body;
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
 
-  if (!email || !appPassword) {
-    return res.status(400).json({ success: false, message: 'Credentials required' });
-  }
+  if (!email || !appPassword) return res.status(400).json({ success: false, message: 'Credentials required' });
 
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  if (cleanPass.length !== 16) {
-    return res.status(400).json({ success: false, message: 'App Password must be 16 characters' });
-  }
+  if (cleanPass.length !== 16) return res.status(400).json({ success: false, message: 'App Password must be 16 characters' });
 
   if (cfToken) {
     const isHuman = await verifyTurnstileToken(cfToken, clientIp);
-    if (!isHuman) {
-      return res.status(403).json({ success: false, message: 'Security Verification Failed' });
-    }
+    if (!isHuman) return res.status(403).json({ success: false, message: 'Security Verification Failed' });
   }
 
   getNativeTransporter(email, appPassword);
   return res.json({ success: true, message: 'SMTP ready' });
 });
 
-/* ==========================================================================
-   6. HIGH-SPEED INBOX STREAMING ROUTE
-   ========================================================================== */
+/* Real 25 emails in 4s via Parallel Async Processing */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -287,38 +217,25 @@ app.post('/api/send-stream', async (req, res) => {
   const cleanSenderName = (senderName || 'Dheeru').replace(/["\r\n]/g, '').trim();
   globalSession.stopRequested = false;
 
-  const keepAlivePing = setInterval(() => {
-    res.write(': keep-alive\n\n');
-  }, 2500);
-
+  const keepAlivePing = setInterval(() => res.write(': keep-alive\n\n'), 2500);
   const transporter = getNativeTransporter(email, appPassword);
 
   const defaultSubject = 'Referrals';
   const defaultBody = `Hi! Your webpage looks great, but it's not showing on the front page of Google. May I send the quote?`;
-
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
 
-  for (let i = 0; i < recipients.length; i++) {
-    if (globalSession.stopRequested) {
-      res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
-      break;
-    }
-
-    const recipient = parseRecipientData(recipients[i]);
-    if (!recipient.email) continue;
+  const sendSingleMail = async (rawRecipient) => {
+    const recipient = parseRecipientData(rawRecipient);
+    if (!recipient.email) return;
 
     try {
       const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
       const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
-
       const emailBodyFormatted = `\r\n${rawPersonalizedBody}\r\n\r\n`;
 
       const pdfBuffer = await createSuperLightPdfBuffer(
-        personalizedSubject,
-        cleanSenderName,
-        cleanEmail,
-        rawPersonalizedBody
+        personalizedSubject, cleanSenderName, cleanEmail, rawPersonalizedBody
       );
 
       const mailOptions = {
@@ -327,31 +244,28 @@ app.post('/api/send-stream', async (req, res) => {
         replyTo: cleanEmail,
         subject: personalizedSubject,
         text: emailBodyFormatted,
-        attachments: [
-          {
-            filename: '(web-page) Error.pdf',
-            content: pdfBuffer,
-            contentType: 'application/pdf'
-          }
-        ],
-        headers: {
-          'X-Mailer': 'Gmail Native Compose',
-          'Content-Transfer-Encoding': '7bit'
-        }
+        attachments: [{ filename: '(web-page) Error.pdf', content: pdfBuffer, contentType: 'application/pdf' }],
+        headers: { 'X-Mailer': 'Gmail Native Compose', 'Content-Transfer-Encoding': '7bit' }
       };
 
       await transporter.sendMail(mailOptions);
-      
-      const successData = { success: true, recipient: recipient.email, name: recipient.name };
       res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email })}\n\n`);
-
     } catch (err) {
       res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
+  };
 
-    // Configured sending speed applied here
-    if (i < recipients.length - 1 && !globalSession.stopRequested) {
-      await new Promise(resolve => setTimeout(resolve, SENDING_SPEED_MS));
+  for (let i = 0; i < recipients.length; i += CONCURRENCY_LIMIT) {
+    if (globalSession.stopRequested) {
+      res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
+      break;
+    }
+
+    const batch = recipients.slice(i, i + CONCURRENCY_LIMIT);
+    await Promise.all(batch.map(item => sendSingleMail(item)));
+
+    if (i + CONCURRENCY_LIMIT < recipients.length && !globalSession.stopRequested) {
+      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
     }
   }
 
@@ -365,8 +279,6 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Stopped by User' });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Perfect Mailer Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Ultra-Fast Mailer Server running on port ${PORT}`));
 
 export default app;
