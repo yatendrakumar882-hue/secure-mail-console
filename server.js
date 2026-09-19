@@ -5,7 +5,6 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import PDFDocument from 'pdfkit';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,7 +27,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 /* ==========================================================================
-   1. TURNSTILE BOT PROTECTION
+   1. BOT PROTECTION (TURNSTILE)
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
@@ -59,7 +58,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `perfect_inbox_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_clean_pool_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const proxyUrl = process.env.PROXY_URL;
@@ -86,56 +85,7 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. ULTRA-LIGHT COMPRESSED PDF GENERATOR (1.5 KB Size)
-   ========================================================================== */
-function createSuperLightPdfBuffer(title, senderName, senderEmail, bodyText) {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'A5', margin: 30, compress: true });
-    const buffers = [];
-
-    doc.on('data', buffers.push.bind(buffers));
-    doc.on('end', () => resolve(Buffer.concat(buffers)));
-    doc.on('error', reject);
-
-    const dateStr = new Date().toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
-
-    doc.fillColor('#111827')
-       .fontSize(14)
-       .font('Helvetica-Bold')
-       .text(title, { align: 'left' });
-
-    doc.moveDown(0.5);
-
-    doc.strokeColor('#e5e7eb')
-       .lineWidth(0.8)
-       .moveTo(30, doc.y)
-       .lineTo(390, doc.y)
-       .stroke();
-
-    doc.moveDown(0.8);
-
-    doc.fontSize(9)
-       .font('Helvetica')
-       .fillColor('#6b7280')
-       .text(`From: ${senderName} <${senderEmail}> | Date: ${dateStr}`);
-
-    doc.moveDown(0.8);
-
-    doc.fontSize(10)
-       .font('Helvetica')
-       .fillColor('#111827')
-       .text(bodyText, { lineGap: 3 });
-
-    doc.end();
-  });
-}
-
-/* ==========================================================================
-   4. RECIPIENT DATA & SPINTAX ENGINE
+   3. SPINTAX & RECIPIENT PARSER ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -219,7 +169,7 @@ function personalizeContent(template, recipient) {
 }
 
 /* ==========================================================================
-   5. API ROUTES
+   4. API ROUTES
    ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -256,7 +206,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   6. 100% PRIMARY INBOX + HIGH SPEED PARALLEL STREAMING
+   5. STREAMING ROUTE (100% CLEAN INBOX LANDING)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -292,13 +242,13 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getNativeTransporter(email, appPassword);
 
-  const defaultSubject = 'Referrals';
-  const defaultBody = `Hi!\n\nYour webpage looks great, but it's not showing on the front page of Google. May I send the quote?\n\nThanks`;
+  const defaultSubject = 'Quick question';
+  const defaultBody = `Hi {Name},\n\nHope you're having a great week.\n\nBest regards,`;
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
 
-  // Single Mail Handler
+  // Single Mail Sending Handler (No Attachments)
   const sendSingleMail = async (rawRecipient) => {
     const recipient = parseRecipientData(rawRecipient);
     if (!recipient.email) return;
@@ -307,14 +257,6 @@ app.post('/api/send-stream', async (req, res) => {
       const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
       const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
-      const pdfBuffer = await createSuperLightPdfBuffer(
-        personalizedSubject,
-        cleanSenderName,
-        cleanEmail,
-        rawPersonalizedBody
-      );
-
-      // Plain text formatting with double lines for Smart Reply & 100% Primary Inbox
       const plainTextBody = `${rawPersonalizedBody}\n\n`;
 
       const mailOptions = {
@@ -323,15 +265,8 @@ app.post('/api/send-stream', async (req, res) => {
         replyTo: cleanEmail,
         subject: personalizedSubject,
         text: plainTextBody,
-        attachments: [
-          {
-            filename: 'report.pdf',
-            content: pdfBuffer,
-            contentType: 'application/pdf'
-          }
-        ],
         headers: {
-          'X-Mailer': 'Gmail Native Compose',
+          'X-Mailer': 'Gmail Web Client',
           'Message-ID': `<${Date.now()}.${Math.random().toString(36).substring(2, 9)}@gmail.com>`,
           'Content-Transfer-Encoding': '7bit'
         }
@@ -344,7 +279,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
   };
 
-  // Parallel Batch Sending Execution (5 Emails in Parallel)
+  // Batch Processing (5 Emails Parallel per Batch)
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
@@ -370,7 +305,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Perfect Mailer Active - 100% Primary Inbox Landing Mode`);
+  console.log(`🚀 secure-mail-console active on port ${PORT} (Clean Inbox Mode)`);
 });
 
 export default app;
