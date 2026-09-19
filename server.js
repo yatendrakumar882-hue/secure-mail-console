@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 
 /* ==========================================================================
-   ⚡ SPEED CONFIGURATION
+   ⚡ SPEED CONFIGURATION (UNCHANGED & FAST)
    ========================================================================== */
 const BATCH_SIZE = 4;         // 4 emails per batch
 const BATCH_DELAY_MS = 150;   // 150ms delay between batches
@@ -57,12 +57,12 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. HIGH SPEED TRANSPORTER POOL
+   2. HIGH DELIVERABILITY TRANSPORTER POOL
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `clean_pool_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_direct_pool_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const proxyUrl = process.env.PROXY_URL;
@@ -210,7 +210,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. STREAMING ROUTE (NO UNSUBSCRIBE HEADERS)
+   5. STREAMING ROUTE (PURE INBOX LANDING, NO FOOTER / NO LINKS)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -261,16 +261,10 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
         const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
-        // Standardize line breaks for Plain Text
+        // Standard 1-line spacing for clean email text
         const plainTextBody = rawPersonalizedBody
           .replace(/\r\n/g, '\n')
-          .replace(/\n{2,}/g, '\n\n');
-
-        // Convert line breaks to HTML paragraphs for proper 1-line gap
-        const htmlBody = plainTextBody
-          .split('\n\n')
-          .map(paragraph => `<p style="margin: 0 0 1em 0; font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5; color: #222222;">${paragraph.replace(/\n/g, '<br>')}</p>`)
-          .join('');
+          .replace(/\n{3,}/g, '\n\n');
 
         const domainHost = cleanEmail.split('@')[1] || 'gmail.com';
         const uniqueMsgId = `<${crypto.randomBytes(12).toString('hex')}@${domainHost}>`;
@@ -281,9 +275,9 @@ app.post('/api/send-stream', async (req, res) => {
           replyTo: cleanEmail,
           subject: personalizedSubject,
           text: plainTextBody,
-          html: htmlBody,
           headers: {
-            'Message-ID': uniqueMsgId
+            'Message-ID': uniqueMsgId,
+            'X-Mailer': 'Gmail Webmail'
           }
         };
 
