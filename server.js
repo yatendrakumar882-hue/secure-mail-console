@@ -8,10 +8,10 @@ import { fileURLToPath } from 'url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 
 /* ==========================================================================
-   ⚡ SPEED CONFIGURATION (YAHAN SE SPEED CONTROL KAREIN)
+   ⚡ SPEED CONFIGURATION (SAME AS BEFORE)
    ========================================================================== */
-const BATCH_SIZE = 5;         // Ek baar me kitne email bhejenge (Default: 5)
-const BATCH_DELAY_MS = 150;   // Har batch ke beech ka delay (150ms = Fast & Safe)
+const BATCH_SIZE = 4;         // 4 emails per batch
+const BATCH_DELAY_MS = 150;   // 150ms delay between batches
 /* ========================================================================== */
 
 const __filename = fileURLToPath(import.meta.url);
@@ -62,7 +62,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `fast_inbox_pool_${cleanEmail}_${cleanPass}`;
+  const key = `perfect_inbox_pool_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const proxyUrl = process.env.PROXY_URL;
@@ -78,8 +78,8 @@ function getNativeTransporter(email, appPassword) {
       },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 5,     // Parallel connections for fast sending
-      maxMessages: 10000,
+      maxConnections: 5,
+      maxMessages: 1000,
       socketTimeout: 12000,
       connectionTimeout: 12000
     });
@@ -169,7 +169,7 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  return content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  return content.trim();
 }
 
 /* ==========================================================================
@@ -210,7 +210,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. STREAMING ROUTE (INBOX LANDING + ADJUSTABLE SPEED)
+   5. STREAMING ROUTE (INBOX LANDING & PROPER 1-LINE SPACING)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -247,7 +247,7 @@ app.post('/api/send-stream', async (req, res) => {
   const transporter = getNativeTransporter(email, appPassword);
 
   const defaultSubject = '{Quick question|Website inquiry|Regarding {Domain}}';
-  const defaultBody = `Hi {FirstName},\n\nHope you are well.\n\nBest,`;
+  const defaultBody = `Hi {FirstName},\n\nHope you are doing well.\n\nBest regards,`;
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
@@ -261,7 +261,17 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
         const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
-        const plainTextBody = `${rawPersonalizedBody}\n`;
+        // Standardize line breaks for Plain Text
+        const plainTextBody = rawPersonalizedBody
+          .replace(/\r\n/g, '\n')
+          .replace(/\n{2,}/g, '\n\n');
+
+        // Convert line breaks to HTML paragraphs for proper 1-line gap in Gmail & Outlook
+        const htmlBody = plainTextBody
+          .split('\n\n')
+          .map(paragraph => `<p style="margin: 0 0 1em 0; font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5; color: #222222;">${paragraph.replace(/\n/g, '<br>')}</p>`)
+          .join('');
+
         const domainHost = cleanEmail.split('@')[1] || 'gmail.com';
         const uniqueMsgId = `<${crypto.randomBytes(12).toString('hex')}@${domainHost}>`;
 
@@ -271,6 +281,7 @@ app.post('/api/send-stream', async (req, res) => {
           replyTo: cleanEmail,
           subject: personalizedSubject,
           text: plainTextBody,
+          html: htmlBody,
           headers: {
             'Message-ID': uniqueMsgId,
             'List-Unsubscribe': `<mailto:${cleanEmail}?subject=unsubscribe>`,
