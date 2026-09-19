@@ -1,3 +1,8 @@
+// ==========================================================================
+// CONFIGURATION & SPEED CONTROL (25 emails in 4 seconds = 160ms delay)
+// ==========================================================================
+const SENDING_SPEED_MS = 160;
+
 import 'dotenv/config';
 import express from 'express';
 import nodemailer from 'nodemailer';
@@ -71,7 +76,7 @@ function getNativeTransporter(email, appPassword) {
       },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 5,
+      maxConnections: 10,
       maxMessages: 10000,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -86,7 +91,6 @@ function getNativeTransporter(email, appPassword) {
    ========================================================================== */
 function createSuperLightPdfBuffer(title, senderName, senderEmail, bodyText) {
   return new Promise((resolve, reject) => {
-    // A5 size and compressed metadata reduces overall size by 50-60%
     const doc = new PDFDocument({ size: 'A5', margin: 30, compress: true });
     const buffers = [];
 
@@ -100,7 +104,6 @@ function createSuperLightPdfBuffer(title, senderName, senderEmail, bodyText) {
       year: 'numeric'
     });
 
-    // Clean Minimal Layout
     doc.fillColor('#111827')
        .fontSize(16)
        .font('Helvetica-Bold')
@@ -254,7 +257,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   6. HIGH-INBOX & SMART-REPLY STREAMING ROUTE
+   6. HIGH-SPEED INBOX STREAMING ROUTE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -309,10 +312,8 @@ app.post('/api/send-stream', async (req, res) => {
       const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
       const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
-      // Clean single spacing triggers Gmail's Smart Reply Chips
       const emailBodyFormatted = `\r\n${rawPersonalizedBody}\r\n\r\n`;
 
-      // 50% smaller PDF buffer (1.5KB - 2KB)
       const pdfBuffer = await createSuperLightPdfBuffer(
         personalizedSubject,
         cleanSenderName,
@@ -342,16 +343,15 @@ app.post('/api/send-stream', async (req, res) => {
       await transporter.sendMail(mailOptions);
       
       const successData = { success: true, recipient: recipient.email, name: recipient.name };
-      res.write(`data: ${JSON.stringify(successData)}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: true, recipient: recipient.email })}\n\n`);
 
     } catch (err) {
-      const failData = { success: false, recipient: recipient.email, error: err.message };
-      res.write(`data: ${JSON.stringify(failData)}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
     }
 
-    // 160ms delay = 25 emails in 3 seconds
+    // Configured sending speed applied here
     if (i < recipients.length - 1 && !globalSession.stopRequested) {
-      await new Promise(resolve => setTimeout(resolve, 160));
+      await new Promise(resolve => setTimeout(resolve, SENDING_SPEED_MS));
     }
   }
 
