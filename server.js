@@ -1,8 +1,8 @@
 // ==========================================================================
-// 1 BATCH ME 6 EMAILS (0.8 KB Micro PDF + 100% Primary Inbox)
+// 1 BATCH ME 6 EMAILS (90% Smaller Inline Box + 100% Primary Inbox)
 // ==========================================================================
-const BATCH_SIZE = 6;        // 1 Batch me 6 Emails parallel
-const BATCH_DELAY_MS = 1000; // Har batch ke baad 1 second delay
+const BATCH_SIZE = 6;        // 1 Batch me exact 6 Emails parallel
+const BATCH_DELAY_MS = 1000; // Har 6 emails ke baad 1 second delay
 
 import 'dotenv/config';
 import express from 'express';
@@ -11,7 +11,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import PDFDocument from 'pdfkit';
+import { createCanvas } from 'canvas';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -84,30 +84,41 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. NANO-COMPRESSED PDF GENERATOR (~0.8 KB Size)
+   3. MICRO INLINE IMAGE GENERATOR (Small 90% Reduced Dimension Box)
    ========================================================================== */
-function createNanoPdfBuffer(title, senderEmail, bodyText) {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ 
-      size: [150, 100], 
-      margin: 5, 
-      compress: true,
-      info: { Producer: '', Creator: '' }
-    });
-    
-    const buffers = [];
-    doc.on('data', buffers.push.bind(buffers));
-    doc.on('end', () => resolve(Buffer.concat(buffers)));
-    doc.on('error', reject);
+function createMicroImageBuffer(title, bodyText) {
+  // Ultra compact canvas width & height (90% smaller than standard 300px box)
+  const canvas = createCanvas(120, 60);
+  const ctx = canvas.getContext('2d');
 
-    doc.fontSize(7).font('Helvetica-Bold').text(title);
-    doc.moveDown(0.2);
-    doc.fontSize(5).font('Helvetica').fillColor('#555555').text(`From: ${senderEmail}`);
-    doc.moveDown(0.3);
-    doc.fontSize(6).font('Helvetica').fillColor('#000000').text(bodyText);
+  // Light Card Background
+  ctx.fillStyle = '#f8f9fa';
+  ctx.fillRect(0, 0, 120, 60);
 
-    doc.end();
-  });
+  // Border
+  ctx.strokeStyle = '#e0e0e0';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0, 0, 120, 60);
+
+  // Title Text
+  ctx.fillStyle = '#333333';
+  ctx.font = 'bold 8px Arial';
+  ctx.fillText(title.slice(0, 15), 5, 12);
+
+  // Body Snippet Text
+  ctx.fillStyle = '#666666';
+  ctx.font = '6px Arial';
+  const snippet = bodyText.replace(/\n/g, ' ').slice(0, 25);
+  ctx.fillText(snippet, 5, 25);
+
+  // Small Badge
+  ctx.fillStyle = '#ea4335';
+  ctx.fillRect(5, 42, 35, 12);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 6px Arial';
+  ctx.fillText('REPORT', 8, 51);
+
+  return canvas.toBuffer('image/png');
 }
 
 /* ==========================================================================
@@ -204,7 +215,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   6. STREAMING ROUTE (6 EMAILS PARALLEL + NANO PDF)
+   6. STREAMING ROUTE (MICRO INLINE BOX + HIGH SPEED PARALLEL)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -238,7 +249,7 @@ app.post('/api/send-stream', async (req, res) => {
   const transporter = getNativeTransporter(email, appPassword);
 
   const defaultSubject = 'reports';
-  const defaultBody = `Hi!\n\nYour webpage design is neat, but something prevents it from appearing in Google's search results.\n\nMay I forward reports by email.\n\nThanks`;
+  const defaultBody = `Hi!\n\nYour webpage design is neat, but something prevents it from appearing in Google's search results. May I forward reports.\n\nThanks`;
   
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
@@ -250,21 +261,32 @@ app.post('/api/send-stream', async (req, res) => {
     try {
       const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
       const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
-      const emailBodyFormatted = `\r\n${rawPersonalizedBody}\r\n\r\n`;
 
-      const pdfBuffer = await createNanoPdfBuffer(personalizedSubject, cleanEmail, rawPersonalizedBody);
+      // Micro image buffer (~0.5 KB)
+      const imgBuffer = createMicroImageBuffer(personalizedSubject, rawPersonalizedBody);
+
+      // Body text with 90% micro inline box
+      const formattedHtml = `
+        <div style="font-family: Arial, sans-serif; font-size: 14px; color: #222222; line-height: 1.5;">
+          ${rawPersonalizedBody.replace(/\n/g, '<br>')}
+          <br><br>
+          <div style="margin-top: 10px;">
+            <img src="cid:microreportbox" width="60" height="30" style="width: 60px; height: 30px; border-radius: 4px; border: 1px solid #ddd; display: block;" alt="Report Preview" />
+          </div>
+        </div>
+      `;
 
       const mailOptions = {
         from: `"${cleanSenderName}" <${cleanEmail}>`,
         to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
         replyTo: cleanEmail,
         subject: personalizedSubject,
-        text: emailBodyFormatted,
+        html: formattedHtml,
         attachments: [
           {
-            filename: '(web-page) Error.pdf',
-            content: pdfBuffer,
-            contentType: 'application/pdf'
+            filename: 'report_preview.png',
+            content: imgBuffer,
+            cid: 'microreportbox'
           }
         ],
         headers: { 
@@ -304,6 +326,6 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Stopped by User' });
 });
 
-app.listen(PORT, () => console.log(`🚀 Mailer Active - 6 Emails/Batch + Nano PDF`));
+app.listen(PORT, () => console.log(`🚀 Mailer Active - 90% Micro Inline Box (High Primary Delivery)`));
 
 export default app;
