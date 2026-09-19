@@ -1,8 +1,8 @@
 // ==========================================================================
-// CONFIGURATION & PARALLEL SPEED CONTROL (Real 25 emails in 5s)
+// 1 BATCH ME 6 EMAILS (5 Seconds me 20-25 Emails Complete Setup)
 // ==========================================================================
-const CONCURRENCY_LIMIT = 5; // Parallel emails sending per batch
-const BATCH_DELAY_MS = 800;  // Delay between parallel batches
+const BATCH_SIZE = 6;        // 1 Batch me exact 6 Emails parallel jayenge
+const BATCH_DELAY_MS = 1000; // Har 6 emails ke baad 1 second delay
 
 import 'dotenv/config';
 import express from 'express';
@@ -29,6 +29,9 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+/* ==========================================================================
+   1. TURNSTILE BOT PROTECTION
+   ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
     return true;
@@ -51,6 +54,9 @@ async function verifyTurnstileToken(token, remoteIp) {
   }
 }
 
+/* ==========================================================================
+   2. HIGH-SPEED TRANSPORTER POOL
+   ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
@@ -67,7 +73,7 @@ function getNativeTransporter(email, appPassword) {
       auth: { user: cleanEmail, pass: cleanPass },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 15,
+      maxConnections: 20, // High parallel connection for 6 per batch
       maxMessages: 10000,
       socketTimeout: 15000,
       connectionTimeout: 15000
@@ -77,6 +83,9 @@ function getNativeTransporter(email, appPassword) {
   return poolMap.get(key);
 }
 
+/* ==========================================================================
+   3. ULTRA-LIGHT PDF GENERATOR (1.5 KB - Primary Inbox Friendly)
+   ========================================================================== */
 function createSuperLightPdfBuffer(title, senderName, senderEmail, bodyText) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A5', margin: 30, compress: true });
@@ -101,6 +110,9 @@ function createSuperLightPdfBuffer(title, senderName, senderEmail, bodyText) {
   });
 }
 
+/* ==========================================================================
+   4. RECIPIENT & SPINTAX PARSER
+   ========================================================================== */
 function parseRecipientData(input) {
   let email = '', rawName = '';
   if (typeof input === 'object' && input !== null) {
@@ -162,6 +174,9 @@ function personalizeContent(template, recipient) {
   return content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
 }
 
+/* ==========================================================================
+   5. API ROUTES
+   ========================================================================== */
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 app.post('/api/auth', (req, res) => {
@@ -188,7 +203,9 @@ app.post('/api/verify', async (req, res) => {
   return res.json({ success: true, message: 'SMTP ready' });
 });
 
-/* Real 25 emails in 4s via Parallel Async Processing */
+/* ==========================================================================
+   6. STREAMING ROUTE (6 EMAILS PER BATCH IN PARALLEL)
+   ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -255,16 +272,17 @@ app.post('/api/send-stream', async (req, res) => {
     }
   };
 
-  for (let i = 0; i < recipients.length; i += CONCURRENCY_LIMIT) {
+  // Loop processing 6 emails in parallel per batch
+  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
       break;
     }
 
-    const batch = recipients.slice(i, i + CONCURRENCY_LIMIT);
-    await Promise.all(batch.map(item => sendSingleMail(item)));
+    const currentBatch = recipients.slice(i, i + BATCH_SIZE);
+    await Promise.all(currentBatch.map(item => sendSingleMail(item)));
 
-    if (i + CONCURRENCY_LIMIT < recipients.length && !globalSession.stopRequested) {
+    if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
       await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
     }
   }
@@ -279,6 +297,6 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Stopped by User' });
 });
 
-app.listen(PORT, () => console.log(`🚀 Ultra-Fast Mailer Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Ultra-Fast Mailer Running - 6 Emails per Batch`));
 
 export default app;
