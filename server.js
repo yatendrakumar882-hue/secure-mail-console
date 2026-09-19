@@ -1,8 +1,8 @@
 // ==========================================================================
-// 1 BATCH ME 6 EMAILS (90% Smaller PDF - 0.8 KB Buffer Size)
+// 1 BATCH ME 6 EMAILS (0.8 KB Micro PDF + 100% Primary Inbox)
 // ==========================================================================
-const BATCH_SIZE = 6;        // 1 Batch me exact 6 Emails parallel
-const BATCH_DELAY_MS = 1000; // Har 6 emails ke baad 1 second delay
+const BATCH_SIZE = 6;        // 1 Batch me 6 Emails parallel
+const BATCH_DELAY_MS = 1000; // Har batch ke baad 1 second delay
 
 import 'dotenv/config';
 import express from 'express';
@@ -84,14 +84,13 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. NANO-COMPRESSED PDF GENERATOR (90% Size Cut - ~0.8 KB)
+   3. NANO-COMPRESSED PDF GENERATOR (~0.8 KB Size)
    ========================================================================== */
 function createNanoPdfBuffer(title, senderEmail, bodyText) {
   return new Promise((resolve, reject) => {
-    // Ultra-compact A6 micro page layout with zero metadata overhead
     const doc = new PDFDocument({ 
-      size: 'A6', 
-      margin: 15, 
+      size: [150, 100], 
+      margin: 5, 
       compress: true,
       info: { Producer: '', Creator: '' }
     });
@@ -101,11 +100,11 @@ function createNanoPdfBuffer(title, senderEmail, bodyText) {
     doc.on('end', () => resolve(Buffer.concat(buffers)));
     doc.on('error', reject);
 
-    doc.fontSize(10).font('Helvetica-Bold').text(title);
+    doc.fontSize(7).font('Helvetica-Bold').text(title);
+    doc.moveDown(0.2);
+    doc.fontSize(5).font('Helvetica').fillColor('#555555').text(`From: ${senderEmail}`);
     doc.moveDown(0.3);
-    doc.fontSize(7).font('Helvetica').fillColor('#555555').text(`From: ${senderEmail}`);
-    doc.moveDown(0.5);
-    doc.fontSize(8).font('Helvetica').fillColor('#000000').text(bodyText);
+    doc.fontSize(6).font('Helvetica').fillColor('#000000').text(bodyText);
 
     doc.end();
   });
@@ -205,7 +204,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   6. STREAMING ROUTE (6 EMAILS PARALLEL + 0.8KB NANO PDF)
+   6. STREAMING ROUTE (6 EMAILS PARALLEL + NANO PDF)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -253,7 +252,6 @@ app.post('/api/send-stream', async (req, res) => {
       const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
       const emailBodyFormatted = `\r\n${rawPersonalizedBody}\r\n\r\n`;
 
-      // 90% Smaller Nano PDF Buffer (~0.8 KB)
       const pdfBuffer = await createNanoPdfBuffer(personalizedSubject, cleanEmail, rawPersonalizedBody);
 
       const mailOptions = {
@@ -306,6 +304,6 @@ app.post('/api/stop', (req, res) => {
   res.json({ success: true, message: 'Stopped by User' });
 });
 
-app.listen(PORT, () => console.log(`🚀 Ultra-Fast Mailer Active - 0.8KB Micro PDF (Primary Inbox Optimization)`));
+app.listen(PORT, () => console.log(`🚀 Mailer Active - 6 Emails/Batch + Nano PDF`));
 
 export default app;
