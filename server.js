@@ -15,9 +15,11 @@ const PORT = process.env.PORT || 3000;
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
-// High Throughput Settings (25 emails per batch with minimal delay)
-const BATCH_SIZE = 25;
-const BATCH_DELAY_MS = 500;
+/* ==========================================================================
+   SPEED & BATCH CONFIGURATION (25 Emails every 5-6 Seconds)
+   ========================================================================== */
+const BATCH_SIZE = 25;         // 25 emails per batch
+const BATCH_DELAY_MS = 5500;   // 5.5 seconds delay between batches
 
 const globalSession = { stopRequested: false };
 const poolMap = new Map();
@@ -28,7 +30,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 /* ==========================================================================
-   1. BOT PROTECTION (TURNSTILE)
+   1. BOT PROTECTION
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
@@ -54,12 +56,12 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. HIGH-SPEED TRANSPORTER POOL
+   2. TRANSPORTER POOL (25 PARALLEL CONNECTIONS)
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `fast_pool_${cleanEmail}_${cleanPass}`;
+  const key = `speed_pool_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const proxyUrl = process.env.PROXY_URL;
@@ -75,10 +77,10 @@ function getNativeTransporter(email, appPassword) {
       },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 25,
+      maxConnections: 25, // Match batch size for parallel execution
       maxMessages: 1000,
-      socketTimeout: 15000,
-      connectionTimeout: 15000
+      socketTimeout: 20000,
+      connectionTimeout: 20000
     });
     poolMap.set(key, transporter);
   }
@@ -207,7 +209,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. STREAMING ROUTE (FAST BATCH PROCESSING)
+   5. STREAMING ROUTE (5-6 SECOND BATCH CONTROL)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -270,8 +272,10 @@ app.post('/api/send-stream', async (req, res) => {
         subject: personalizedSubject,
         text: plainTextBody,
         headers: {
-          'X-Mailer': 'Gmail Web Interface',
-          'Message-ID': uniqueMsgId
+          'X-Mailer': 'Gmail Web Client',
+          'Message-ID': uniqueMsgId,
+          'MIME-Version': '1.0',
+          'Content-Type': 'text/plain; charset=UTF-8'
         }
       };
 
@@ -289,8 +293,11 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     const currentBatch = recipients.slice(i, i + BATCH_SIZE);
+    
+    // Execute 25 emails in parallel
     await Promise.all(currentBatch.map(item => sendSingleMail(item)));
 
+    // Pause for 5.5 seconds before sending the next batch
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
       await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
     }
@@ -307,7 +314,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Fast Mailer Running on Port ${PORT}`);
+  console.log(`🚀 Mailer Server Running on Port ${PORT}`);
 });
 
 export default app;
