@@ -1,15 +1,13 @@
 {
   "name": "ultra-fast-mailer",
   "version": "1.0.0",
-  "description": "High Speed Mailer with Micro Inline Box Preview",
+  "description": "High Speed Mailer for Vercel Deployment",
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+    "start": "node server.js"
   },
   "dependencies": {
-    "canvas": "^2.11.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
