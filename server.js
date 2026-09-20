@@ -10,7 +10,7 @@ import { HttpsProxyAgent } from 'https-proxy-agent';
 /* ==========================================================================
    ⚡ HIGH INBOX DELIVERY CONFIGURATION (HUMAN EMULATION SPEED)
    ========================================================================== */
-const BATCH_SIZE = 1;               // 1 email at a time to prevent SMTP Rate Limit
+const BATCH_SIZE = 3;               // 3 email at a time to prevent SMTP Rate Limit
 const MIN_DELAY_MS = 1200;          // Minimum 1.2s delay
 const MAX_DELAY_MS = 2500;          // Maximum 2.5s delay (Randomized)
 /* ========================================================================== */
