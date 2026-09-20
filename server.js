@@ -49,7 +49,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   GMAIL TRANSPORTER POOL (6 Parallel Connections)
+   GMAIL TRANSPORTER POOL (4 Parallel Connections)
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -68,7 +68,7 @@ function getNativeTransporter(email, appPassword) {
       },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 6, // Exact 6 parallel connections for 6-blitz sending
+      maxConnections: 4, // Exact 6 parallel connections for 4-blitz sending
       maxMessages: 20000,
       socketTimeout: 25000,
       connectionTimeout: 25000
@@ -200,7 +200,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   STREAMING ROUTE (Exact 6 Emails Blitz Batching)
+   STREAMING ROUTE (Exact 4 Emails Blitz Batching)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
