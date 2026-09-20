@@ -8,11 +8,11 @@ import { fileURLToPath } from 'url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 
 /* ==========================================================================
-   ⚡ HIGH INBOX DELIVERY & SAFE SPEED CONFIGURATION
+   ⚡ BATCH & SPEED CONFIGURATION (4 EMAILS PER BATCH)
    ========================================================================== */
-const MAX_EMAILS_PER_ACCOUNT = 25;  // 1 Account se maximum 25 emails hi jayenge
-const MIN_DELAY_MS = 3000;           // 3 Seconds minimum delay
-const MAX_DELAY_MS = 6000;           // 6 Seconds maximum delay (Random Human Behavior)
+const BATCH_SIZE = 4;               // 1 batch mai 4 emails bhejega
+const MIN_DELAY_MS = 3000;          // Minimum 3 Seconds delay between batches
+const MAX_DELAY_MS = 6000;          // Maximum 6 Seconds delay (Human Behavior)
 /* ========================================================================== */
 
 const __filename = fileURLToPath(import.meta.url);
@@ -63,7 +63,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_pro_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_batch4_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const proxyUrl = process.env.PROXY_URL;
@@ -79,8 +79,8 @@ function getNativeTransporter(email, appPassword) {
       },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 1,
-      maxMessages: 25,
+      maxConnections: 4,
+      maxMessages: 500,
       socketTimeout: 20000,
       connectionTimeout: 20000
     });
@@ -215,7 +215,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. STREAMING ROUTE (25 SAFE INBOX DELIVERY ENGINE)
+   5. STREAMING ROUTE (4 EMAILS PER BATCH ENGINE)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -256,9 +256,6 @@ app.post('/api/send-stream', async (req, res) => {
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
-
-  // Strict check: Fast sending limit of 25 emails per execution
-  const processList = recipients.slice(0, MAX_EMAILS_PER_ACCOUNT);
 
   const sendSingleMail = async (rawRecipient, retries = 2) => {
     const recipient = parseRecipientData(rawRecipient);
@@ -310,16 +307,18 @@ app.post('/api/send-stream', async (req, res) => {
     }
   };
 
-  // Process Emails One by One with 3-6 second Human Delay
-  for (let i = 0; i < processList.length; i++) {
+  // Processing Emails in Batches of 4
+  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
       break;
     }
 
-    await sendSingleMail(processList[i]);
+    const currentBatch = recipients.slice(i, i + BATCH_SIZE);
+    await Promise.all(currentBatch.map(item => sendSingleMail(item)));
 
-    if (i < processList.length - 1 && !globalSession.stopRequested) {
+    // Wait 3-6s delay between batches to protect Gmail SMTP IP reputation
+    if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
       const delay = getRandomDelay(MIN_DELAY_MS, MAX_DELAY_MS);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
@@ -336,7 +335,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Safe Inbox Mailer Running on Port ${PORT}`);
+  console.log(`🚀 Batch 4 Inbox Mailer Running on Port ${PORT}`);
 });
 
 export default app;
