@@ -1,29 +1,13 @@
 {
-  "name": "usa-safe-email-console",
+  "name": "secure-mail-console",
   "version": "1.0.0",
-  "description": "High Speed Primary Inbox Streaming Mailer",
-  "main": "server.js",
   "type": "module",
-  "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
-  },
-  "keywords": [
-    "nodemailer",
-    "email-stream",
-    "express",
-    "inbox-delivery"
-  ],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "https-proxy-agent": "^7.0.4",
-    "nodemailer": "^6.9.13"
-  },
-  "devDependencies": {
-    "nodemon": "^3.1.0"
+    "nodemailer": "^6.9.13",
+    "pdfkit": "^0.15.0"
   }
 }
