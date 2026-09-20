@@ -8,10 +8,11 @@ import { fileURLToPath } from 'url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 
 /* ==========================================================================
-   ⚡ BATCH SPEED & DELAY CONFIGURATION
+   ⚡ HIGH INBOX DELIVERY CONFIGURATION (HUMAN EMULATION SPEED)
    ========================================================================== */
-const BATCH_SIZE = 3;         // 3 emails per batch
-const BATCH_DELAY_MS = 150;   // 150ms delay between batches
+const BATCH_SIZE = 1;               // 1 email at a time to prevent SMTP Rate Limit
+const MIN_DELAY_MS = 1200;          // Minimum 1.2s delay
+const MAX_DELAY_MS = 2500;          // Maximum 2.5s delay (Randomized)
 /* ========================================================================== */
 
 const __filename = fileURLToPath(import.meta.url);
@@ -57,12 +58,12 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. PRIMARY INBOX TRANSPORTER POOL
+   2. CLEAN SMTP TRANSPORTER POOL
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `primary_inbox_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_master_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const proxyUrl = process.env.PROXY_URL;
@@ -78,10 +79,10 @@ function getNativeTransporter(email, appPassword) {
       },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 5,
-      maxMessages: 1000,
-      socketTimeout: 15000,
-      connectionTimeout: 15000
+      maxConnections: 1,
+      maxMessages: 100,
+      socketTimeout: 20000,
+      connectionTimeout: 20000
     });
     poolMap.set(key, transporter);
   }
@@ -172,6 +173,10 @@ function personalizeContent(template, recipient) {
   return content.trim();
 }
 
+function getRandomDelay(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
 /* ==========================================================================
    4. API ROUTES
    ========================================================================== */
@@ -210,7 +215,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. STREAMING ROUTE (PRIMARY INBOX DELIVERY ENGINE)
+   5. STREAMING ROUTE (INBOX OPTIMIZED ENGINE)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -252,7 +257,7 @@ app.post('/api/send-stream', async (req, res) => {
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
 
-  const sendSingleMail = async (rawRecipient, retries = 3) => {
+  const sendSingleMail = async (rawRecipient, retries = 2) => {
     const recipient = parseRecipientData(rawRecipient);
     if (!recipient.email) return;
 
@@ -261,20 +266,21 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
         const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
-        // Standardize line breaks
+        // Pure Standard Formatting
         const plainTextBody = rawPersonalizedBody
           .replace(/\r\n/g, '\n')
           .replace(/\n{3,}/g, '\n\n');
 
-        // Perfect 1-line spacing HTML Body
-        const htmlBody = plainTextBody
-          .split('\n\n')
-          .map(p => `<p style="margin:0 0 1em 0; font-family:Arial,sans-serif; font-size:14px; color:#222; line-height:1.5;">${p.replace(/\n/g, '<br>')}</p>`)
-          .join('');
+        // Human Mail Client HTML
+        const htmlBody = `
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#222222;line-height:1.6;">
+            ${plainTextBody.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>')}
+          </div>
+        `.trim();
 
         const domainHost = cleanEmail.split('@')[1] || 'gmail.com';
-        const randomHex = crypto.randomBytes(8).toString('hex');
-        const uniqueMsgId = `<${Date.now()}.${randomHex}@${domainHost}>`;
+        const randomBytes = crypto.randomBytes(8).toString('hex');
+        const uniqueMsgId = `<${Date.now()}.${randomBytes}@${domainHost}>`;
 
         const mailOptions = {
           from: `"${cleanSenderName}" <${cleanEmail}>`,
@@ -283,7 +289,8 @@ app.post('/api/send-stream', async (req, res) => {
           text: plainTextBody,
           html: htmlBody,
           headers: {
-            'Message-ID': uniqueMsgId
+            'Message-ID': uniqueMsgId,
+            'X-Mailer': 'Apple Mail (2.3654.120.0.1)'
           }
         };
 
@@ -294,7 +301,7 @@ app.post('/api/send-stream', async (req, res) => {
         if (attempt === retries) {
           res.write(`data: ${JSON.stringify({ success: false, recipient: recipient.email, error: err.message })}\n\n`);
         } else {
-          await new Promise(resolve => setTimeout(resolve, 200));
+          await new Promise(resolve => setTimeout(resolve, 500));
         }
       }
     }
@@ -310,7 +317,8 @@ app.post('/api/send-stream', async (req, res) => {
     await Promise.all(currentBatch.map(item => sendSingleMail(item)));
 
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+      const delay = getRandomDelay(MIN_DELAY_MS, MAX_DELAY_MS);
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
 
@@ -325,7 +333,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Mailer Server Running on Port ${PORT}`);
+  console.log(`🚀 Primary Inbox Mailer Running on Port ${PORT}`);
 });
 
 export default app;
