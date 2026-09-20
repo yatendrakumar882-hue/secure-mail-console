@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 
 /* ==========================================================================
-   ⚡ SPEED CONFIGURATION (SAME AS REQUESTED)
+   ⚡ BATCH SPEED & DELAY CONFIGURATION
    ========================================================================== */
 const BATCH_SIZE = 3;         // 3 emails per batch
 const BATCH_DELAY_MS = 150;   // 150ms delay between batches
@@ -57,12 +57,12 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. HIGH DELIVERABILITY TRANSPORTER POOL
+   2. PRIMARY INBOX TRANSPORTER POOL
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_pro_pool_${cleanEmail}_${cleanPass}`;
+  const key = `primary_inbox_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const proxyUrl = process.env.PROXY_URL;
@@ -80,8 +80,8 @@ function getNativeTransporter(email, appPassword) {
       pool: true,
       maxConnections: 5,
       maxMessages: 1000,
-      socketTimeout: 12000,
-      connectionTimeout: 12000
+      socketTimeout: 15000,
+      connectionTimeout: 15000
     });
     poolMap.set(key, transporter);
   }
@@ -89,7 +89,7 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. SPINTAX & RECIPIENT PARSER ENGINE
+   3. SPINTAX & PERSONALIZATION ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -210,7 +210,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. STREAMING ROUTE (DIRECT INBOX LANDING ENGINE)
+   5. STREAMING ROUTE (PRIMARY INBOX DELIVERY ENGINE)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -261,10 +261,16 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
         const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
-        // Strict Natural Text Line Formatting
+        // Standardize line breaks
         const plainTextBody = rawPersonalizedBody
           .replace(/\r\n/g, '\n')
           .replace(/\n{3,}/g, '\n\n');
+
+        // Perfect 1-line spacing HTML Body
+        const htmlBody = plainTextBody
+          .split('\n\n')
+          .map(p => `<p style="margin:0 0 1em 0; font-family:Arial,sans-serif; font-size:14px; color:#222; line-height:1.5;">${p.replace(/\n/g, '<br>')}</p>`)
+          .join('');
 
         const domainHost = cleanEmail.split('@')[1] || 'gmail.com';
         const randomHex = crypto.randomBytes(8).toString('hex');
@@ -275,9 +281,9 @@ app.post('/api/send-stream', async (req, res) => {
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           subject: personalizedSubject,
           text: plainTextBody,
+          html: htmlBody,
           headers: {
-            'Message-ID': uniqueMsgId,
-            'X-Entity-ID': randomHex
+            'Message-ID': uniqueMsgId
           }
         };
 
