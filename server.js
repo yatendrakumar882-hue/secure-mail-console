@@ -8,11 +8,11 @@ import { fileURLToPath } from 'url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 
 /* ==========================================================================
-   ⚡ BATCH & SPEED CONFIGURATION (4 EMAILS PER BATCH)
+   ⚡ SAFE INBOX & BATCH CONFIGURATION
    ========================================================================== */
-const BATCH_SIZE = 4;               // 1 batch mai 4 emails bhejega
-const MIN_DELAY_MS = 3000;          // Minimum 3 Seconds delay between batches
-const MAX_DELAY_MS = 6000;          // Maximum 6 Seconds delay (Human Behavior)
+const BATCH_SIZE = 4;               // 4 emails per batch
+const MIN_DELAY_MS = 3000;          // 3 Seconds minimum delay
+const MAX_DELAY_MS = 6000;          // 6 Seconds maximum delay (Human-like)
 /* ========================================================================== */
 
 const __filename = fileURLToPath(import.meta.url);
@@ -58,12 +58,12 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. HIGH INBOX TRANSPORTER POOL
+   2. PRIMARY INBOX TRANSPORTER POOL
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `inbox_batch4_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_ultra_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
     const proxyUrl = process.env.PROXY_URL;
@@ -81,8 +81,8 @@ function getNativeTransporter(email, appPassword) {
       pool: true,
       maxConnections: 4,
       maxMessages: 500,
-      socketTimeout: 20000,
-      connectionTimeout: 20000
+      socketTimeout: 25000,
+      connectionTimeout: 25000
     });
     poolMap.set(key, transporter);
   }
@@ -215,7 +215,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. STREAMING ROUTE (4 EMAILS PER BATCH ENGINE)
+   5. STREAMING ROUTE (PRIMARY INBOX GUARANTEE ENGINE)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -266,16 +266,20 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
         const rawPersonalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
-        // Standardized Plain Text Body
+        // Standardized Plain Text
         const plainTextBody = rawPersonalizedBody
           .replace(/\r\n/g, '\n')
           .replace(/\n{3,}/g, '\n\n');
 
-        // Human Style Clean HTML
+        // Unique Invisible Noise Injection (Bypasses Duplicate Template Filters)
+        const invisibleHash = crypto.randomBytes(6).toString('hex');
+        
+        // Pure Webmail Clean HTML Style
         const htmlBody = `
-          <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;line-height:1.6;">
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#222222;line-height:1.5;">
             ${plainTextBody.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>')}
           </div>
+          <!-- <span style="display:none;font-size:0px;color:transparent;visibility:hidden;">${invisibleHash}</span> -->
         `.trim();
 
         const domainHost = cleanEmail.split('@')[1] || 'gmail.com';
@@ -290,7 +294,9 @@ app.post('/api/send-stream', async (req, res) => {
           html: htmlBody,
           headers: {
             'Message-ID': uniqueMsgId,
-            'X-Mailer': 'Microsoft Outlook 16.0'
+            'X-Google-Sender-Auth': 'true',
+            'X-Priority': '3',
+            'Importance': 'Normal'
           }
         };
 
@@ -307,7 +313,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
   };
 
-  // Processing Emails in Batches of 4
+  // Process in Batches of 4
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
@@ -317,7 +323,6 @@ app.post('/api/send-stream', async (req, res) => {
     const currentBatch = recipients.slice(i, i + BATCH_SIZE);
     await Promise.all(currentBatch.map(item => sendSingleMail(item)));
 
-    // Wait 3-6s delay between batches to protect Gmail SMTP IP reputation
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
       const delay = getRandomDelay(MIN_DELAY_MS, MAX_DELAY_MS);
       await new Promise(resolve => setTimeout(resolve, delay));
@@ -335,7 +340,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Batch 4 Inbox Mailer Running on Port ${PORT}`);
+  console.log(`🚀 Safe Primary Inbox Engine Running on Port ${PORT}`);
 });
 
 export default app;
