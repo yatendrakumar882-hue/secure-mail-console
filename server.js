@@ -5,14 +5,13 @@ import cors from 'cors';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { HttpsProxyAgent } from 'https-proxy-agent';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const SITE_PASSWORD = process.env.SITE_PASSWORD || '@##';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const globalSession = { stopRequested: false };
@@ -50,7 +49,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. AUTHENTIC GMAIL NATIVE TRANSPORTER (100% SPF/DKIM SAFE)
+   2. AUTHENTIC DIRECT GMAIL TRANSPORTER POOL
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -58,21 +57,16 @@ function getNativeTransporter(email, appPassword) {
   const key = `perfect_inbox_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
-    const proxyUrl = process.env.PROXY_URL;
-    const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : null;
-
-    // Strict Google Native Connection Options
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
-      secure: true, // Native TLS Encryption
+      secure: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
-      ...(agent && { agent }),
       pool: true,
-      maxConnections: 1,
+      maxConnections: 8,
       maxMessages: 10000,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -83,7 +77,7 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. RECIPIENT DATA & SPINTAX ENGINE
+   3. INBOX PLACEMENT & SANITIZATION ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -150,7 +144,16 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
-function personalizeContent(template, recipient) {
+// Injects Zero-Width Spaces (\u200B) for unique fingerprinting
+function injectInvisibleFingerprint(text) {
+  if (!text) return '';
+  return text.split('').map(char => {
+    return (char === ' ' && Math.random() > 0.55) ? ' \u200B' : char;
+  }).join('');
+}
+
+// Cleans Unsubscribe elements while preserving allowed user links
+function cleanContentForPrimaryInbox(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
 
@@ -163,7 +166,16 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
+  // AUTO-REMOVE UNSUBSCRIBE LINKS AND KEYWORDS
+  content = content.replace(/<a[^>]*href=['"][^'"]*unsubscribe[^'"]*['"][^>]*>.*?<\/a>/gi, '');
+  content = content.replace(/https?:\/\/[^\s]*unsubscribe[^\s]*/gi, '');
+  content = content.replace(/unsubscribe/gi, '');
+
   return content;
+}
+
+function getRandomFastDelay(minMs = 400, maxMs = 800) {
+  return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
 }
 
 /* ==========================================================================
@@ -204,7 +216,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. HIGH-DELIVERY STREAMING ROUTE (Primary Inbox Optimization)
+   5. ULTIMATE STREAMING ROUTE (PRIMARY INBOX GUARANTEE)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -240,9 +252,8 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getNativeTransporter(email, appPassword);
 
-  // Perfect Native Cold Email Templates
-  const defaultSubject = '{Google|Google Listing|Site Overview}';
-  const defaultBody = `Your site looks great, but it's not showing on Google yet. Can I email the quote?\n\nBest regards,\n${cleanSenderName}\nClient Relations & Business Development\n${cleanEmail}`;
+  const defaultSubject = '{Quick Question|Hello|Site Overview|Information}';
+  const defaultBody = `Hi {FirstName},\n\nYour site looks great, but it's not showing properly on Google yet. Check this out: https://example.com\n\nBest regards,\n${cleanSenderName}\nClient Relations & Business Development`;
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
@@ -257,29 +268,33 @@ app.post('/api/send-stream', async (req, res) => {
     if (!recipient.email) continue;
 
     try {
-      const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
-      const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
+      const personalizedSubject = cleanContentForPrimaryInbox(finalSubjectTemplate, recipient);
+      const rawPersonalizedBody = cleanContentForPrimaryInbox(finalBodyTemplate, recipient);
 
-      // Clean plain-text formatting
-      const plainTextBody = personalizedBody
+      // Injecting dynamic zero-width fingerprinting
+      const plainTextBody = injectInvisibleFingerprint(rawPersonalizedBody)
         .replace(/\r\n/g, '\n')
         .replace(/\n{3,}/g, '\n\n');
 
-      // Unique invisible noise generation (bypass bulk filter matching)
-      const uniqueNoise = crypto.randomBytes(6).toString('hex');
+      // Convert raw links to clean HTML anchor tags for normal rendering
+      const formattedHtmlBodyText = plainTextBody.replace(/(https?:\/\/[^\s<]+)/gi, (url) => {
+        return `<a href="${url}" target="_blank" style="color:#1a73e8;text-decoration:underline;">${url}</a>`;
+      });
 
-      // Minimalistic Native HTML Representation
+      const paragraphs = formattedHtmlBodyText
+        .split(/\n\n+/)
+        .map(p => `<p style="margin:0 0 12px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#222222;">${p.replace(/\n/g, '<br>')}</p>`)
+        .join('');
+
+      const randomHash = crypto.randomBytes(8).toString('hex');
+      const invisibleHashTag = `<div style="display:none;font-size:1px;color:#ffffff;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;"><!-- ${randomHash} --></div>`;
+
       const htmlBody = `
-        <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;line-height:1.5;">
-          ${plainTextBody.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>')}
+        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#222222;">
+          ${paragraphs}
+          ${invisibleHashTag}
         </div>
-        <!-- <span style="display:none;font-size:0px;color:transparent;visibility:hidden;">${uniqueNoise}</span> -->
       `.trim();
-
-      // Custom RFC-compliant Message ID to bypass Gmail Automated Script Flagging
-      const domainHost = cleanEmail.split('@')[1] || 'gmail.com';
-      const randomHex = crypto.randomBytes(8).toString('hex');
-      const customMessageId = `<${Date.now()}.${randomHex}@${domainHost}>`;
 
       const mailOptions = {
         from: `"${cleanSenderName}" <${cleanEmail}>`,
@@ -287,13 +302,7 @@ app.post('/api/send-stream', async (req, res) => {
         replyTo: cleanEmail,
         subject: personalizedSubject,
         text: plainTextBody,
-        html: htmlBody,
-        headers: {
-          'Message-ID': customMessageId,
-          'X-Google-Sender-Auth': 'true',
-          'X-Priority': '3',
-          'Importance': 'Normal'
-        }
+        html: htmlBody
       };
 
       await transporter.sendMail(mailOptions);
@@ -306,9 +315,10 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify(failData)}\n\n`);
     }
 
-    // Exact 60 ms delay execution (Unchanged Speed)
+    // Dynamic Safe Delay (400ms to 800ms)
     if (i < recipients.length - 1 && !globalSession.stopRequested) {
-      await new Promise(resolve => setTimeout(resolve, 60));
+      const delayMs = getRandomFastDelay(400, 800);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
     }
   }
 
@@ -323,7 +333,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Perfect Primary Inbox Mailer running on port ${PORT}`);
+  console.log(`🚀 Primary Inbox Mailer running on port ${PORT}`);
 });
 
 export default app;
