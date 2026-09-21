@@ -66,7 +66,7 @@ function getNativeTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 12,
+      maxConnections: 10,
       maxMessages: 10000,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -77,7 +77,7 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. INBOX PLACEMENT & SANITIZATION ENGINE
+   3. RECIPIENT DATA & SPINTAX ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -148,11 +148,11 @@ function parseSpintax(text) {
 function injectInvisibleFingerprint(text) {
   if (!text) return '';
   return text.split('').map(char => {
-    return (char === ' ' && Math.random() > 0.55) ? ' \u200B' : char;
+    return (char === ' ' && Math.random() > 0.5) ? ' \u200B' : char;
   }).join('');
 }
 
-// Cleans Unsubscribe elements while preserving allowed user links
+// Strip Unsubscribe links/words while keeping all other links intact
 function cleanContentForPrimaryInbox(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
@@ -166,7 +166,7 @@ function cleanContentForPrimaryInbox(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  // AUTO-REMOVE UNSUBSCRIBE LINKS AND KEYWORDS
+  // Auto-remove any Unsubscribe text or links
   content = content.replace(/<a[^>]*href=['"][^'"]*unsubscribe[^'"]*['"][^>]*>.*?<\/a>/gi, '');
   content = content.replace(/https?:\/\/[^\s]*unsubscribe[^\s]*/gi, '');
   content = content.replace(/unsubscribe/gi, '');
@@ -174,7 +174,8 @@ function cleanContentForPrimaryInbox(template, recipient) {
   return content;
 }
 
-function getRandomFastDelay(minMs = 300, maxMs = 600) {
+// Ultra Fast Safe Burst Delay (200ms to 400ms)
+function getRandomUltraFastDelay(minMs = 200, maxMs = 400) {
   return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
 }
 
@@ -216,7 +217,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. ULTIMATE STREAMING ROUTE (PRIMARY INBOX GUARANTEE)
+   5. ULTRA-FAST HIGH-DELIVERY STREAMING ROUTE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -271,12 +272,10 @@ app.post('/api/send-stream', async (req, res) => {
       const personalizedSubject = cleanContentForPrimaryInbox(finalSubjectTemplate, recipient);
       const rawPersonalizedBody = cleanContentForPrimaryInbox(finalBodyTemplate, recipient);
 
-      // Injecting dynamic zero-width fingerprinting
       const plainTextBody = injectInvisibleFingerprint(rawPersonalizedBody)
         .replace(/\r\n/g, '\n')
         .replace(/\n{3,}/g, '\n\n');
 
-      // Convert raw links to clean HTML anchor tags for normal rendering
       const formattedHtmlBodyText = plainTextBody.replace(/(https?:\/\/[^\s<]+)/gi, (url) => {
         return `<a href="${url}" target="_blank" style="color:#1a73e8;text-decoration:underline;">${url}</a>`;
       });
@@ -315,9 +314,9 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify(failData)}\n\n`);
     }
 
-    // Dynamic Safe Delay (300ms to 600ms)
+    // Ultra-Fast Delay (200ms to 400ms)
     if (i < recipients.length - 1 && !globalSession.stopRequested) {
-      const delayMs = getRandomFastDelay(300, 600);
+      const delayMs = getRandomUltraFastDelay(200, 400);
       await new Promise(resolve => setTimeout(resolve, delayMs));
     }
   }
@@ -333,7 +332,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Primary Inbox Mailer running on port ${PORT}`);
+  console.log(`🚀 Ultra-Fast Primary Inbox Mailer running on port ${PORT}`);
 });
 
 export default app;
