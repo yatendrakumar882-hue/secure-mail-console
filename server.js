@@ -66,7 +66,7 @@ function getNativeTransporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 8,
+      maxConnections: 12,
       maxMessages: 10000,
       socketTimeout: 30000,
       connectionTimeout: 30000
