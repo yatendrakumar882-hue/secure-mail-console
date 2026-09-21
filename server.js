@@ -3,8 +3,8 @@ import express from 'express';
 import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,7 +23,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 /* ==========================================================================
-   1. TURNSTILE BOT PROTECTION
+   TURNSTILE BOT PROTECTION
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
@@ -49,27 +49,29 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. AUTHENTIC DIRECT GMAIL TRANSPORTER POOL
+   GMAIL TRANSPORTER POOL (6 Parallel Connections)
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
   const cleanPass = appPassword.replace(/\s+/g, '').trim();
-  const key = `perfect_inbox_${cleanEmail}_${cleanPass}`;
+  const key = `inbox_blitz6_${cleanEmail}_${cleanPass}`;
 
   if (!poolMap.has(key)) {
+    const proxyUrl = process.env.PROXY_URL;
+    const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : null;
+
     const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,
+      service: 'gmail',
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
+      ...(agent && { agent }),
       pool: true,
-      maxConnections: 10,
-      maxMessages: 10000,
-      socketTimeout: 30000,
-      connectionTimeout: 30000
+      maxConnections: 6, // Exact 6 parallel connections for 6-blitz sending
+      maxMessages: 20000,
+      socketTimeout: 25000,
+      connectionTimeout: 25000
     });
     poolMap.set(key, transporter);
   }
@@ -77,7 +79,7 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. RECIPIENT DATA & SPINTAX ENGINE
+   RECIPIENT & SPINTAX ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -144,16 +146,7 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
-// Injects Zero-Width Spaces (\u200B) for unique fingerprinting
-function injectInvisibleFingerprint(text) {
-  if (!text) return '';
-  return text.split('').map(char => {
-    return (char === ' ' && Math.random() > 0.5) ? ' \u200B' : char;
-  }).join('');
-}
-
-// Strip Unsubscribe links/words while keeping all other links intact
-function cleanContentForPrimaryInbox(template, recipient) {
+function personalizeContent(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
 
@@ -166,21 +159,11 @@ function cleanContentForPrimaryInbox(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  // Auto-remove any Unsubscribe text or links
-  content = content.replace(/<a[^>]*href=['"][^'"]*unsubscribe[^'"]*['"][^>]*>.*?<\/a>/gi, '');
-  content = content.replace(/https?:\/\/[^\s]*unsubscribe[^\s]*/gi, '');
-  content = content.replace(/unsubscribe/gi, '');
-
   return content;
 }
 
-// Ultra Fast Safe Burst Delay (100ms to 200ms)
-function getRandomUltraFastDelay(minMs = 100, maxMs = 200) {
-  return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
-}
-
 /* ==========================================================================
-   4. API ROUTES
+   API ROUTES
    ========================================================================== */
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -217,7 +200,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. ULTRA-FAST HIGH-DELIVERY STREAMING ROUTE
+   STREAMING ROUTE (Exact 6 Emails Blitz Batching)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -253,71 +236,65 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getNativeTransporter(email, appPassword);
 
-  const defaultSubject = '{Quick Question|Hello|Site Overview|Information}';
-  const defaultBody = `Hi {FirstName},\n\nYour site looks great, but it's not showing properly on Google yet. Check this out: https://example.com\n\nBest regards,\n${cleanSenderName}\nClient Relations & Business Development`;
+  // Exact 6 Blitz Batch Size
+  const BATCH_SIZE = 6;
+
+  const defaultSubject = 'Google';
+  const defaultBody = `Your site looks great, but it's not showing on Google yet. Can I email the quote?\n\nBest regards,\n${cleanSenderName}\nClient Relations & Business Development\n${cleanEmail}`;
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
 
-  for (let i = 0; i < recipients.length; i++) {
+  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
       break;
     }
 
-    const recipient = parseRecipientData(recipients[i]);
-    if (!recipient.email) continue;
+    const batch = recipients.slice(i, i + BATCH_SIZE);
 
-    try {
-      const personalizedSubject = cleanContentForPrimaryInbox(finalSubjectTemplate, recipient);
-      const rawPersonalizedBody = cleanContentForPrimaryInbox(finalBodyTemplate, recipient);
+    const sendPromises = batch.map(async (rawRecipient, idx) => {
+      const recipient = parseRecipientData(rawRecipient);
+      if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
 
-      const plainTextBody = injectInvisibleFingerprint(rawPersonalizedBody)
-        .replace(/\r\n/g, '\n')
-        .replace(/\n{3,}/g, '\n\n');
+      try {
+        if (idx > 0) {
+          await new Promise(resolve => setTimeout(resolve, idx * 50));
+        }
 
-      const formattedHtmlBodyText = plainTextBody.replace(/(https?:\/\/[^\s<]+)/gi, (url) => {
-        return `<a href="${url}" target="_blank" style="color:#1a73e8;text-decoration:underline;">${url}</a>`;
-      });
+        const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
+        const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
-      const paragraphs = formattedHtmlBodyText
-        .split(/\n\n+/)
-        .map(p => `<p style="margin:0 0 12px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#222222;">${p.replace(/\n/g, '<br>')}</p>`)
-        .join('');
+        const mailOptions = {
+          from: `"${cleanSenderName}" <${cleanEmail}>`,
+          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+          replyTo: cleanEmail,
+          subject: personalizedSubject,
+          text: personalizedBody, // Plain Text triggers Google Smart Replies
+          headers: {
+            'X-Priority': '3',
+            'Importance': 'Normal'
+          }
+        };
 
-      const randomHash = crypto.randomBytes(8).toString('hex');
-      const invisibleHashTag = `<div style="display:none;font-size:1px;color:#ffffff;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;"><!-- ${randomHash} --></div>`;
+        await transporter.sendMail(mailOptions);
+        
+        const successData = { success: true, recipient: recipient.email, name: recipient.name };
+        res.write(`data: ${JSON.stringify(successData)}\n\n`);
+        return successData;
 
-      const htmlBody = `
-        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#222222;">
-          ${paragraphs}
-          ${invisibleHashTag}
-        </div>
-      `.trim();
+      } catch (err) {
+        const failData = { success: false, recipient: recipient.email, error: err.message };
+        res.write(`data: ${JSON.stringify(failData)}\n\n`);
+        return failData;
+      }
+    });
 
-      const mailOptions = {
-        from: `"${cleanSenderName}" <${cleanEmail}>`,
-        to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-        replyTo: cleanEmail,
-        subject: personalizedSubject,
-        text: plainTextBody,
-        html: htmlBody
-      };
+    await Promise.allSettled(sendPromises);
 
-      await transporter.sendMail(mailOptions);
-      
-      const successData = { success: true, recipient: recipient.email, name: recipient.name };
-      res.write(`data: ${JSON.stringify(successData)}\n\n`);
-
-    } catch (err) {
-      const failData = { success: false, recipient: recipient.email, error: err.message };
-      res.write(`data: ${JSON.stringify(failData)}\n\n`);
-    }
-
-    // Ultra-Fast Delay (100ms to 200ms)
-    if (i < recipients.length - 1 && !globalSession.stopRequested) {
-      const delayMs = getRandomUltraFastDelay(100, 200);
-      await new Promise(resolve => setTimeout(resolve, delayMs));
+    // Natural 2-second cooldown between 6-email blitz batches for safety
+    if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }
 
@@ -328,11 +305,11 @@ app.post('/api/send-stream', async (req, res) => {
 
 app.post('/api/stop', (req, res) => {
   globalSession.stopRequested = true;
-  res.json({ success: true, message: 'Stopped by User' });
+  res.json({ success: true, message: 'Sending process stopped' });
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Ultra-Fast Primary Inbox Mailer running on port ${PORT}`);
+  console.log(`🚀 6-Blitz Primary Inbox Mailer running on port ${PORT}`);
 });
 
 export default app;
