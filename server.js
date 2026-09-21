@@ -174,7 +174,7 @@ function cleanContentForPrimaryInbox(template, recipient) {
   return content;
 }
 
-function getRandomFastDelay(minMs = 400, maxMs = 800) {
+function getRandomFastDelay(minMs = 300, maxMs = 600) {
   return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
 }
 
@@ -315,9 +315,9 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify(failData)}\n\n`);
     }
 
-    // Dynamic Safe Delay (400ms to 800ms)
+    // Dynamic Safe Delay (300ms to 600ms)
     if (i < recipients.length - 1 && !globalSession.stopRequested) {
-      const delayMs = getRandomFastDelay(400, 800);
+      const delayMs = getRandomFastDelay(300, 600);
       await new Promise(resolve => setTimeout(resolve, delayMs));
     }
   }
