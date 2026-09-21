@@ -174,8 +174,8 @@ function cleanContentForPrimaryInbox(template, recipient) {
   return content;
 }
 
-// Ultra Fast Safe Burst Delay (200ms to 400ms)
-function getRandomUltraFastDelay(minMs = 200, maxMs = 400) {
+// Ultra Fast Safe Burst Delay (100ms to 300ms)
+function getRandomUltraFastDelay(minMs = 100, maxMs = 300) {
   return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
 }
 
@@ -314,9 +314,9 @@ app.post('/api/send-stream', async (req, res) => {
       res.write(`data: ${JSON.stringify(failData)}\n\n`);
     }
 
-    // Ultra-Fast Delay (200ms to 400ms)
+    // Ultra-Fast Delay (100ms to 300ms)
     if (i < recipients.length - 1 && !globalSession.stopRequested) {
-      const delayMs = getRandomUltraFastDelay(200, 400);
+      const delayMs = getRandomUltraFastDelay(100, 300);
       await new Promise(resolve => setTimeout(resolve, delayMs));
     }
   }
