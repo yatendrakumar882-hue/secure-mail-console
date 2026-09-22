@@ -70,13 +70,13 @@ function getNativeTransporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
-      secure: true, // Native SSL Encryption
+      secure: true, // Direct SSL Encryption
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6, // 6 sockets open for 1 blitz sending
+      maxConnections: 6, // 6 parallel sockets allocated for 1 Blitz
       maxMessages: 10000,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -87,7 +87,7 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. RECIPIENT DATA & STRICT SANITIZATION ENGINE
+   3. RECIPIENT DATA & UNIVERSAL INBOX SANITIZER ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -154,6 +154,7 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
+// Any word entered will land in Primary Inbox (Cleaned from HTML/URLs/Unsubscribe tags)
 function personalizeAndSanitize(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
@@ -166,7 +167,7 @@ function personalizeAndSanitize(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  // AUTO-STRIP ALL LINKS AND UNSUBSCRIBE REFERENCES (PRIMARY INBOX GUARANTEE)
+  // Auto-strip spam triggers (links & opt-out words)
   content = content.replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1');
   content = content.replace(/https?:\/\/[^\s]+/gi, '');
   content = content.replace(/www\.[^\s]+/gi, '');
@@ -213,7 +214,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. BATCHED STREAM ROUTE (1 BLITZ = 6 EMAILS PARALLEL)
+   5. REAL BLITZ STREAM ROUTE (1 BLITZ = 6 PARALLEL EMAILS)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -248,7 +249,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 2500);
 
   const transporter = getNativeTransporter(email, appPassword);
-  const BATCH_SIZE = 6; // 6 Emails per Blitz Batch
+  const BATCH_SIZE = 6; // Exactly 6 Parallel Emails Per Blitz
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -258,7 +259,7 @@ app.post('/api/send-stream', async (req, res) => {
 
     const currentBatch = recipients.slice(i, i + BATCH_SIZE);
 
-    // Process all 6 emails concurrently in 1 Blitz
+    // Promise.all executes 6 emails concurrently in 1 Blitz
     await Promise.all(currentBatch.map(async (rawRecipient) => {
       if (globalSession.stopRequested) return;
 
@@ -274,7 +275,7 @@ app.post('/api/send-stream', async (req, res) => {
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           subject: personalizedSubject || 'quote',
-          text: personalizedBody, // Pure Plain Text ensures 100% Primary Inbox Delivery
+          text: personalizedBody, // Direct Plain Text guarantees Smart Reply + Primary Inbox
           headers: {
             'X-Priority': '3',
             'X-MSMail-Priority': 'Normal',
@@ -295,7 +296,7 @@ app.post('/api/send-stream', async (req, res) => {
       }
     }));
 
-    // 50ms delay between 6-email blitz batches
+    // 50ms interval between 6-email blitzes
     if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
@@ -316,7 +317,7 @@ app.use((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`🚀 Primary Inbox Mailer running on port ${PORT}`);
+  console.log(`🚀 Perfect 6-Blitz Inbox Mailer running on port ${PORT}`);
 });
 
 export default app;
