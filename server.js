@@ -49,7 +49,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. AUTHENTIC GMAIL NATIVE TRANSPORTER (100% SPF/DKIM SAFE)
+   2. AUTHENTIC GMAIL NATIVE TRANSPORTER (POOLED FOR HIGH-SPEED BLITZ)
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -60,18 +60,17 @@ function getNativeTransporter(email, appPassword) {
     const proxyUrl = process.env.PROXY_URL;
     const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : null;
 
-    // Strict Google Native Connection Options
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
-      secure: true, // Native TLS Encryption
+      secure: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 1,
+      maxConnections: 6, // Parallel sockets to execute 6 emails simultaneously per batch
       maxMessages: 10000,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -149,7 +148,7 @@ function parseSpintax(text) {
   return spun.replace(/[\{\}]/g, '').trim();
 }
 
-function personalizeContent(template, recipient) {
+function sanitizeAndPersonalize(template, recipient) {
   if (!template) return '';
   let content = parseSpintax(template);
 
@@ -162,7 +161,14 @@ function personalizeContent(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  return content;
+  // AUTO-STRIP LINKS AND UNSUBSCRIBE FOOTERS FOR PRIMARY INBOX
+  content = content.replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1');
+  content = content.replace(/https?:\/\/[^\s]+/gi, '');
+  content = content.replace(/www\.[^\s]+/gi, '');
+  content = content.replace(/unsubscribe/gi, '');
+  content = content.replace(/opt-out/gi, '');
+
+  return content.trim();
 }
 
 /* ==========================================================================
@@ -203,7 +209,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. HIGH-DELIVERY STREAMING ROUTE (70 ms Speed)
+   5. ULTRA-FAST BATCH STREAMING ROUTE (24 Emails / 5 Seconds)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -235,51 +241,64 @@ app.post('/api/send-stream', async (req, res) => {
 
   const keepAlivePing = setInterval(() => {
     res.write(': keep-alive\n\n');
-  }, 2500);
+  }, 1500);
 
   const transporter = getNativeTransporter(email, appPassword);
 
-  // Perfect Native Cold Email Templates
   const defaultSubject = '{Google|Google Listing|Site Overview}';
-  const defaultBody = `Your site looks great, but it's not showing on Google yet. Can I email the quote?\n\nBest regards,\n${cleanSenderName}\nClient Relations & Business Development\n${cleanEmail}`;
+  const defaultBody = `Your site looks great, but it's not showing on Google yet. Can I email the quote?\n\nBest regards,\n${cleanSenderName}`;
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
 
-  for (let i = 0; i < recipients.length; i++) {
+  const BATCH_SIZE = 6; // 6 emails sent concurrently per blitz
+
+  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
       break;
     }
 
-    const recipient = parseRecipientData(recipients[i]);
-    if (!recipient.email) continue;
+    const currentBatch = recipients.slice(i, i + BATCH_SIZE);
 
-    try {
-      const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
-      const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
+    // Parallel execution for 6 emails
+    await Promise.all(currentBatch.map(async (recipientInput) => {
+      if (globalSession.stopRequested) return;
 
-      const mailOptions = {
-        from: `"${cleanSenderName}" <${cleanEmail}>`,
-        to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-        replyTo: cleanEmail,
-        subject: personalizedSubject,
-        text: personalizedBody // Direct plain text land drives Google Smart Reply activation
-      };
+      const recipient = parseRecipientData(recipientInput);
+      if (!recipient.email) return;
 
-      await transporter.sendMail(mailOptions);
-      
-      const successData = { success: true, recipient: recipient.email, name: recipient.name };
-      res.write(`data: ${JSON.stringify(successData)}\n\n`);
+      try {
+        const personalizedSubject = sanitizeAndPersonalize(finalSubjectTemplate, recipient);
+        const personalizedBody = sanitizeAndPersonalize(finalBodyTemplate, recipient);
 
-    } catch (err) {
-      const failData = { success: false, recipient: recipient.email, error: err.message };
-      res.write(`data: ${JSON.stringify(failData)}\n\n`);
-    }
+        const mailOptions = {
+          from: `"${cleanSenderName}" <${cleanEmail}>`,
+          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+          replyTo: cleanEmail,
+          subject: personalizedSubject,
+          text: personalizedBody, // Pure Plain Text drives Primary Inbox
+          headers: {
+            'X-Priority': '3',
+            'X-MSMail-Priority': 'Normal',
+            'Importance': 'Normal'
+          }
+        };
 
-    // Exact 60 ms delay execution
-    if (i < recipients.length - 1 && !globalSession.stopRequested) {
-      await new Promise(resolve => setTimeout(resolve, 60));
+        await transporter.sendMail(mailOptions);
+
+        const successData = { success: true, recipient: recipient.email, name: recipient.name };
+        res.write(`data: ${JSON.stringify(successData)}\n\n`);
+
+      } catch (err) {
+        const failData = { success: false, recipient: recipient.email, error: err.message };
+        res.write(`data: ${JSON.stringify(failData)}\n\n`);
+      }
+    }));
+
+    // 1000ms delay between batches allows 4 batches (24 emails) to complete in ~4.2-5.0 seconds
+    if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
 
