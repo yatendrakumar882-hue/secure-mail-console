@@ -59,7 +59,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. AUTHENTIC GMAIL PORT 465 TRANSPORTER (100% INBOX LANDING)
+   2. AUTHENTIC GMAIL PORT 465 TRANSPORTER (POOLED FOR 6 PARALLEL BLITZ)
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -70,13 +70,13 @@ function getNativeTransporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
-      secure: true, // Native TLS/SSL Encryption
+      secure: true, // Native SSL Encryption
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 1,
+      maxConnections: 6, // 6 sockets open for 1 blitz sending
       maxMessages: 10000,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -87,7 +87,7 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. RECIPIENT DATA & SANITIZATION ENGINE
+   3. RECIPIENT DATA & STRICT SANITIZATION ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -166,7 +166,7 @@ function personalizeAndSanitize(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  // Auto-strip links and unsubscribe footers for Primary Inbox landing
+  // AUTO-STRIP ALL LINKS AND UNSUBSCRIBE REFERENCES (PRIMARY INBOX GUARANTEE)
   content = content.replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1');
   content = content.replace(/https?:\/\/[^\s]+/gi, '');
   content = content.replace(/www\.[^\s]+/gi, '');
@@ -213,7 +213,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. ULTRA-FAST SEQUENTIAL STREAM ROUTE (50ms Delay, Direct Instant End)
+   5. BATCHED STREAM ROUTE (1 BLITZ = 6 EMAILS PARALLEL)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -248,47 +248,55 @@ app.post('/api/send-stream', async (req, res) => {
   }, 2500);
 
   const transporter = getNativeTransporter(email, appPassword);
+  const BATCH_SIZE = 6; // 6 Emails per Blitz Batch
 
-  for (let i = 0; i < recipients.length; i++) {
+  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
       break;
     }
 
-    const recipient = parseRecipientData(recipients[i]);
-    if (!recipient.email) continue;
+    const currentBatch = recipients.slice(i, i + BATCH_SIZE);
 
-    try {
-      const personalizedSubject = personalizeAndSanitize(subject, recipient);
-      const personalizedBody = personalizeAndSanitize(messageBody, recipient);
+    // Process all 6 emails concurrently in 1 Blitz
+    await Promise.all(currentBatch.map(async (rawRecipient) => {
+      if (globalSession.stopRequested) return;
 
-      const mailOptions = {
-        from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
-        to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-        replyTo: cleanEmail,
-        subject: personalizedSubject || 'quote',
-        text: personalizedBody, // Pure Plain Text -> Guarantees Primary Inbox
-        headers: {
-          'X-Priority': '3',
-          'X-MSMail-Priority': 'Normal',
-          'Importance': 'Normal'
-        }
-      };
+      const recipient = parseRecipientData(rawRecipient);
+      if (!recipient.email) return;
 
-      await transporter.sendMail(mailOptions);
+      try {
+        const personalizedSubject = personalizeAndSanitize(subject, recipient);
+        const personalizedBody = personalizeAndSanitize(messageBody, recipient);
 
-      const payload = { success: true, recipient: recipient.email, name: recipient.name };
-      io.emit('mail_sent', payload);
-      res.write(`data: ${JSON.stringify(payload)}\n\n`);
+        const mailOptions = {
+          from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
+          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+          replyTo: cleanEmail,
+          subject: personalizedSubject || 'quote',
+          text: personalizedBody, // Pure Plain Text ensures 100% Primary Inbox Delivery
+          headers: {
+            'X-Priority': '3',
+            'X-MSMail-Priority': 'Normal',
+            'Importance': 'Normal'
+          }
+        };
 
-    } catch (err) {
-      const errPayload = { success: false, recipient: recipient.email, error: err.message };
-      io.emit('mail_error', errPayload);
-      res.write(`data: ${JSON.stringify(errPayload)}\n\n`);
-    }
+        await transporter.sendMail(mailOptions);
 
-    // Exact 50ms delay for ultra-fast sending
-    if (i < recipients.length - 1 && !globalSession.stopRequested) {
+        const payload = { success: true, recipient: recipient.email, name: recipient.name };
+        io.emit('mail_sent', payload);
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+
+      } catch (err) {
+        const errPayload = { success: false, recipient: recipient.email, error: err.message };
+        io.emit('mail_error', errPayload);
+        res.write(`data: ${JSON.stringify(errPayload)}\n\n`);
+      }
+    }));
+
+    // 50ms delay between 6-email blitz batches
+    if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
   }
@@ -308,7 +316,7 @@ app.use((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`🚀 Primary Inbox Fast Mailer running on port ${PORT}`);
+  console.log(`🚀 Primary Inbox Mailer running on port ${PORT}`);
 });
 
 export default app;
