@@ -71,7 +71,7 @@ function getPort587Transporter(email, appPassword) {
       },
       pool: true,
       maxConnections: 6,
-      maxMessages: 50,
+      maxMessages: 9999990,
       socketTimeout: 30000,
       connectionTimeout: 30000
     });
