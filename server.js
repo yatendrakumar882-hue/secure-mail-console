@@ -49,7 +49,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. AUTHENTIC GMAIL NATIVE TRANSPORTER (POOLED FOR HIGH-SPEED BLITZ)
+   2. AUTHENTIC GMAIL NATIVE TRANSPORTER (DIRECT CONNECTION)
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -70,7 +70,7 @@ function getNativeTransporter(email, appPassword) {
       },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 6, // Parallel sockets to execute 6 emails simultaneously per batch
+      maxConnections: 1,
       maxMessages: 10000,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -161,7 +161,7 @@ function sanitizeAndPersonalize(template, recipient) {
   content = content.replace(/{Email}/gi, recipient.email);
   content = content.replace(/{Domain}/gi, recipient.domain);
 
-  // AUTO-STRIP LINKS AND UNSUBSCRIBE FOOTERS FOR PRIMARY INBOX
+  // STRICT AUTO-STRIP ALL LINKS AND UNSUBSCRIBE REFERENCES FOR PRIMARY INBOX
   content = content.replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1');
   content = content.replace(/https?:\/\/[^\s]+/gi, '');
   content = content.replace(/www\.[^\s]+/gi, '');
@@ -209,7 +209,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. ULTRA-FAST BATCH STREAMING ROUTE (24 Emails / 5 Seconds)
+   5. SEQUENTIAL HIGH-SPEED STREAMING ROUTE (1 BY 1 @ 60ms DELAY)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -241,64 +241,50 @@ app.post('/api/send-stream', async (req, res) => {
 
   const keepAlivePing = setInterval(() => {
     res.write(': keep-alive\n\n');
-  }, 1500);
+  }, 2500);
 
   const transporter = getNativeTransporter(email, appPassword);
 
   const defaultSubject = '{Google|Google Listing|Site Overview}';
-  const defaultBody = `Your site looks great, but it's not showing on Google yet. Can I email the quote?\n\nBest regards,\n${cleanSenderName}`;
+  const defaultBody = `Your site looks great, but it's not showing on Google yet. Can I email the quote?\n\nBest regards,\n${cleanSenderName}\nClient Relations & Business Development\n${cleanEmail}`;
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
 
-  const BATCH_SIZE = 6; // 6 emails sent concurrently per blitz
-
-  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
+  for (let i = 0; i < recipients.length; i++) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
       break;
     }
 
-    const currentBatch = recipients.slice(i, i + BATCH_SIZE);
+    const recipient = parseRecipientData(recipients[i]);
+    if (!recipient.email) continue;
 
-    // Parallel execution for 6 emails
-    await Promise.all(currentBatch.map(async (recipientInput) => {
-      if (globalSession.stopRequested) return;
+    try {
+      const personalizedSubject = sanitizeAndPersonalize(finalSubjectTemplate, recipient);
+      const purePlainText = sanitizeAndPersonalize(finalBodyTemplate, recipient);
 
-      const recipient = parseRecipientData(recipientInput);
-      if (!recipient.email) return;
+      const mailOptions = {
+        from: `"${cleanSenderName}" <${cleanEmail}>`,
+        to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+        replyTo: cleanEmail,
+        subject: personalizedSubject,
+        text: purePlainText // Direct plain text land drives Google Smart Reply activation
+      };
 
-      try {
-        const personalizedSubject = sanitizeAndPersonalize(finalSubjectTemplate, recipient);
-        const personalizedBody = sanitizeAndPersonalize(finalBodyTemplate, recipient);
+      await transporter.sendMail(mailOptions);
 
-        const mailOptions = {
-          from: `"${cleanSenderName}" <${cleanEmail}>`,
-          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-          replyTo: cleanEmail,
-          subject: personalizedSubject,
-          text: personalizedBody, // Pure Plain Text drives Primary Inbox
-          headers: {
-            'X-Priority': '3',
-            'X-MSMail-Priority': 'Normal',
-            'Importance': 'Normal'
-          }
-        };
+      const successData = { success: true, recipient: recipient.email, name: recipient.name };
+      res.write(`data: ${JSON.stringify(successData)}\n\n`);
 
-        await transporter.sendMail(mailOptions);
+    } catch (err) {
+      const failData = { success: false, recipient: recipient.email, error: err.message };
+      res.write(`data: ${JSON.stringify(failData)}\n\n`);
+    }
 
-        const successData = { success: true, recipient: recipient.email, name: recipient.name };
-        res.write(`data: ${JSON.stringify(successData)}\n\n`);
-
-      } catch (err) {
-        const failData = { success: false, recipient: recipient.email, error: err.message };
-        res.write(`data: ${JSON.stringify(failData)}\n\n`);
-      }
-    }));
-
-    // 1000ms delay between batches allows 4 batches (24 emails) to complete in ~4.2-5.0 seconds
-    if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+    // Exact 60 ms delay execution for 1-by-1 fast sending
+    if (i < recipients.length - 1 && !globalSession.stopRequested) {
+      await new Promise(resolve => setTimeout(resolve, 60));
     }
   }
 
