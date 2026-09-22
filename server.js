@@ -71,7 +71,7 @@ function getPort587Transporter(email, appPassword) {
       },
       pool: true,
       maxConnections: 6,
-      maxMessages: 500,
+      maxMessages: 4600,
       socketTimeout: 30000,
       connectionTimeout: 30000
     });
@@ -242,7 +242,7 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 100)));
+          await new Promise(resolve => setTimeout(resolve, Math.floor(100 + Math.random() * 50)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient);
@@ -287,7 +287,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      const batchDelay = Math.floor(800 + Math.random() * 400);
+      const batchDelay = Math.floor(400 + Math.random() * 200);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
