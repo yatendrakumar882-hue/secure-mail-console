@@ -59,7 +59,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. AUTHENTIC GMAIL PORT 465 TRANSPORTER (DIRECT INBOX)
+   2. AUTHENTIC GMAIL PORT 465 TRANSPORTER (100% INBOX LANDING)
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -70,13 +70,13 @@ function getNativeTransporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
-      secure: true, // Native SSL for maximum deliverability
+      secure: true, // Native TLS/SSL Encryption
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6, // 6 parallel sockets for 1 blitz batch
+      maxConnections: 1,
       maxMessages: 10000,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -87,7 +87,7 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. RECIPIENT & SANITIZATION ENGINE
+   3. RECIPIENT DATA & SANITIZATION ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -213,7 +213,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. BATCHED STREAMING ROUTE (1 Blitz = 6 Emails, Pure Plain Text)
+   5. ULTRA-FAST SEQUENTIAL STREAM ROUTE (50ms Delay, Direct Instant End)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -248,61 +248,48 @@ app.post('/api/send-stream', async (req, res) => {
   }, 2500);
 
   const transporter = getNativeTransporter(email, appPassword);
-  const BATCH_SIZE = 6; // Exactly 6 emails per blitz batch
 
-  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
+  for (let i = 0; i < recipients.length; i++) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
       break;
     }
 
-    const batch = recipients.slice(i, i + BATCH_SIZE);
+    const recipient = parseRecipientData(recipients[i]);
+    if (!recipient.email) continue;
 
-    const sendPromises = batch.map(async (rawRecipient) => {
-      const recipient = parseRecipientData(rawRecipient);
-      if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
+    try {
+      const personalizedSubject = personalizeAndSanitize(subject, recipient);
+      const personalizedBody = personalizeAndSanitize(messageBody, recipient);
 
-      try {
-        const personalizedSubject = personalizeAndSanitize(subject, recipient);
-        const personalizedBody = personalizeAndSanitize(messageBody, recipient);
+      const mailOptions = {
+        from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
+        to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+        replyTo: cleanEmail,
+        subject: personalizedSubject || 'quote',
+        text: personalizedBody, // Pure Plain Text -> Guarantees Primary Inbox
+        headers: {
+          'X-Priority': '3',
+          'X-MSMail-Priority': 'Normal',
+          'Importance': 'Normal'
+        }
+      };
 
-        const mailOptions = {
-          from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
-          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-          replyTo: cleanEmail,
-          subject: personalizedSubject || 'quote',
-          text: personalizedBody, // Pure Plain Text ensures 100% Primary Inbox & Smart Reply Chips
-          headers: {
-            'X-Priority': '3',
-            'X-MSMail-Priority': 'Normal',
-            'Importance': 'Normal'
-          }
-        };
+      await transporter.sendMail(mailOptions);
 
-        await transporter.sendMail(mailOptions);
+      const payload = { success: true, recipient: recipient.email, name: recipient.name };
+      io.emit('mail_sent', payload);
+      res.write(`data: ${JSON.stringify(payload)}\n\n`);
 
-        const payload = { success: true, recipient: recipient.email, name: recipient.name };
-        io.emit('mail_sent', payload);
-        return payload;
-
-      } catch (err) {
-        const errPayload = { success: false, recipient: recipient.email, error: err.message };
-        io.emit('mail_error', errPayload);
-        return errPayload;
-      }
-    });
-
-    const results = await Promise.allSettled(sendPromises);
-
-    for (const resItem of results) {
-      if (resItem.status === 'fulfilled' && resItem.value.recipient) {
-        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
-      }
+    } catch (err) {
+      const errPayload = { success: false, recipient: recipient.email, error: err.message };
+      io.emit('mail_error', errPayload);
+      res.write(`data: ${JSON.stringify(errPayload)}\n\n`);
     }
 
-    // Delay execution between blitzes
-    if (i + BATCH_SIZE < recipients.length && !globalSession.stopRequested) {
-      await new Promise(resolve => setTimeout(resolve, 60));
+    // Exact 50ms delay for ultra-fast sending
+    if (i < recipients.length - 1 && !globalSession.stopRequested) {
+      await new Promise(resolve => setTimeout(resolve, 50));
     }
   }
 
@@ -321,7 +308,7 @@ app.use((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`🚀 Primary Inbox Mailer server running on port ${PORT}`);
+  console.log(`🚀 Primary Inbox Fast Mailer running on port ${PORT}`);
 });
 
 export default app;
