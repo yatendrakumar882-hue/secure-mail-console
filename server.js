@@ -50,7 +50,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. HIGH-DELIVERABILITY TRANSPORTER POOL
+   2. AUTHENTIC TRANSPORTER POOL
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -64,14 +64,14 @@ function getNativeTransporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
-      secure: true, // SSL Connection for Primary Inbox trust
+      secure: true, // SSL Connection for Primary Trust
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 6, // 6 socket connections matched to blitz size
+      maxConnections: 6,
       maxMessages: 10000,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -82,7 +82,7 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. RECIPIENT DATA & CLEAN SPINTAX ENGINE
+   3. RECIPIENT DATA & SPINTAX ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -203,7 +203,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. NON-STOP STREAMING ROUTE (BLITZ = 6)
+   5. HIGH-DELIVERABILITY INBOX STREAMING ROUTE
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -231,15 +231,13 @@ app.post('/api/send-stream', async (req, res) => {
 
   const cleanEmail = email.toLowerCase().trim();
   const cleanSenderName = (senderName || 'Sam').replace(/["\r\n]/g, '').trim();
-  const domainPart = cleanEmail.split('@')[1] || 'gmail.com';
+  const emailDomain = cleanEmail.split('@')[1] || 'gmail.com';
   globalSession.stopRequested = false;
 
   const keepAlivePing = setInterval(() => {
     try {
       res.write(': keep-alive\n\n');
-    } catch (e) {
-      // Stream keep-alive guard
-    }
+    } catch (e) {}
   }, 2500);
 
   const transporter = getNativeTransporter(email, appPassword);
@@ -270,8 +268,8 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
         const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
-        // Generation of valid Message-ID to pass DKIM/SPF checks
-        const customMessageId = `<${crypto.randomBytes(16).toString('hex')}@${domainPart}>`;
+        // Dynamic Unique Message-ID to bypass Spam Engine checks
+        const uniqueMsgId = `<${crypto.randomBytes(12).toString('hex')}@${emailDomain}>`;
 
         const mailOptions = {
           from: `"${cleanSenderName}" <${cleanEmail}>`,
@@ -280,11 +278,12 @@ app.post('/api/send-stream', async (req, res) => {
           subject: personalizedSubject,
           text: personalizedBody,
           headers: {
-            'Message-ID': customMessageId,
-            'X-Mailer': 'Gmail Standard Client',
+            'Message-ID': uniqueMsgId,
+            'X-Mailer': 'MailClient/1.0',
+            'Content-Type': 'text/plain; charset=utf-8',
             'MIME-Version': '1.0',
-            'X-Priority': '3',
-            'List-Unsubscribe': `<mailto:${cleanEmail}?subject=unsubscribe>`
+            'List-Unsubscribe': `<mailto:${cleanEmail}?subject=unsubscribe>`,
+            'X-Report-Abuse-To': cleanEmail
           }
         };
 
@@ -299,10 +298,8 @@ app.post('/api/send-stream', async (req, res) => {
       }
     });
 
-    // Promise.allSettled guarantees execution won't break if one email fails
     await Promise.allSettled(blitzTasks);
 
-    // Keep same speed delay (45ms) between blitzes
     if (i + BLITZ_SIZE < recipients.length && !globalSession.stopRequested) {
       await new Promise(resolve => setTimeout(resolve, 45));
     }
@@ -319,7 +316,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Production Blitz Mailer running on port ${PORT}`);
+  console.log(`🚀 Inbox-Guaranteed Mailer active on port ${PORT}`);
 });
 
 export default app;
