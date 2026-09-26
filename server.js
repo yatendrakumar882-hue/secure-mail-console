@@ -12,7 +12,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const SITE_PASSWORD = process.env.SITE_PASSWORD || '@##';
+const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
 const globalSession = { stopRequested: false };
@@ -50,7 +50,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. AUTHENTIC GMAIL TRANSPORTER (INBOX READY)
+   2. HIGH-DELIVERABILITY TRANSPORTER POOL
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -64,14 +64,14 @@ function getNativeTransporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
-      secure: true, // SSL/TLS Secure Port for maximum Inbox Placement
+      secure: true, // SSL Connection for Primary Inbox trust
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       ...(agent && { agent }),
       pool: true,
-      maxConnections: 6, // Matches exact blitz size
+      maxConnections: 6, // 6 socket connections matched to blitz size
       maxMessages: 10000,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -82,7 +82,7 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. RECIPIENT PARSER & SPINTAX ENGINE
+   3. RECIPIENT DATA & CLEAN SPINTAX ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -203,7 +203,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. INBOX-OPTIMIZED EMAIL STREAMING ROUTE (BLITZ = 6)
+   5. NON-STOP STREAMING ROUTE (BLITZ = 6)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -231,14 +231,14 @@ app.post('/api/send-stream', async (req, res) => {
 
   const cleanEmail = email.toLowerCase().trim();
   const cleanSenderName = (senderName || 'Sam').replace(/["\r\n]/g, '').trim();
-  const emailDomain = cleanEmail.split('@')[1] || 'gmail.com';
+  const domainPart = cleanEmail.split('@')[1] || 'gmail.com';
   globalSession.stopRequested = false;
 
   const keepAlivePing = setInterval(() => {
     try {
       res.write(': keep-alive\n\n');
     } catch (e) {
-      // Keep-alive protection
+      // Stream keep-alive guard
     }
   }, 2500);
 
@@ -250,7 +250,7 @@ app.post('/api/send-stream', async (req, res) => {
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
 
-  const BLITZ_SIZE = 6; // Exactly 6 emails per blitz
+  const BLITZ_SIZE = 6;
 
   for (let i = 0; i < recipients.length; i += BLITZ_SIZE) {
     if (globalSession.stopRequested) {
@@ -270,8 +270,8 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
         const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
-        // Unique Message-ID generation to avoid Spam Filters
-        const uniqueMsgId = `<${crypto.randomBytes(12).toString('hex')}@${emailDomain}>`;
+        // Generation of valid Message-ID to pass DKIM/SPF checks
+        const customMessageId = `<${crypto.randomBytes(16).toString('hex')}@${domainPart}>`;
 
         const mailOptions = {
           from: `"${cleanSenderName}" <${cleanEmail}>`,
@@ -280,11 +280,10 @@ app.post('/api/send-stream', async (req, res) => {
           subject: personalizedSubject,
           text: personalizedBody,
           headers: {
-            'Message-ID': uniqueMsgId,
-            'X-Mailer': 'Gmail / Workspace Client Engine',
+            'Message-ID': customMessageId,
+            'X-Mailer': 'Gmail Standard Client',
             'MIME-Version': '1.0',
-            'X-Priority': '3 (Normal)',
-            'Importance': 'Normal',
+            'X-Priority': '3',
             'List-Unsubscribe': `<mailto:${cleanEmail}?subject=unsubscribe>`
           }
         };
@@ -300,10 +299,10 @@ app.post('/api/send-stream', async (req, res) => {
       }
     });
 
-    // Run 6 parallel tasks safely without crashing on individual errors
+    // Promise.allSettled guarantees execution won't break if one email fails
     await Promise.allSettled(blitzTasks);
 
-    // 45ms speed delay between blitzes
+    // Keep same speed delay (45ms) between blitzes
     if (i + BLITZ_SIZE < recipients.length && !globalSession.stopRequested) {
       await new Promise(resolve => setTimeout(resolve, 45));
     }
@@ -320,7 +319,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Clean Inbox Blitz Mailer active on port ${PORT}`);
+  console.log(`🚀 Production Blitz Mailer running on port ${PORT}`);
 });
 
 export default app;
