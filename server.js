@@ -5,7 +5,6 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,7 +23,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 /* ==========================================================================
-   1. BOT PROTECTION (TURNSTILE)
+   1. TURNSTILE BOT PROTECTION
    ========================================================================== */
 async function verifyTurnstileToken(token, remoteIp) {
   if (!token || TURNSTILE_SECRET_KEY.startsWith('1x0000000000000000000000000000000AA')) {
@@ -50,7 +49,7 @@ async function verifyTurnstileToken(token, remoteIp) {
 }
 
 /* ==========================================================================
-   2. AUTHENTIC TRANSPORTER POOL
+   2. AUTHENTIC GMAIL TRANSPORTER
    ========================================================================== */
 function getNativeTransporter(email, appPassword) {
   const cleanEmail = email.toLowerCase().trim();
@@ -82,7 +81,7 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. RECIPIENT DATA & CLEAN SPINTAX ENGINE
+   3. RECIPIENT DATA & SPINTAX ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -203,7 +202,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. ULTRA-CLEAN NATURAL STREAMING ROUTE (NO UNSUBSCRIBE LINK)
+   5. NON-STOP STREAMING ROUTE (BLITZ SIZE = 6)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -230,20 +229,21 @@ app.post('/api/send-stream', async (req, res) => {
   }
 
   const cleanEmail = email.toLowerCase().trim();
-  const cleanSenderName = (senderName || 'Lula').replace(/["\r\n]/g, '').trim();
-  const emailDomain = cleanEmail.split('@')[1] || 'gmail.com';
+  const cleanSenderName = (senderName || 'Sam').replace(/["\r\n]/g, '').trim();
   globalSession.stopRequested = false;
 
   const keepAlivePing = setInterval(() => {
     try {
       res.write(': keep-alive\n\n');
-    } catch (e) {}
+    } catch (e) {
+      // Ignored to prevent crashes if connection closes unexpectedly
+    }
   }, 2500);
 
   const transporter = getNativeTransporter(email, appPassword);
 
-  const defaultSubject = 'quote';
-  const defaultBody = `Hey, your site is good, but an issue is stopping it from reaching the top results. May I forward a quote?`;
+  const defaultSubject = '{Google|Google Listing|Site Overview}';
+  const defaultBody = `Your site looks great, but it's not showing on Google yet. Can I email the quote?\n\nBest regards,\n${cleanSenderName}\nClient Relations & Business Development\n${cleanEmail}`;
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
@@ -268,19 +268,12 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
         const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
-        const uniqueMsgId = `<${crypto.randomBytes(12).toString('hex')}@${emailDomain}>`;
-
-        // Pure Personal Email Headers (Unsubscribe Header Removed Completely)
         const mailOptions = {
           from: `"${cleanSenderName}" <${cleanEmail}>`,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           subject: personalizedSubject,
-          text: personalizedBody,
-          headers: {
-            'Message-ID': uniqueMsgId,
-            'X-Mailer': 'Gmail web client'
-          }
+          text: personalizedBody
         };
 
         await transporter.sendMail(mailOptions);
@@ -294,6 +287,7 @@ app.post('/api/send-stream', async (req, res) => {
       }
     });
 
+    // Isolated execution prevents one failed mail from stopping the rest of the queue
     await Promise.allSettled(blitzTasks);
 
     if (i + BLITZ_SIZE < recipients.length && !globalSession.stopRequested) {
@@ -312,7 +306,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Clean Personal Mailer running on port ${PORT}`);
+  console.log(`🚀 Non-stop Blitz Mailer running on port ${PORT}`);
 });
 
 export default app;
