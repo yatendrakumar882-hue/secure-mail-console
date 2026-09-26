@@ -64,7 +64,7 @@ function getNativeTransporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
-      secure: true, // SSL Connection for Primary Trust
+      secure: true,
       auth: {
         user: cleanEmail,
         pass: cleanPass
@@ -82,7 +82,7 @@ function getNativeTransporter(email, appPassword) {
 }
 
 /* ==========================================================================
-   3. RECIPIENT DATA & SPINTAX ENGINE
+   3. RECIPIENT DATA & CLEAN SPINTAX ENGINE
    ========================================================================== */
 function parseRecipientData(input) {
   let email = '';
@@ -203,7 +203,7 @@ app.post('/api/verify', async (req, res) => {
 });
 
 /* ==========================================================================
-   5. HIGH-DELIVERABILITY INBOX STREAMING ROUTE
+   5. ULTRA-CLEAN NATURAL STREAMING ROUTE (NO UNSUBSCRIBE LINK)
    ========================================================================== */
 app.post('/api/send-stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -230,7 +230,7 @@ app.post('/api/send-stream', async (req, res) => {
   }
 
   const cleanEmail = email.toLowerCase().trim();
-  const cleanSenderName = (senderName || 'Sam').replace(/["\r\n]/g, '').trim();
+  const cleanSenderName = (senderName || 'Lula').replace(/["\r\n]/g, '').trim();
   const emailDomain = cleanEmail.split('@')[1] || 'gmail.com';
   globalSession.stopRequested = false;
 
@@ -242,8 +242,8 @@ app.post('/api/send-stream', async (req, res) => {
 
   const transporter = getNativeTransporter(email, appPassword);
 
-  const defaultSubject = '{Google|Google Listing|Site Overview}';
-  const defaultBody = `Your site looks great, but it's not showing on Google yet. Can I email the quote?\n\nBest regards,\n${cleanSenderName}\nClient Relations & Business Development\n${cleanEmail}`;
+  const defaultSubject = 'quote';
+  const defaultBody = `Hey, your site is good, but an issue is stopping it from reaching the top results. May I forward a quote?`;
 
   const finalSubjectTemplate = (subject && subject.trim()) ? subject : defaultSubject;
   const finalBodyTemplate = (messageBody && messageBody.trim()) ? messageBody : defaultBody;
@@ -268,9 +268,9 @@ app.post('/api/send-stream', async (req, res) => {
         const personalizedSubject = personalizeContent(finalSubjectTemplate, recipient);
         const personalizedBody = personalizeContent(finalBodyTemplate, recipient);
 
-        // Dynamic Unique Message-ID to bypass Spam Engine checks
         const uniqueMsgId = `<${crypto.randomBytes(12).toString('hex')}@${emailDomain}>`;
 
+        // Pure Personal Email Headers (Unsubscribe Header Removed Completely)
         const mailOptions = {
           from: `"${cleanSenderName}" <${cleanEmail}>`,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
@@ -279,11 +279,7 @@ app.post('/api/send-stream', async (req, res) => {
           text: personalizedBody,
           headers: {
             'Message-ID': uniqueMsgId,
-            'X-Mailer': 'MailClient/1.0',
-            'Content-Type': 'text/plain; charset=utf-8',
-            'MIME-Version': '1.0',
-            'List-Unsubscribe': `<mailto:${cleanEmail}?subject=unsubscribe>`,
-            'X-Report-Abuse-To': cleanEmail
+            'X-Mailer': 'Gmail web client'
           }
         };
 
@@ -316,7 +312,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Inbox-Guaranteed Mailer active on port ${PORT}`);
+  console.log(`🚀 Clean Personal Mailer running on port ${PORT}`);
 });
 
 export default app;
