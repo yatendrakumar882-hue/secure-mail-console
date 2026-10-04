@@ -780,7 +780,7 @@ def send_batch():
                 "type": "complete",
                 "success": True,
                 "message":
-                "sending compleate YATENDRA ❤️",
+                "YATENDRA ❤️",
                 "total": total,
                 "sent": sent_count,
                 "failed": failed_count,
