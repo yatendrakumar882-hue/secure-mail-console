@@ -1,4 +1,3 @@
-```python
 from flask import (
     Flask,
     render_template,
@@ -46,6 +45,10 @@ app = Flask(
     static_url_path="/static"
 )
 
+# Explicit WSGI handler.
+# This also makes the application object unambiguous.
+handler = app
+
 
 # =========================================================
 # SECURITY / CONFIG
@@ -58,9 +61,7 @@ app.secret_key = os.environ.get(
 
 MAX_RECIPIENTS = 25
 
-# Maximum simultaneous SMTP sends.
-# 2 means:
-# recipient 1 + recipient 2 = simultaneously
+# Exactly 2 simultaneous SMTP workers.
 MAX_PARALLEL_SENDS = 2
 
 TURNSTILE_SECRET_KEY = os.environ.get(
@@ -320,11 +321,10 @@ def send_one_email(
     recipient
 ):
     """
-    Sends exactly one email using its own SMTP connection.
+    Sends one email through its own SMTP connection.
 
-    This function is intentionally independent from the
-    other worker so two SMTP sessions can operate safely
-    at the same time.
+    Two workers can therefore send two recipients
+    simultaneously without sharing an SMTP connection.
     """
 
     context = ssl.create_default_context()
@@ -374,7 +374,9 @@ def send_one_email(
         make_msgid()
     )
 
-    # Separate SMTP connection for this worker.
+    message["MIME-Version"] = "1.0"
+
+    # Each worker owns its own SMTP connection.
     with smtplib.SMTP_SSL(
         "smtp.gmail.com",
         465,
@@ -395,8 +397,7 @@ def send_one_email(
 
     return {
         "email": recipient,
-        "result": "sent",
-        "error": None
+        "result": "sent"
     }
 
 
@@ -546,7 +547,7 @@ def send_batch():
 
 
     # =====================================================
-    # CLEAN RECIPIENTS
+    # CLEAN + DEDUPLICATE RECIPIENTS
     # =====================================================
 
     clean_recipients = []
@@ -567,7 +568,6 @@ def send_batch():
             )
 
 
-    # Keep existing limit.
     clean_recipients = clean_recipients[
         :MAX_RECIPIENTS
     ]
@@ -615,11 +615,10 @@ def send_batch():
 
         sent_count = 0
         failed_count = 0
-        remaining = total
 
 
         # -------------------------------------------------
-        # START
+        # START EVENT
         # -------------------------------------------------
 
         yield (
@@ -634,18 +633,7 @@ def send_batch():
 
 
         # =================================================
-        # TWO PARALLEL SMTP WORKERS
-        # =================================================
-        #
-        # Example:
-        #
-        # 1 + 2  -> simultaneously
-        # 3 + 4  -> simultaneously
-        # 5 + 6  -> simultaneously
-        #
-        # There is NO sleep/delay here.
-        #
-        # Each worker creates its OWN SMTP connection.
+        # TWO CONCURRENT WORKERS
         # =================================================
 
         executor = ThreadPoolExecutor(
@@ -653,12 +641,6 @@ def send_batch():
         )
 
         try:
-
-            # -------------------------------------------------
-            # Submit all recipients.
-            #
-            # Executor keeps maximum 2 active at a time.
-            # -------------------------------------------------
 
             future_map = {}
 
@@ -681,7 +663,8 @@ def send_batch():
 
 
             # -------------------------------------------------
-            # Read results as soon as each send completes.
+            # Process completed sends immediately.
+            # Executor never has more than 2 active workers.
             # -------------------------------------------------
 
             for future in as_completed(
@@ -696,13 +679,26 @@ def send_batch():
 
                     result = future.result()
 
-                    if result["result"] == "sent":
+                    if result.get(
+                        "result"
+                    ) == "sent":
 
                         sent_count += 1
 
-                    else:
-
-                        failed_count += 1
+                        yield (
+                            json.dumps({
+                                "type": "progress",
+                                "email": recipient,
+                                "result": "sent",
+                                "total": total,
+                                "sent": sent_count,
+                                "failed": failed_count,
+                                "remaining":
+                                total -
+                                sent_count -
+                                failed_count
+                            }) + "\n"
+                        )
 
                 except smtplib.SMTPAuthenticationError:
 
@@ -725,11 +721,6 @@ def send_batch():
                         }) + "\n"
                     )
 
-                    # Do not expose this SMTP session
-                    # as a successful send.
-
-                    continue
-
                 except smtplib.SMTPException as exc:
 
                     failed_count += 1
@@ -750,8 +741,6 @@ def send_batch():
                             failed_count
                         }) + "\n"
                     )
-
-                    continue
 
                 except Exception as exc:
 
@@ -774,32 +763,6 @@ def send_batch():
                         }) + "\n"
                     )
 
-                    continue
-
-
-                # -------------------------------------------------
-                # SUCCESS EVENT
-                # -------------------------------------------------
-
-                remaining = (
-                    total -
-                    sent_count -
-                    failed_count
-                )
-
-
-                yield (
-                    json.dumps({
-                        "type": "progress",
-                        "email": recipient,
-                        "result": "sent",
-                        "total": total,
-                        "sent": sent_count,
-                        "failed": failed_count,
-                        "remaining": remaining
-                    }) + "\n"
-                )
-
 
         finally:
 
@@ -808,9 +771,9 @@ def send_batch():
             )
 
 
-        # =====================================================
+        # =================================================
         # COMPLETE
-        # =====================================================
+        # =================================================
 
         yield (
             json.dumps({
@@ -821,7 +784,10 @@ def send_batch():
                 "total": total,
                 "sent": sent_count,
                 "failed": failed_count,
-                "remaining": 0
+                "remaining":
+                total -
+                sent_count -
+                failed_count
             }) + "\n"
         )
 
@@ -846,7 +812,7 @@ def send_batch():
 
 
 # =========================================================
-# HEALTH
+# HEALTH CHECK
 # =========================================================
 
 @app.route("/health")
@@ -872,28 +838,3 @@ if __name__ == "__main__":
         port=5000,
         debug=True
     )
-```
-
-### Ismein actual flow
-
-Agar 24 recipients hain, executor maximum **2 active SMTP sends** rakhega:
-
-```text
-Recipient 1 ──────┐
-                  ├── simultaneously
-Recipient 2 ──────┘
-
-Recipient 3 ──────┐
-                  ├── simultaneously
-Recipient 4 ──────┘
-
-Recipient 5 ──────┐
-                  ├── simultaneously
-Recipient 6 ──────┘
-
-...
-```
-
-Isliye **12 pairs = 24 recipient attempts**.
-
-Ek caveat: is implementation mein har individual send apna SMTP connection/login banata hai. Isse concurrency genuinely 2 rahegi, lekin connection setup ka overhead bhi hai. Gmail-side throttling ya network latency aaye to actual throughput exactly 2× nahi hogi. **Inbox placement ko improve karne ke legitimate levers SPF/DKIM/DMARC, sender reputation, consent-based recipients aur message quality hain; parallelism Inbox guarantee nahi karta.**
