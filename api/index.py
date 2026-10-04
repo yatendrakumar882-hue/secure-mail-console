@@ -1,3 +1,4 @@
+```python
 from flask import (
     Flask,
     render_template,
@@ -19,6 +20,8 @@ import urllib.request
 import urllib.parse
 import secrets
 import random
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate, make_msgid
@@ -55,6 +58,11 @@ app.secret_key = os.environ.get(
 
 MAX_RECIPIENTS = 25
 
+# Maximum simultaneous SMTP sends.
+# 2 means:
+# recipient 1 + recipient 2 = simultaneously
+MAX_PARALLEL_SENDS = 2
+
 TURNSTILE_SECRET_KEY = os.environ.get(
     "TURNSTILE_SECRET_KEY",
     ""
@@ -72,9 +80,6 @@ EMAIL_RE = re.compile(
 
 
 def valid_email(value):
-    """
-    Basic email format validation.
-    """
     return bool(
         EMAIL_RE.fullmatch(
             str(value).strip()
@@ -93,13 +98,14 @@ def authenticated():
 
 
 # =========================================================
-# SAFE EMAIL HEADERS
+# SAFE HEADER CLEANING
 # =========================================================
 
 def clean_header(value):
     """
     Prevent CR/LF header injection.
     """
+
     return (
         str(value or "")
         .replace("\r", " ")
@@ -118,12 +124,6 @@ SPINTAX_RE = re.compile(
 
 
 def expand_spintax(text):
-    """
-    Expands simple {option1|option2|option3} syntax.
-
-    If there are fewer than two usable options,
-    the original expression is preserved.
-    """
 
     def replace_match(match):
 
@@ -222,6 +222,7 @@ def verify_turnstile(token, remote_ip=None):
 def login():
 
     if authenticated():
+
         return redirect(
             url_for("home")
         )
@@ -291,6 +292,7 @@ def logout():
 def home():
 
     if not authenticated():
+
         return redirect(
             url_for("login")
         )
@@ -305,6 +307,100 @@ def home():
 
 
 # =========================================================
+# SEND ONE EMAIL
+# =========================================================
+
+def send_one_email(
+    gmail,
+    app_password,
+    sender_name,
+    subject,
+    body,
+    is_html,
+    recipient
+):
+    """
+    Sends exactly one email using its own SMTP connection.
+
+    This function is intentionally independent from the
+    other worker so two SMTP sessions can operate safely
+    at the same time.
+    """
+
+    context = ssl.create_default_context()
+
+    final_subject = expand_spintax(
+        subject
+    )
+
+    final_body = expand_spintax(
+        body
+    )
+
+    content_type = (
+        "html"
+        if is_html
+        else "plain"
+    )
+
+    message = MIMEText(
+        final_body,
+        content_type,
+        "utf-8"
+    )
+
+    message["Subject"] = (
+        final_subject
+    )
+
+    message["From"] = formataddr(
+        (
+            sender_name,
+            gmail
+        )
+    )
+
+    message["To"] = (
+        recipient
+    )
+
+    message["Date"] = (
+        formatdate(
+            localtime=True
+        )
+    )
+
+    message["Message-ID"] = (
+        make_msgid()
+    )
+
+    # Separate SMTP connection for this worker.
+    with smtplib.SMTP_SSL(
+        "smtp.gmail.com",
+        465,
+        context=context,
+        timeout=15
+    ) as server:
+
+        server.login(
+            gmail,
+            app_password
+        )
+
+        server.sendmail(
+            gmail,
+            [recipient],
+            message.as_string()
+        )
+
+    return {
+        "email": recipient,
+        "result": "sent",
+        "error": None
+    }
+
+
+# =========================================================
 # SEND BATCH
 # =========================================================
 
@@ -315,7 +411,7 @@ def home():
 def send_batch():
 
     # -----------------------------------------------------
-    # AUTH CHECK
+    # AUTH
     # -----------------------------------------------------
 
     if not authenticated():
@@ -327,7 +423,7 @@ def send_batch():
 
 
     # -----------------------------------------------------
-    # READ JSON
+    # JSON
     # -----------------------------------------------------
 
     data = request.get_json(
@@ -450,7 +546,7 @@ def send_batch():
 
 
     # =====================================================
-    # CLEAN + DEDUPLICATE RECIPIENTS
+    # CLEAN RECIPIENTS
     # =====================================================
 
     clean_recipients = []
@@ -470,7 +566,8 @@ def send_batch():
                 email
             )
 
-    # Keep existing 25-recipient limit.
+
+    # Keep existing limit.
     clean_recipients = clean_recipients[
         :MAX_RECIPIENTS
     ]
@@ -522,7 +619,7 @@ def send_batch():
 
 
         # -------------------------------------------------
-        # START EVENT
+        # START
         # -------------------------------------------------
 
         yield (
@@ -536,231 +633,179 @@ def send_batch():
         )
 
 
-        # -------------------------------------------------
-        # SSL CONTEXT
-        # -------------------------------------------------
+        # =================================================
+        # TWO PARALLEL SMTP WORKERS
+        # =================================================
+        #
+        # Example:
+        #
+        # 1 + 2  -> simultaneously
+        # 3 + 4  -> simultaneously
+        # 5 + 6  -> simultaneously
+        #
+        # There is NO sleep/delay here.
+        #
+        # Each worker creates its OWN SMTP connection.
+        # =================================================
 
-        context = ssl.create_default_context()
-
+        executor = ThreadPoolExecutor(
+            max_workers=MAX_PARALLEL_SENDS
+        )
 
         try:
 
-            # =================================================
-            # ONE SMTP CONNECTION
-            # =================================================
+            # -------------------------------------------------
+            # Submit all recipients.
+            #
+            # Executor keeps maximum 2 active at a time.
+            # -------------------------------------------------
 
-            with smtplib.SMTP_SSL(
-                "smtp.gmail.com",
-                465,
-                context=context,
-                timeout=15
-            ) as server:
+            future_map = {}
 
+            for recipient in clean_recipients:
 
-                # -------------------------------------------------
-                # ONE LOGIN
-                # -------------------------------------------------
-
-                server.login(
+                future = executor.submit(
+                    send_one_email,
                     gmail,
-                    app_password
+                    app_password,
+                    sender_name,
+                    subject,
+                    body,
+                    is_html,
+                    recipient
+                )
+
+                future_map[
+                    future
+                ] = recipient
+
+
+            # -------------------------------------------------
+            # Read results as soon as each send completes.
+            # -------------------------------------------------
+
+            for future in as_completed(
+                future_map
+            ):
+
+                recipient = future_map[
+                    future
+                ]
+
+                try:
+
+                    result = future.result()
+
+                    if result["result"] == "sent":
+
+                        sent_count += 1
+
+                    else:
+
+                        failed_count += 1
+
+                except smtplib.SMTPAuthenticationError:
+
+                    failed_count += 1
+
+                    yield (
+                        json.dumps({
+                            "type": "progress",
+                            "email": recipient,
+                            "result": "failed",
+                            "error":
+                            "Gmail authentication failed. Check Gmail and App Password.",
+                            "total": total,
+                            "sent": sent_count,
+                            "failed": failed_count,
+                            "remaining":
+                            total -
+                            sent_count -
+                            failed_count
+                        }) + "\n"
+                    )
+
+                    # Do not expose this SMTP session
+                    # as a successful send.
+
+                    continue
+
+                except smtplib.SMTPException as exc:
+
+                    failed_count += 1
+
+                    yield (
+                        json.dumps({
+                            "type": "progress",
+                            "email": recipient,
+                            "result": "failed",
+                            "error":
+                            f"SMTP error: {str(exc)}",
+                            "total": total,
+                            "sent": sent_count,
+                            "failed": failed_count,
+                            "remaining":
+                            total -
+                            sent_count -
+                            failed_count
+                        }) + "\n"
+                    )
+
+                    continue
+
+                except Exception as exc:
+
+                    failed_count += 1
+
+                    yield (
+                        json.dumps({
+                            "type": "progress",
+                            "email": recipient,
+                            "result": "failed",
+                            "error":
+                            str(exc),
+                            "total": total,
+                            "sent": sent_count,
+                            "failed": failed_count,
+                            "remaining":
+                            total -
+                            sent_count -
+                            failed_count
+                        }) + "\n"
+                    )
+
+                    continue
+
+
+                # -------------------------------------------------
+                # SUCCESS EVENT
+                # -------------------------------------------------
+
+                remaining = (
+                    total -
+                    sent_count -
+                    failed_count
                 )
 
 
-                # =================================================
-                # SEQUENTIAL SEND
-                #
-                # SAME SPEED MODEL:
-                #
-                # 1 connection
-                # 1 login
-                # 1 sendmail per recipient
-                # no sleep
-                # no artificial delay
-                # =================================================
-
-                for recipient in clean_recipients:
-
-                    try:
-
-                        # -------------------------------------------------
-                        # CREATE UNIQUE MESSAGE CONTENT
-                        # -------------------------------------------------
-
-                        final_subject = expand_spintax(
-                            subject
-                        )
-
-                        final_body = expand_spintax(
-                            body
-                        )
+                yield (
+                    json.dumps({
+                        "type": "progress",
+                        "email": recipient,
+                        "result": "sent",
+                        "total": total,
+                        "sent": sent_count,
+                        "failed": failed_count,
+                        "remaining": remaining
+                    }) + "\n"
+                )
 
 
-                        content_type = (
-                            "html"
-                            if is_html
-                            else "plain"
-                        )
+        finally:
 
-
-                        # -------------------------------------------------
-                        # MIME MESSAGE
-                        # -------------------------------------------------
-
-                        message = MIMEText(
-                            final_body,
-                            content_type,
-                            "utf-8"
-                        )
-
-
-                        # -------------------------------------------------
-                        # STANDARD EMAIL HEADERS
-                        # -------------------------------------------------
-
-                        message["Subject"] = (
-                            final_subject
-                        )
-
-                        message["From"] = formataddr(
-                            (
-                                sender_name,
-                                gmail
-                            )
-                        )
-
-                        message["To"] = (
-                            recipient
-                        )
-
-                        message["Date"] = (
-                            formatdate(
-                                localtime=True
-                            )
-                        )
-
-                        message["Message-ID"] = (
-                            make_msgid()
-                        )
-
-
-                        # -------------------------------------------------
-                        # SEND
-                        # -------------------------------------------------
-
-                        server.sendmail(
-                            gmail,
-                            [recipient],
-                            message.as_string()
-                        )
-
-
-                        # -------------------------------------------------
-                        # SUCCESS
-                        # -------------------------------------------------
-
-                        sent_count += 1
-                        remaining -= 1
-
-
-                        yield (
-                            json.dumps({
-                                "type": "progress",
-                                "email": recipient,
-                                "result": "sent",
-                                "total": total,
-                                "sent": sent_count,
-                                "failed": failed_count,
-                                "remaining": remaining
-                            }) + "\n"
-                        )
-
-
-                    except Exception as exc:
-
-                        # -------------------------------------------------
-                        # INDIVIDUAL RECIPIENT FAILURE
-                        # -------------------------------------------------
-
-                        failed_count += 1
-                        remaining -= 1
-
-
-                        yield (
-                            json.dumps({
-                                "type": "progress",
-                                "email": recipient,
-                                "result": "failed",
-                                "error": str(exc),
-                                "total": total,
-                                "sent": sent_count,
-                                "failed": failed_count,
-                                "remaining": remaining
-                            }) + "\n"
-                        )
-
-
-        # =====================================================
-        # SMTP AUTH ERROR
-        # =====================================================
-
-        except smtplib.SMTPAuthenticationError:
-
-            yield (
-                json.dumps({
-                    "type": "error",
-                    "message":
-                    "Gmail authentication failed. Check Gmail and App Password.",
-                    "total": total,
-                    "sent": sent_count,
-                    "failed": failed_count,
-                    "remaining": remaining
-                }) + "\n"
+            executor.shutdown(
+                wait=True
             )
-
-            return
-
-
-        # =====================================================
-        # SMTP ERROR
-        # =====================================================
-
-        except smtplib.SMTPException as exc:
-
-            yield (
-                json.dumps({
-                    "type": "error",
-                    "message":
-                    f"SMTP connection error: {str(exc)}",
-                    "total": total,
-                    "sent": sent_count,
-                    "failed": failed_count,
-                    "remaining": remaining
-                }) + "\n"
-            )
-
-            return
-
-
-        # =====================================================
-        # GENERAL SERVER ERROR
-        # =====================================================
-
-        except Exception as exc:
-
-            yield (
-                json.dumps({
-                    "type": "error",
-                    "message":
-                    f"Server error: {str(exc)}",
-                    "total": total,
-                    "sent": sent_count,
-                    "failed": failed_count,
-                    "remaining": remaining
-                }) + "\n"
-            )
-
-            return
 
 
         # =====================================================
@@ -772,11 +817,11 @@ def send_batch():
                 "type": "complete",
                 "success": True,
                 "message":
-                "sending compleate YATENDRA ❤️",
+                "sending compleate Babu❤️",
                 "total": total,
                 "sent": sent_count,
                 "failed": failed_count,
-                "remaining": remaining
+                "remaining": 0
             }) + "\n"
         )
 
@@ -801,7 +846,7 @@ def send_batch():
 
 
 # =========================================================
-# HEALTH CHECK
+# HEALTH
 # =========================================================
 
 @app.route("/health")
@@ -811,7 +856,8 @@ def health():
         "status": "ok",
         "service": "Secure Mail Console",
         "mailer": "Gmail SMTP",
-        "spintax": "always_on"
+        "spintax": "always_on",
+        "parallel_sends": MAX_PARALLEL_SENDS
     })
 
 
@@ -826,3 +872,28 @@ if __name__ == "__main__":
         port=5000,
         debug=True
     )
+```
+
+### Ismein actual flow
+
+Agar 24 recipients hain, executor maximum **2 active SMTP sends** rakhega:
+
+```text
+Recipient 1 ──────┐
+                  ├── simultaneously
+Recipient 2 ──────┘
+
+Recipient 3 ──────┐
+                  ├── simultaneously
+Recipient 4 ──────┘
+
+Recipient 5 ──────┐
+                  ├── simultaneously
+Recipient 6 ──────┘
+
+...
+```
+
+Isliye **12 pairs = 24 recipient attempts**.
+
+Ek caveat: is implementation mein har individual send apna SMTP connection/login banata hai. Isse concurrency genuinely 2 rahegi, lekin connection setup ka overhead bhi hai. Gmail-side throttling ya network latency aaye to actual throughput exactly 2× nahi hogi. **Inbox placement ko improve karne ke legitimate levers SPF/DKIM/DMARC, sender reputation, consent-based recipients aur message quality hain; parallelism Inbox guarantee nahi karta.**
