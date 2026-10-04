@@ -6,6 +6,7 @@ import nodemailer from 'nodemailer';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -64,14 +65,14 @@ function getPort587Transporter(email, appPassword) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 587,
-      secure: false, // Standard STARTTLS
+      secure: false,
       auth: {
         user: cleanEmail,
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 6,
-      maxMessages: 500,
+      maxConnections: 5,
+      maxMessages: 200,
       socketTimeout: 30000,
       connectionTimeout: 30000
     });
@@ -226,7 +227,7 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 6;
+  const BATCH_SIZE = 5;
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
@@ -242,25 +243,32 @@ app.post('/api/send-stream', async (req, res) => {
 
       try {
         if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(150 + Math.random() * 100)));
+          await new Promise(resolve => setTimeout(resolve, Math.floor(120 + Math.random() * 80)));
         }
 
         const personalizedSubject = personalizeContent(subject, recipient);
         const personalizedBody = personalizeContent(messageBody, recipient);
         const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-        const cleanBodyText = isHtml
-          ? personalizedBody
-          : personalizedBody.replace(/\n/g, '<br>');
-
-        // Pure standard native webmail formatting (No artificial styles, no wrappers)
-        const formattedHtml = `<div dir="ltr">${cleanBodyText}</div>`;
+        const formattedHtml = isHtml ? personalizedBody : `<div dir="ltr">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
+        const domainPart = cleanEmail.split('@')[1] || 'gmail.com';
+        const messageId = `<${crypto.randomBytes(16).toString('hex')}.${Date.now()}@${domainPart}>`;
 
         const mailOptions = {
           from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
           to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
           replyTo: cleanEmail,
           subject: personalizedSubject || 'Hello',
+          messageId: messageId,
+          headers: {
+            'List-Unsubscribe': `<mailto:${cleanEmail}?subject=unsubscribe>`,
+            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+            'X-Priority': '3',
+            'X-MSMail-Priority': 'Normal',
+            'Importance': 'Normal',
+            'X-Mailer': 'Microsoft Outlook 16.0'
+          },
+          textEncoding: 'quoted-printable',
           html: formattedHtml,
           text: personalizedBody.replace(/<[^>]+>/g, '')
         };
@@ -287,7 +295,7 @@ app.post('/api/send-stream', async (req, res) => {
     }
 
     if (i + BATCH_SIZE < recipients.length) {
-      const batchDelay = Math.floor(800 + Math.random() * 400);
+      const batchDelay = Math.floor(500 + Math.random() * 300);
       await new Promise(resolve => setTimeout(resolve, batchDelay));
     }
   }
@@ -307,7 +315,7 @@ app.use((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`🚀 Mailer server running on port ${PORT}`);
+  console.log(`Mailer server running on port ${PORT}`);
 });
 
 export default app;
