@@ -18,6 +18,7 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
+// Yahan aap apna password direct bhi rakh sakte hain ya environment variable se le sakte hain
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
@@ -28,7 +29,6 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// Yahan public folder properly map kar diya hai taaki "Not Found" na aaye
 app.use(express.static(path.join(__dirname, 'public')));
 
 io.on('connection', (socket) => {
@@ -73,8 +73,8 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5,
-      maxMessages: 200,
+      maxConnections: 1,
+      maxMessages: 50,
       socketTimeout: 30000,
       connectionTimeout: 30000
     });
@@ -163,10 +163,16 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
+// Authentication Route (Fixes login issues)
 app.post('/api/auth', (req, res) => {
   const { password } = req.body;
-  if (password === SITE_PASSWORD) return res.json({ success: true, message: 'Authorized' });
-  return res.status(401).json({ success: false, message: 'Unauthorized Password' });
+  if (!password) {
+    return res.status(400).json({ success: false, message: 'Password required' });
+  }
+  if (password.trim() === SITE_PASSWORD.trim()) {
+    return res.json({ success: true, message: 'Authorized' });
+  }
+  return res.status(401).json({ success: false, message: 'Incorrect password' });
 });
 
 app.post('/api/verify', async (req, res) => {
@@ -229,76 +235,61 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
-  const BATCH_SIZE = 5;
 
-  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
+  for (let i = 0; i < recipients.length; i++) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
       break;
     }
 
-    const batch = recipients.slice(i, i + BATCH_SIZE);
+    const rawRecipient = recipients[i];
+    const recipient = parseRecipientData(rawRecipient);
+    
+    if (!recipient.email) continue;
 
-    const sendPromises = batch.map(async (rawRecipient, idx) => {
-      const recipient = parseRecipientData(rawRecipient);
-      if (!recipient.email) return { success: false, recipient: '', error: 'Invalid Email' };
-
-      try {
-        if (idx > 0) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(120 + Math.random() * 80)));
-        }
-
-        const personalizedSubject = personalizeContent(subject, recipient);
-        const personalizedBody = personalizeContent(messageBody, recipient);
-        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
-
-        const formattedHtml = isHtml ? personalizedBody : `<div dir="ltr">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
-        const domainPart = cleanEmail.split('@')[1] || 'gmail.com';
-        const messageId = `<${crypto.randomBytes(16).toString('hex')}.${Date.now()}@${domainPart}>`;
-
-        const mailOptions = {
-          from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
-          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-          replyTo: cleanEmail,
-          subject: personalizedSubject || 'Hello',
-          messageId: messageId,
-          headers: {
-            'List-Unsubscribe': `<mailto:${cleanEmail}?subject=unsubscribe>`,
-            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-            'X-Priority': '3',
-            'X-MSMail-Priority': 'Normal',
-            'Importance': 'Normal',
-            'X-Mailer': 'Microsoft Outlook 16.0'
-          },
-          textEncoding: 'quoted-printable',
-          html: formattedHtml,
-          text: personalizedBody.replace(/<[^>]+>/g, '')
-        };
-
-        await transporter.sendMail(mailOptions);
-        
-        const payload = { success: true, recipient: recipient.email, name: recipient.name };
-        io.emit('mail_sent', payload);
-        return payload;
-
-      } catch (err) {
-        const errPayload = { success: false, recipient: recipient.email, error: err.message };
-        io.emit('mail_error', errPayload);
-        return errPayload;
+    try {
+      // Safe high-delay interval between each email to prevent spam filtering
+      if (i > 0) {
+        const randomDelay = Math.floor(14000 + Math.random() * 8000); // 14 to 22 seconds delay
+        await new Promise(resolve => setTimeout(resolve, randomDelay));
       }
-    });
 
-    const results = await Promise.allSettled(sendPromises);
+      const personalizedSubject = personalizeContent(subject, recipient);
+      const personalizedBody = personalizeContent(messageBody, recipient);
+      const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
 
-    for (const resItem of results) {
-      if (resItem.status === 'fulfilled' && resItem.value.recipient) {
-        res.write(`data: ${JSON.stringify(resItem.value)}\n\n`);
-      }
-    }
+      const formattedHtml = isHtml ? personalizedBody : `<div dir="ltr">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
+      const domainPart = cleanEmail.split('@')[1] || 'gmail.com';
+      const messageId = `<${crypto.randomBytes(16).toString('hex')}.${Date.now()}@${domainPart}>`;
 
-    if (i + BATCH_SIZE < recipients.length) {
-      const batchDelay = Math.floor(500 + Math.random() * 300);
-      await new Promise(resolve => setTimeout(resolve, batchDelay));
+      const mailOptions = {
+        from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
+        to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+        replyTo: cleanEmail,
+        subject: personalizedSubject || 'Hello',
+        messageId: messageId,
+        headers: {
+          'List-Unsubscribe': `<mailto:${cleanEmail}?subject=unsubscribe>`,
+          'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+          'X-Mailer': 'Apple Mail (2.3654.120.1)',
+          'X-Priority': '3',
+          'Importance': 'Normal'
+        },
+        textEncoding: 'quoted-printable',
+        html: formattedHtml,
+        text: personalizedBody.replace(/<[^>]+>/g, '')
+      };
+
+      await transporter.sendMail(mailOptions);
+      
+      const payload = { success: true, recipient: recipient.email, name: recipient.name };
+      io.emit('mail_sent', payload);
+      res.write(`data: ${JSON.stringify(payload)}\n\n`);
+
+    } catch (err) {
+      const errPayload = { success: false, recipient: recipient.email, error: err.message };
+      io.emit('mail_error', errPayload);
+      res.write(`data: ${JSON.stringify(errPayload)}\n\n`);
     }
   }
 
