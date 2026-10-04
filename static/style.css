@@ -94,7 +94,6 @@ textarea {
     display: grid;
     grid-template-columns: 1.04fr .96fr;
     gap: 20px;
-    align-items: start;
 }
 
 .right-column {
@@ -355,23 +354,19 @@ textarea {
 }
 
 
-/* PROGRESS - COMPACTED */
-
-.progress-card {
-    padding: 20px 24px;
-}
+/* PROGRESS */
 
 .stats-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
 
-    gap: 10px;
+    gap: 14px;
 
     margin-top: 4px;
 }
 
 .stat-box {
-    height: 70px;
+    height: 91px;
 
     border: 1px solid #dce3ed;
     border-radius: 7px;
@@ -384,15 +379,15 @@ textarea {
 
 .stat-box span {
     color: #657994;
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 700;
 }
 
 .stat-box strong {
-    margin-top: 4px;
+    margin-top: 6px;
 
     color: #397df3;
-    font-size: 20px;
+    font-size: 25px;
 }
 
 .stat-box strong.green {
@@ -408,7 +403,7 @@ textarea {
 }
 
 .progress-track {
-    height: 6px;
+    height: 7px;
     width: 100%;
 
     background: #e4eaf1;
@@ -417,7 +412,7 @@ textarea {
 
     overflow: hidden;
 
-    margin-top: 14px;
+    margin-top: 21px;
 }
 
 .progress-fill {
@@ -432,11 +427,11 @@ textarea {
 .status {
     text-align: center;
 
-    margin-top: 12px;
+    margin-top: 17px;
 
-    min-height: 18px;
+    min-height: 21px;
 
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
 }
 
@@ -455,14 +450,14 @@ textarea {
     display: grid;
     grid-template-columns: 1fr 1fr;
 
-    gap: 12px;
+    gap: 14px;
 
-    margin-top: 14px;
+    margin-top: 18px;
 }
 
 .send-button,
 .stop-button {
-    height: 38px;
+    height: 40px;
 
     border: 0;
     border-radius: 7px;
