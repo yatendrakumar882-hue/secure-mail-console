@@ -565,6 +565,7 @@ function forceBlankMessageBody() {
 
 /*
 Run immediately after DOM is ready.
+This also clears any browser-restored value.
 */
 
 document.addEventListener(
@@ -586,6 +587,11 @@ document.addEventListener(
     }
 );
 
+
+/*
+Also clear when browser restores page
+from back/forward cache.
+*/
 
 window.addEventListener(
     "pageshow",
@@ -926,6 +932,12 @@ function closeCompletePopup() {
 }
 
 
+/*
+=========================================================
+CLOSE POPUP BY CLICKING ANYWHERE
+=========================================================
+*/
+
 document.addEventListener(
     "click",
     function(event) {
@@ -942,12 +954,24 @@ document.addEventListener(
                 "show"
             )
         ) {
+
+            /*
+            Clicking anywhere closes it.
+            */
+
             closeCompletePopup();
+
         }
 
     }
 );
 
+
+/*
+=========================================================
+CLOSE POPUP WITH ANY KEY
+=========================================================
+*/
 
 document.addEventListener(
     "keydown",
@@ -965,7 +989,9 @@ document.addEventListener(
                 "show"
             )
         ) {
+
             closeCompletePopup();
+
         }
 
     }
@@ -1417,7 +1443,7 @@ async function sendBatch() {
 
     sending = false;
 
-    currentContainer = null;
+    currentController = null;
 
     sendButton.disabled = false;
 
@@ -1486,6 +1512,10 @@ function showToast(message) {
     );
 }
 
+
+/*
+Initial state
+*/
 
 updateRecipientCount();
 
