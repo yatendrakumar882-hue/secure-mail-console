@@ -3,6 +3,7 @@ from flask import (
     redirect, url_for, session, Response,
     stream_with_context
 )
+
 import smtplib
 import ssl
 import re
@@ -14,7 +15,7 @@ import secrets
 import random
 
 from email.mime.text import MIMEText
-from email.utils import formataddr
+from email.utils import formataddr, formatdate, make_msgid
 from pathlib import Path
 
 
@@ -36,6 +37,7 @@ app.secret_key = os.environ.get(
 
 
 MAX_RECIPIENTS = 25
+
 
 TURNSTILE_SECRET_KEY = os.environ.get(
     "TURNSTILE_SECRET_KEY",
@@ -64,7 +66,23 @@ def authenticated():
 
 
 # =========================================================
-# SPINTAX - ALWAYS ON
+# SAFE HEADER VALIDATION
+# =========================================================
+
+def clean_header(value):
+    """
+    Prevent CR/LF header injection.
+    """
+    return (
+        str(value)
+        .replace("\r", " ")
+        .replace("\n", " ")
+        .strip()
+    )
+
+
+# =========================================================
+# SPINTAX
 # =========================================================
 
 SPINTAX_RE = re.compile(
@@ -277,20 +295,20 @@ def send_batch():
     ) or {}
 
 
-    sender_name = str(
+    sender_name = clean_header(
         data.get(
             "sender_name",
             ""
         )
-    ).strip()
+    )
 
 
-    gmail = str(
+    gmail = clean_header(
         data.get(
             "gmail",
             ""
         )
-    ).strip()
+    )
 
 
     app_password = str(
@@ -301,12 +319,12 @@ def send_batch():
     ).strip()
 
 
-    subject = str(
+    subject = clean_header(
         data.get(
             "subject",
             ""
         )
-    ).strip()
+    )
 
 
     body = str(
@@ -338,6 +356,10 @@ def send_batch():
         )
     ).strip()
 
+
+    # =====================================================
+    # VALIDATION
+    # =====================================================
 
     if not sender_name:
 
@@ -390,6 +412,10 @@ def send_batch():
         }), 400
 
 
+    # =====================================================
+    # CLEAN RECIPIENTS
+    # =====================================================
+
     clean_recipients = []
 
 
@@ -424,6 +450,10 @@ def send_batch():
         }), 400
 
 
+    # =====================================================
+    # TURNSTILE
+    # =====================================================
+
     verified, verify_error = verify_turnstile(
         turnstile_token,
         request.headers.get(
@@ -440,6 +470,10 @@ def send_batch():
             "message": verify_error
         }), 403
 
+
+    # =====================================================
+    # STREAMING GENERATOR
+    # =====================================================
 
     @stream_with_context
     def generate():
@@ -477,17 +511,25 @@ def send_batch():
             ) as server:
 
 
+                # Gmail SMTP authentication
                 server.login(
                     gmail,
                     app_password
                 )
 
 
+                # =================================================
+                # SEND ONE MESSAGE PER RECIPIENT
+                # =================================================
+
                 for recipient in clean_recipients:
 
                     try:
 
-                        # Spintax permanently ON
+                        # -----------------------------------------
+                        # Generate this message independently
+                        # -----------------------------------------
+
                         final_subject = expand_spintax(
                             subject
                         )
@@ -511,6 +553,10 @@ def send_batch():
                         )
 
 
+                        # -----------------------------------------
+                        # Standard email headers
+                        # -----------------------------------------
+
                         message["Subject"] = (
                             final_subject
                         )
@@ -524,8 +570,31 @@ def send_batch():
                         )
 
 
-                        message["To"] = recipient
+                        message["To"] = (
+                            recipient
+                        )
 
+
+                        message["Date"] = (
+                            formatdate(
+                                localtime=True
+                            )
+                        )
+
+
+                        message["Message-ID"] = (
+                            make_msgid()
+                        )
+
+
+                        message["MIME-Version"] = (
+                            "1.0"
+                        )
+
+
+                        # -----------------------------------------
+                        # Send
+                        # -----------------------------------------
 
                         server.sendmail(
                             gmail,
@@ -622,6 +691,10 @@ def send_batch():
             return
 
 
+        # =====================================================
+        # COMPLETE
+        # =====================================================
+
         yield (
             json.dumps({
                 "type": "complete",
@@ -644,6 +717,7 @@ def send_batch():
         headers={
             "Cache-Control":
             "no-cache, no-transform",
+
             "X-Accel-Buffering":
             "no"
         }
@@ -664,6 +738,10 @@ def health():
         "spintax": "always_on"
     })
 
+
+# =========================================================
+# LOCAL DEVELOPMENT
+# =========================================================
 
 if __name__ == "__main__":
 
