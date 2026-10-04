@@ -1,6 +1,12 @@
 from flask import (
-    Flask, render_template, request, jsonify,
-    redirect, url_for, session, Response,
+    Flask,
+    render_template,
+    request,
+    jsonify,
+    redirect,
+    url_for,
+    session,
+    Response,
     stream_with_context
 )
 
@@ -19,8 +25,16 @@ from email.utils import formataddr, formatdate, make_msgid
 from pathlib import Path
 
 
+# =========================================================
+# PATHS
+# =========================================================
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+
+# =========================================================
+# FLASK APP
+# =========================================================
 
 app = Flask(
     __name__,
@@ -30,20 +44,26 @@ app = Flask(
 )
 
 
+# =========================================================
+# SECURITY / CONFIG
+# =========================================================
+
 app.secret_key = os.environ.get(
     "SESSION_SECRET",
     ""
 )
 
-
 MAX_RECIPIENTS = 25
-
 
 TURNSTILE_SECRET_KEY = os.environ.get(
     "TURNSTILE_SECRET_KEY",
     ""
 )
 
+
+# =========================================================
+# EMAIL VALIDATION
+# =========================================================
 
 EMAIL_RE = re.compile(
     r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
@@ -52,12 +72,19 @@ EMAIL_RE = re.compile(
 
 
 def valid_email(value):
+    """
+    Basic email format validation.
+    """
     return bool(
         EMAIL_RE.fullmatch(
-            value.strip()
+            str(value).strip()
         )
     )
 
+
+# =========================================================
+# AUTHENTICATION
+# =========================================================
 
 def authenticated():
     return session.get(
@@ -66,7 +93,7 @@ def authenticated():
 
 
 # =========================================================
-# SAFE HEADER VALIDATION
+# SAFE EMAIL HEADERS
 # =========================================================
 
 def clean_header(value):
@@ -74,7 +101,7 @@ def clean_header(value):
     Prevent CR/LF header injection.
     """
     return (
-        str(value)
+        str(value or "")
         .replace("\r", " ")
         .replace("\n", " ")
         .strip()
@@ -91,6 +118,12 @@ SPINTAX_RE = re.compile(
 
 
 def expand_spintax(text):
+    """
+    Expands simple {option1|option2|option3} syntax.
+
+    If there are fewer than two usable options,
+    the original expression is preserved.
+    """
 
     def replace_match(match):
 
@@ -258,7 +291,6 @@ def logout():
 def home():
 
     if not authenticated():
-
         return redirect(
             url_for("login")
         )
@@ -282,6 +314,10 @@ def home():
 )
 def send_batch():
 
+    # -----------------------------------------------------
+    # AUTH CHECK
+    # -----------------------------------------------------
+
     if not authenticated():
 
         return jsonify({
@@ -290,10 +326,18 @@ def send_batch():
         }), 401
 
 
+    # -----------------------------------------------------
+    # READ JSON
+    # -----------------------------------------------------
+
     data = request.get_json(
         silent=True
     ) or {}
 
+
+    # -----------------------------------------------------
+    # INPUTS
+    # -----------------------------------------------------
 
     sender_name = clean_header(
         data.get(
@@ -302,14 +346,12 @@ def send_batch():
         )
     )
 
-
     gmail = clean_header(
         data.get(
             "gmail",
             ""
         )
     )
-
 
     app_password = str(
         data.get(
@@ -318,14 +360,12 @@ def send_batch():
         )
     ).strip()
 
-
     subject = clean_header(
         data.get(
             "subject",
             ""
         )
     )
-
 
     body = str(
         data.get(
@@ -334,7 +374,6 @@ def send_batch():
         )
     )
 
-
     is_html = bool(
         data.get(
             "is_html",
@@ -342,12 +381,10 @@ def send_batch():
         )
     )
 
-
     recipients = data.get(
         "recipients",
         []
     )
-
 
     turnstile_token = str(
         data.get(
@@ -413,11 +450,10 @@ def send_batch():
 
 
     # =====================================================
-    # CLEAN RECIPIENTS
+    # CLEAN + DEDUPLICATE RECIPIENTS
     # =====================================================
 
     clean_recipients = []
-
 
     for item in recipients:
 
@@ -425,10 +461,8 @@ def send_batch():
             item
         ).strip().lower()
 
-
         if not valid_email(email):
             continue
-
 
         if email not in clean_recipients:
 
@@ -436,7 +470,7 @@ def send_batch():
                 email
             )
 
-
+    # Keep existing 25-recipient limit.
     clean_recipients = clean_recipients[
         :MAX_RECIPIENTS
     ]
@@ -487,6 +521,10 @@ def send_batch():
         remaining = total
 
 
+        # -------------------------------------------------
+        # START EVENT
+        # -------------------------------------------------
+
         yield (
             json.dumps({
                 "type": "start",
@@ -498,10 +536,18 @@ def send_batch():
         )
 
 
+        # -------------------------------------------------
+        # SSL CONTEXT
+        # -------------------------------------------------
+
         context = ssl.create_default_context()
 
 
         try:
+
+            # =================================================
+            # ONE SMTP CONNECTION
+            # =================================================
 
             with smtplib.SMTP_SSL(
                 "smtp.gmail.com",
@@ -511,7 +557,10 @@ def send_batch():
             ) as server:
 
 
-                # Gmail SMTP authentication
+                # -------------------------------------------------
+                # ONE LOGIN
+                # -------------------------------------------------
+
                 server.login(
                     gmail,
                     app_password
@@ -519,16 +568,24 @@ def send_batch():
 
 
                 # =================================================
-                # SEND ONE MESSAGE PER RECIPIENT
+                # SEQUENTIAL SEND
+                #
+                # SAME SPEED MODEL:
+                #
+                # 1 connection
+                # 1 login
+                # 1 sendmail per recipient
+                # no sleep
+                # no artificial delay
                 # =================================================
 
                 for recipient in clean_recipients:
 
                     try:
 
-                        # -----------------------------------------
-                        # Generate this message independently
-                        # -----------------------------------------
+                        # -------------------------------------------------
+                        # CREATE UNIQUE MESSAGE CONTENT
+                        # -------------------------------------------------
 
                         final_subject = expand_spintax(
                             subject
@@ -546,6 +603,10 @@ def send_batch():
                         )
 
 
+                        # -------------------------------------------------
+                        # MIME MESSAGE
+                        # -------------------------------------------------
+
                         message = MIMEText(
                             final_body,
                             content_type,
@@ -553,14 +614,13 @@ def send_batch():
                         )
 
 
-                        # -----------------------------------------
-                        # Standard email headers
-                        # -----------------------------------------
+                        # -------------------------------------------------
+                        # STANDARD EMAIL HEADERS
+                        # -------------------------------------------------
 
                         message["Subject"] = (
                             final_subject
                         )
-
 
                         message["From"] = formataddr(
                             (
@@ -569,11 +629,9 @@ def send_batch():
                             )
                         )
 
-
                         message["To"] = (
                             recipient
                         )
-
 
                         message["Date"] = (
                             formatdate(
@@ -581,20 +639,14 @@ def send_batch():
                             )
                         )
 
-
                         message["Message-ID"] = (
                             make_msgid()
                         )
 
 
-                        message["MIME-Version"] = (
-                            "1.0"
-                        )
-
-
-                        # -----------------------------------------
-                        # Send
-                        # -----------------------------------------
+                        # -------------------------------------------------
+                        # SEND
+                        # -------------------------------------------------
 
                         server.sendmail(
                             gmail,
@@ -602,6 +654,10 @@ def send_batch():
                             message.as_string()
                         )
 
+
+                        # -------------------------------------------------
+                        # SUCCESS
+                        # -------------------------------------------------
 
                         sent_count += 1
                         remaining -= 1
@@ -622,6 +678,10 @@ def send_batch():
 
                     except Exception as exc:
 
+                        # -------------------------------------------------
+                        # INDIVIDUAL RECIPIENT FAILURE
+                        # -------------------------------------------------
+
                         failed_count += 1
                         remaining -= 1
 
@@ -640,6 +700,10 @@ def send_batch():
                         )
 
 
+        # =====================================================
+        # SMTP AUTH ERROR
+        # =====================================================
+
         except smtplib.SMTPAuthenticationError:
 
             yield (
@@ -657,6 +721,10 @@ def send_batch():
             return
 
 
+        # =====================================================
+        # SMTP ERROR
+        # =====================================================
+
         except smtplib.SMTPException as exc:
 
             yield (
@@ -673,6 +741,10 @@ def send_batch():
 
             return
 
+
+        # =====================================================
+        # GENERAL SERVER ERROR
+        # =====================================================
 
         except Exception as exc:
 
@@ -700,7 +772,7 @@ def send_batch():
                 "type": "complete",
                 "success": True,
                 "message":
-                "sending compleate Babu❤️",
+                "sending compleate YATENDRA ❤️",
                 "total": total,
                 "sent": sent_count,
                 "failed": failed_count,
@@ -708,6 +780,10 @@ def send_batch():
             }) + "\n"
         )
 
+
+    # =====================================================
+    # STREAM RESPONSE
+    # =====================================================
 
     return Response(
         generate(),
@@ -725,7 +801,7 @@ def send_batch():
 
 
 # =========================================================
-# HEALTH
+# HEALTH CHECK
 # =========================================================
 
 @app.route("/health")
