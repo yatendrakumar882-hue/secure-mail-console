@@ -72,7 +72,7 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 5,
+      maxConnections: 6, // 6 parallel connections for batch sending
       maxMessages: 100,
       socketTimeout: 30000,
       connectionTimeout: 30000
@@ -162,7 +162,7 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// Authentication Route (Fixes login issue)
+// Authentication Route
 app.post('/api/auth', (req, res) => {
   const { password } = req.body;
   if (!password) {
@@ -234,62 +234,68 @@ app.post('/api/send-stream', async (req, res) => {
   }, 4000);
 
   const transporter = getPort587Transporter(email, appPassword);
+  const BATCH_SIZE = 6; // Exactly 6 emails per batch
 
-  for (let i = 0; i < recipients.length; i++) {
+  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     if (globalSession.stopRequested) {
       res.write(`data: ${JSON.stringify({ success: false, error: 'Stopped by User' })}\n\n`);
       break;
     }
 
-    const rawRecipient = recipients[i];
-    const recipient = parseRecipientData(rawRecipient);
-    
-    if (!recipient.email) continue;
+    const batch = recipients.slice(i, i + BATCH_SIZE);
 
-    try {
-      // Fast speed maintained with a very small 1.2s gap
-      if (i > 0) {
-        await new Promise(resolve => setTimeout(resolve, 1200));
+    // Process 6 emails concurrently in the current batch
+    const batchPromises = batch.map(async (rawRecipient) => {
+      if (globalSession.stopRequested) return;
+      const recipient = parseRecipientData(rawRecipient);
+      if (!recipient.email) return;
+
+      try {
+        const personalizedSubject = personalizeContent(subject, recipient);
+        const personalizedBody = personalizeContent(messageBody, recipient);
+        const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+
+        const formattedHtml = isHtml ? personalizedBody : `<div dir="ltr">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
+        const domainPart = cleanEmail.split('@')[1] || 'gmail.com';
+        
+        const messageId = `<${crypto.randomBytes(16).toString('hex')}.${Date.now()}@${domainPart}>`;
+
+        const mailOptions = {
+          from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
+          to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
+          replyTo: cleanEmail,
+          subject: personalizedSubject || 'Hello',
+          messageId: messageId,
+          headers: {
+            'List-Unsubscribe': `<mailto:${cleanEmail}?subject=unsubscribe>`,
+            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+            'X-Mailer': 'Microsoft Outlook 16.0',
+            'X-Priority': '3',
+            'Importance': 'Normal'
+          },
+          textEncoding: 'quoted-printable',
+          html: formattedHtml,
+          text: personalizedBody.replace(/<[^>]+>/g, '')
+        };
+
+        await transporter.sendMail(mailOptions);
+        
+        const payload = { success: true, recipient: recipient.email, name: recipient.name };
+        io.emit('mail_sent', payload);
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+
+      } catch (err) {
+        const errPayload = { success: false, recipient: recipient.email, error: err.message };
+        io.emit('mail_error', errPayload);
+        res.write(`data: ${JSON.stringify(errPayload)}\n\n`);
       }
+    });
 
-      const personalizedSubject = personalizeContent(subject, recipient);
-      const personalizedBody = personalizeContent(messageBody, recipient);
-      const isHtml = /<[a-z][\s\S]*>/i.test(personalizedBody);
+    await Promise.all(batchPromises);
 
-      const formattedHtml = isHtml ? personalizedBody : `<div dir="ltr">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
-      const domainPart = cleanEmail.split('@')[1] || 'gmail.com';
-      
-      // Inbox Optimization Headers & Unique Message-ID
-      const messageId = `<${crypto.randomBytes(16).toString('hex')}.${Date.now()}@${domainPart}>`;
-
-      const mailOptions = {
-        from: cleanSenderName ? `"${cleanSenderName}" <${cleanEmail}>` : cleanEmail,
-        to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-        replyTo: cleanEmail,
-        subject: personalizedSubject || 'Hello',
-        messageId: messageId,
-        headers: {
-          'List-Unsubscribe': `<mailto:${cleanEmail}?subject=unsubscribe>`,
-          'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-          'X-Mailer': 'Microsoft Outlook 16.0',
-          'X-Priority': '3',
-          'Importance': 'Normal'
-        },
-        textEncoding: 'quoted-printable',
-        html: formattedHtml,
-        text: personalizedBody.replace(/<[^>]+>/g, '')
-      };
-
-      await transporter.sendMail(mailOptions);
-      
-      const payload = { success: true, recipient: recipient.email, name: recipient.name };
-      io.emit('mail_sent', payload);
-      res.write(`data: ${JSON.stringify(payload)}\n\n`);
-
-    } catch (err) {
-      const errPayload = { success: false, recipient: recipient.email, error: err.message };
-      io.emit('mail_error', errPayload);
-      res.write(`data: ${JSON.stringify(errPayload)}\n\n`);
+    // Brief safety pause between batches to protect inbox delivery and prevent rate-limits
+    if (i + BATCH_SIZE < recipients.length) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
     }
   }
 
