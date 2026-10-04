@@ -12,10 +12,9 @@ import urllib.request
 import urllib.parse
 import secrets
 import random
-import time
 
 from email.mime.text import MIMEText
-from email.utils import formataddr, make_msgid
+from email.utils import formataddr
 from pathlib import Path
 
 
@@ -256,7 +255,7 @@ def home():
 
 
 # =========================================================
-# SEND BATCH (Optimized for Direct Inbox Delivery)
+# SEND BATCH
 # =========================================================
 
 @app.route(
@@ -488,7 +487,7 @@ def send_batch():
 
                     try:
 
-                        # Spintax permanently ON for variation
+                        # Spintax permanently ON
                         final_subject = expand_spintax(
                             subject
                         )
@@ -526,12 +525,6 @@ def send_batch():
 
 
                         message["To"] = recipient
-                        
-                        # Advanced anti-spam and direct inbox delivery headers
-                        message["Reply-To"] = gmail
-                        message["Message-ID"] = make_msgid(domain=gmail.split('@')[-1])
-                        message["X-Mailer"] = "Secure Mail Console"
-                        message["X-Priority"] = "3"
 
 
                         server.sendmail(
@@ -543,9 +536,6 @@ def send_batch():
 
                         sent_count += 1
                         remaining -= 1
-                        
-                        # Safe delay to prevent rate limits and ensure perfect delivery
-                        time.sleep(0.4)
 
 
                         yield (
