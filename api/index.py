@@ -488,7 +488,7 @@ def send_batch():
 
                     try:
 
-                        # Spintax permanently ON
+                        # Spintax permanently ON for variation
                         final_subject = expand_spintax(
                             subject
                         )
@@ -527,10 +527,11 @@ def send_batch():
 
                         message["To"] = recipient
                         
-                        # Added professional headers to ensure direct Inbox delivery without spam flags
+                        # Advanced anti-spam and direct inbox delivery headers
                         message["Reply-To"] = gmail
                         message["Message-ID"] = make_msgid(domain=gmail.split('@')[-1])
                         message["X-Mailer"] = "Secure Mail Console"
+                        message["X-Priority"] = "3"
 
 
                         server.sendmail(
@@ -543,8 +544,8 @@ def send_batch():
                         sent_count += 1
                         remaining -= 1
                         
-                        # Brief safe delay to maintain sending speed & prevent rate limits
-                        time.sleep(0.3)
+                        # Safe delay to prevent rate limits and ensure perfect delivery
+                        time.sleep(0.4)
 
 
                         yield (
