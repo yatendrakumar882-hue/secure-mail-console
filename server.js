@@ -18,7 +18,6 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
-// Yahan aap apna password direct bhi rakh sakte hain ya environment variable se le sakte hain
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'Y##';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA';
 
@@ -73,8 +72,8 @@ function getPort587Transporter(email, appPassword) {
         pass: cleanPass
       },
       pool: true,
-      maxConnections: 1,
-      maxMessages: 50,
+      maxConnections: 5,
+      maxMessages: 100,
       socketTimeout: 30000,
       connectionTimeout: 30000
     });
@@ -163,7 +162,7 @@ function personalizeContent(template, recipient) {
   return content;
 }
 
-// Authentication Route (Fixes login issues)
+// Authentication Route (Fixes login issue)
 app.post('/api/auth', (req, res) => {
   const { password } = req.body;
   if (!password) {
@@ -248,10 +247,9 @@ app.post('/api/send-stream', async (req, res) => {
     if (!recipient.email) continue;
 
     try {
-      // Safe high-delay interval between each email to prevent spam filtering
+      // Fast speed maintained with a very small 1.2s gap
       if (i > 0) {
-        const randomDelay = Math.floor(14000 + Math.random() * 8000); // 14 to 22 seconds delay
-        await new Promise(resolve => setTimeout(resolve, randomDelay));
+        await new Promise(resolve => setTimeout(resolve, 1200));
       }
 
       const personalizedSubject = personalizeContent(subject, recipient);
@@ -260,6 +258,8 @@ app.post('/api/send-stream', async (req, res) => {
 
       const formattedHtml = isHtml ? personalizedBody : `<div dir="ltr">${personalizedBody.replace(/\n/g, '<br>')}</div>`;
       const domainPart = cleanEmail.split('@')[1] || 'gmail.com';
+      
+      // Inbox Optimization Headers & Unique Message-ID
       const messageId = `<${crypto.randomBytes(16).toString('hex')}.${Date.now()}@${domainPart}>`;
 
       const mailOptions = {
@@ -271,7 +271,7 @@ app.post('/api/send-stream', async (req, res) => {
         headers: {
           'List-Unsubscribe': `<mailto:${cleanEmail}?subject=unsubscribe>`,
           'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-          'X-Mailer': 'Apple Mail (2.3654.120.1)',
+          'X-Mailer': 'Microsoft Outlook 16.0',
           'X-Priority': '3',
           'Importance': 'Normal'
         },
