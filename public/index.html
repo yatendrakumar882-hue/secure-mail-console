@@ -1,163 +1,301 @@
-<!DOCTYPE html>
-<html lang="en">
+document.addEventListener('DOMContentLoaded', () => {
+    const passwordGate = document.getElementById('password-gate');
+    const mainApp = document.getElementById('main-app');
+    const gateForm = document.getElementById('gate-form');
+    const gatePassword = document.getElementById('gate-password');
+    const gateError = document.getElementById('gate-error');
+    const gateSubmitBtn = document.getElementById('gate-submit-btn');
+    const toggleGatePassword = document.getElementById('toggle-gate-password');
+    const logoutBtn = document.getElementById('logout-btn');
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Secure Mail Console</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css">
-</head>
+    if (sessionStorage.getItem('authenticated') === 'true') {
+        passwordGate.classList.add('hidden');
+        mainApp.classList.remove('hidden');
+    } else {
+        passwordGate.classList.remove('hidden');
+        mainApp.classList.add('hidden');
+    }
 
-<body>
-    <div id="password-gate" class="password-gate">
-        <div class="gate-card fade-in">
-            <div class="gate-icon">
-                <i class="fa-solid fa-lock"></i>
-            </div>
-            <h2>Access Protected</h2>
-            <p>Enter the password to continue</p>
-            <form id="gate-form" autocomplete="off">
-                <div class="form-group">
-                    <div class="password-wrapper">
-                        <input type="password" id="gate-password" placeholder="Enter password..." autocomplete="current-password" required>
-                        <button type="button" id="toggle-gate-password" class="icon-button" aria-label="Toggle password visibility">
-                            <i class="fa-regular fa-eye"></i>
-                        </button>
-                    </div>
-                </div>
-                <div id="gate-error" class="gate-error hidden">
-                    <i class="fa-solid fa-triangle-exclamation"></i>
-                    <span>Incorrect password</span>
-                </div>
-                <button type="submit" id="gate-submit-btn" class="btn btn-primary btn-block">
-                    <i class="fa-solid fa-arrow-right-to-bracket"></i> Enter
-                </button>
-            </form>
-        </div>
-    </div>
+    toggleGatePassword.addEventListener('click', () => {
+        const type = gatePassword.getAttribute('type') === 'password' ? 'text' : 'password';
+        gatePassword.setAttribute('type', type);
+        toggleGatePassword.innerHTML = type === 'password' ? '<i class="fa-regular fa-eye"></i>' : '<i class="fa-regular fa-eye-slash"></i>';
+    });
 
-    <div class="app-container hidden" id="main-app">
-        <header class="app-header">
-            <h1><i class="fa-solid fa-shield-halved"></i> Secure Mail Console</h1>
-            <button type="button" id="logout-btn" class="btn-logout" title="Double click to logout">
-                <i class="fa-solid fa-right-from-bracket"></i> Logout (Double Click)
-            </button>
-        </header>
+    gateForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const password = gatePassword.value.trim();
+        if (!password) return;
 
-        <section id="dashboard-section">
-            <div class="dashboard-header fade-in">
-                <h2><i class="fa-solid fa-paper-plane"></i> Bulk Email Sender</h2>
-            </div>
+        gateSubmitBtn.disabled = true;
+        gateSubmitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
+        gateError.classList.add('hidden');
 
-            <div class="dashboard-grid">
-                <div class="card composer-card fade-in delay-1">
-                    <h3><i class="fa-solid fa-pen-to-square"></i> Compose Message</h3>
-                    <form id="compose-form" onsubmit="return false;">
-                        <div class="form-row">
-                            <div class="form-group half">
-                                <label for="sender-name">Sender Name</label>
-                                <input type="text" id="sender-name" placeholder="E.g., John Doe" required spellcheck="false">
-                            </div>
-                            <div class="form-group half">
-                                <label for="dashboard-email">Your Gmail</label>
-                                <input type="email" id="dashboard-email" placeholder="you@gmail.com" required spellcheck="false" autocomplete="email">
-                            </div>
-                        </div>
+        try {
+            const response = await fetch('/api/auth', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password })
+            });
 
-                        <div class="form-row">
-                            <div class="form-group half">
-                                <label for="dashboard-password">App Password</label>
-                                <div class="password-wrapper">
-                                    <input type="password" id="dashboard-password" placeholder="16-char app password" required autocomplete="off">
-                                    <button type="button" id="toggle-password" class="icon-button" aria-label="Toggle App Password">
-                                        <i class="fa-regular fa-eye"></i>
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="form-group half">
-                                <label for="subject">Email Subject</label>
-                                <input type="text" id="subject" placeholder="Enter subject line..." required>
-                            </div>
-                        </div>
+            const result = await response.json();
 
-                        <div class="form-group flex-grow">
-                            <label for="message-body">Message Body (Plain Text / HTML)</label>
-                            <textarea id="message-body" placeholder="Write your email here... Spintax supported: {Hi|Hello} {name}" required></textarea>
-                        </div>
-                        
-                        <div class="form-group" style="margin-top: 0.5rem; margin-bottom: 0;">
-                            <label><i class="fa-solid fa-shield-cat"></i> Spam Protection</label>
-                            <div class="cf-turnstile" data-sitekey="1x00000000000000000000AA" data-theme="light"></div>
-                        </div>
-                    </form>
-                </div>
+            if (result.success) {
+                sessionStorage.setItem('authenticated', 'true');
+                passwordGate.classList.add('gate-unlocked');
+                setTimeout(() => {
+                    passwordGate.classList.add('hidden');
+                    mainApp.classList.remove('hidden');
+                }, 400);
+            } else {
+                gateError.classList.remove('hidden');
+                gatePassword.value = '';
+                gatePassword.focus();
+            }
+        } catch (err) {
+            gateError.querySelector('span').textContent = 'Connection error. Try again.';
+            gateError.classList.remove('hidden');
+        } finally {
+            gateSubmitBtn.disabled = false;
+            gateSubmitBtn.innerHTML = '<i class="fa-solid fa-arrow-right-to-bracket"></i> Enter';
+        }
+    });
 
-                <div class="right-column">
-                    <div class="card recipients-card fade-in delay-2">
-                        <div class="card-header-flex">
-                            <h3><i class="fa-solid fa-users"></i> Recipients</h3>
-                            <span class="badge" id="detected-count">0 found</span>
-                        </div>
-                        <p class="help-subtext">Paste emails (comma separated, new lines, or Excel copy)</p>
-                        <div class="form-group flex-grow" style="margin-bottom: 0;">
-                            <textarea id="recipients-input" placeholder="recipient1@example.com&#10;recipient2@example.com" spellcheck="false"></textarea>
-                        </div>
-                        <div id="email-validation-error" class="error-message hidden">
-                            <i class="fa-solid fa-triangle-exclamation"></i> <span>Please enter valid recipients.</span>
-                        </div>
-                    </div>
+    if (logoutBtn) {
+        logoutBtn.addEventListener('dblclick', () => {
+            sessionStorage.removeItem('authenticated');
+            window.location.reload();
+        });
 
-                    <div class="card progress-card fade-in delay-3">
-                        <h3><i class="fa-solid fa-chart-pie"></i> Progress Monitor</h3>
+        let clickTimer;
+        logoutBtn.addEventListener('click', () => {
+            clearTimeout(clickTimer);
+            clickTimer = setTimeout(() => {
+                logoutBtn.classList.add('btn-shake');
+                setTimeout(() => logoutBtn.classList.remove('btn-shake'), 400);
+            }, 250);
+        });
+    }
 
-                        <div class="stats-grid">
-                            <div class="stat-box neutral">
-                                <span class="stat-label">Total</span>
-                                <span class="stat-value" id="stat-total">0</span>
-                            </div>
-                            <div class="stat-box success">
-                                <span class="stat-label">Sent</span>
-                                <span class="stat-value" id="stat-sent">0</span>
-                            </div>
-                            <div class="stat-box danger">
-                                <span class="stat-label">Failed</span>
-                                <span class="stat-value" id="stat-failed">0</span>
-                            </div>
-                            <div class="stat-box warning">
-                                <span class="stat-label">Remaining</span>
-                                <span class="stat-value" id="stat-remaining">0</span>
-                            </div>
-                        </div>
+    const dashboardEmail = document.getElementById('dashboard-email');
+    const dashboardPassword = document.getElementById('dashboard-password');
+    const togglePasswordBtn = document.getElementById('toggle-password');
 
-                        <div class="progress-bar-container">
-                            <div class="progress-bar" id="progress-bar" style="width: 0%;"></div>
-                        </div>
+    const senderName = document.getElementById('sender-name');
+    const subject = document.getElementById('subject');
+    const messageBody = document.getElementById('message-body');
 
-                        <div class="status-indicator">
-                            <i id="status-icon" class="fa-solid fa-circle-pause text-muted"></i>
-                            <span id="status-text">Ready to send</span>
-                        </div>
+    const recipientsInput = document.getElementById('recipients-input');
+    const detectedCount = document.getElementById('detected-count');
+    const emailValidationError = document.getElementById('email-validation-error');
 
-                        <div class="control-buttons">
-                            <button type="button" id="send-btn" class="btn btn-success btn-lg flex-1">
-                                <i class="fa-solid fa-paper-plane"></i> Send All
-                            </button>
-                            <button type="button" id="stop-btn" class="btn btn-danger btn-lg flex-1 hidden">
-                                <i class="fa-solid fa-stop"></i> Stop Sending
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-    </div>
+    const statTotal = document.getElementById('stat-total');
+    const statSent = document.getElementById('stat-sent');
+    const statFailed = document.getElementById('stat-failed');
+    const statRemaining = document.getElementById('stat-remaining');
+    const progressBar = document.getElementById('progress-bar');
+    const statusIcon = document.getElementById('status-icon');
+    const statusText = document.getElementById('status-text');
 
-    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
-    <script src="script.js"></script>
-</body>
+    const sendBtn = document.getElementById('send-btn');
+    const stopBtn = document.getElementById('stop-btn');
 
-</html>
+    let extractedEmails = [];
+    let isSending = false;
+    let stopRequested = false;
+
+    togglePasswordBtn.addEventListener('click', () => {
+        const type = dashboardPassword.getAttribute('type') === 'password' ? 'text' : 'password';
+        dashboardPassword.setAttribute('type', type);
+        togglePasswordBtn.innerHTML = type === 'password' ? '<i class="fa-regular fa-eye"></i>' : '<i class="fa-regular fa-eye-slash"></i>';
+    });
+
+    recipientsInput.addEventListener('input', extractEmails);
+
+    function extractEmails() {
+        const text = recipientsInput.value;
+        if (!text.trim()) {
+            extractedEmails = [];
+            detectedCount.textContent = '0 found';
+            return;
+        }
+
+        const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi;
+        const matches = text.match(emailRegex) || [];
+        extractedEmails = [...new Set(matches.map(e => e.toLowerCase().trim()))];
+
+        detectedCount.textContent = `${extractedEmails.length} found`;
+        if (extractedEmails.length > 0) {
+            emailValidationError.classList.add('hidden');
+        }
+    }
+
+    sendBtn.addEventListener('click', async () => {
+        if (isSending) return;
+
+        const emailVal = dashboardEmail.value.trim();
+        const appPasswordVal = dashboardPassword.value.trim();
+        const senderNameVal = senderName.value.trim();
+        const subjectVal = subject.value.trim();
+        const messageBodyVal = messageBody.value.trim();
+
+        if (!emailVal || !appPasswordVal || !senderNameVal || !subjectVal || !messageBodyVal) {
+            alert('Please fill in all input fields and write the email content.');
+            return;
+        }
+
+        if (extractedEmails.length === 0) {
+            emailValidationError.classList.remove('hidden');
+            alert('Please enter recipient emails.');
+            return;
+        }
+
+        const recipientsToSend = [...extractedEmails];
+        const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]')?.value || "";
+
+        sendBtn.disabled = true;
+        sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
+
+        try {
+            const verifyRes = await fetch('/api/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: emailVal, appPassword: appPasswordVal, cfToken: turnstileResponse })
+            });
+
+            const verifyResult = await verifyRes.json();
+            if (!verifyResult.success) {
+                alert(verifyResult.message || 'SMTP Authentication failed. Check your App Password.');
+                finishSendingUI();
+                return;
+            }
+
+            startSendingUI(recipientsToSend.length);
+
+            let sentCount = 0;
+            let failedCount = 0;
+
+            const response = await fetch('/api/send-stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: emailVal,
+                    appPassword: appPasswordVal,
+                    senderName: senderNameVal,
+                    subject: subjectVal,
+                    messageBody: messageBodyVal,
+                    recipients: recipientsToSend,
+                    cfToken: turnstileResponse
+                })
+            });
+
+            if (!response.ok) throw new Error('Streaming connection failed.');
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                if (stopRequested) break;
+
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n\n');
+                buffer = lines.pop();
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const dataStr = line.replace('data: ', '').trim();
+                        if (dataStr === '[DONE]') break;
+
+                        try {
+                            const event = JSON.parse(dataStr);
+                            if (event.success) {
+                                sentCount++;
+                                updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Sent: ${event.recipient}`);
+                            } else {
+                                failedCount++;
+                                updateProgressUI(sentCount, failedCount, recipientsToSend.length, `Failed: ${event.recipient}`);
+                            }
+                        } catch (e) { }
+                    }
+                }
+            }
+
+            isSending = false;
+            if (stopRequested) {
+                statusIcon.className = 'fa-solid fa-circle-stop text-danger';
+                statusText.textContent = 'Process stopped by user.';
+            } else {
+                statusIcon.className = 'fa-solid fa-circle-check text-success';
+                statusText.textContent = 'Completed successfully!';
+            }
+
+        } catch (err) {
+            console.error('Send error:', err);
+            alert('Connection error occurred during send stream.');
+        } finally {
+            isSending = false;
+            finishSendingUI();
+        }
+    });
+
+    stopBtn.addEventListener('click', async () => {
+        stopRequested = true;
+        statusIcon.className = 'fa-solid fa-spinner fa-spin text-warning';
+        statusText.textContent = 'Stopping send process...';
+        stopBtn.disabled = true;
+
+        try {
+            await fetch('/api/stop', { method: 'POST' });
+        } catch (e) {
+            console.error('Stop error', e);
+        }
+    });
+
+    function startSendingUI(total) {
+        isSending = true;
+        stopRequested = false;
+
+        statTotal.textContent = total;
+        statSent.textContent = '0';
+        statFailed.textContent = '0';
+        statRemaining.textContent = total;
+        progressBar.style.width = '0%';
+
+        statusIcon.className = 'fa-solid fa-circle-notch fa-spin text-primary';
+        statusText.textContent = 'Sending emails...';
+
+        sendBtn.disabled = true;
+        sendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending...';
+        stopBtn.classList.remove('hidden');
+        stopBtn.disabled = false;
+    }
+
+    function updateProgressUI(sentCount, failedCount, total, customText) {
+        statSent.textContent = sentCount;
+        statFailed.textContent = failedCount;
+
+        const remaining = Math.max(0, total - (sentCount + failedCount));
+        statRemaining.textContent = remaining;
+
+        const percentage = Math.min(100, Math.round(((sentCount + failedCount) / total) * 100));
+        progressBar.style.width = `${percentage}%`;
+
+        if (customText && statusText && isSending && !stopRequested) {
+            statusText.textContent = customText;
+        }
+    }
+
+    function finishSendingUI() {
+        sendBtn.disabled = false;
+        sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send All';
+        stopBtn.classList.add('hidden');
+
+        if (window.turnstile) {
+            try { window.turnstile.reset(); } catch (e) { }
+        }
+    }
+});
