@@ -55,7 +55,7 @@ handler = app
 
 
 # =========================================================
-# SECURITY
+# SECURITY / ENVIRONMENT
 # =========================================================
 
 SESSION_SECRET = os.environ.get(
@@ -101,7 +101,7 @@ app.config.update(
 
 MAX_RECIPIENTS = 25
 
-# Maximum simultaneous SMTP sends.
+# Exactly two simultaneous SMTP tasks.
 MAX_PARALLEL_SENDS = 2
 
 SMTP_HOST = "smtp.gmail.com"
@@ -109,13 +109,16 @@ SMTP_PORT = 465
 SMTP_TIMEOUT = 25
 
 # ---------------------------------------------------------
-# Controlled sending pace.
+# Slightly slower than the current configuration.
 #
-# Each worker waits before its next email.
-# With 2 workers, two emails may be in progress together.
+# Current: 1.8 seconds
+# New:     2.5 seconds
+#
+# Delay is applied AFTER a successful send, before that
+# worker processes its next recipient.
 # ---------------------------------------------------------
 
-SEND_DELAY_SECONDS = 1.8
+SEND_DELAY_SECONDS = 2.5
 
 
 # =========================================================
@@ -243,12 +246,14 @@ def verify_turnstile(
 ):
 
     if not TURNSTILE_SECRET_KEY:
+
         return (
             False,
             "TURNSTILE_SECRET_KEY is not configured.",
         )
 
     if not token:
+
         return (
             False,
             "Cloudflare verification is required.",
@@ -288,6 +293,7 @@ def verify_turnstile(
             )
 
         if result.get("success") is True:
+
             return True, None
 
         return (
@@ -334,8 +340,8 @@ def login():
         )
     )
 
-    # Empty password configuration must never
-    # accidentally authenticate.
+    # Never authenticate if the environment variable
+    # is missing.
     if not LOGIN_PASSWORD:
 
         return render_template(
@@ -358,7 +364,7 @@ def login():
             turnstile_site_key=TURNSTILE_SITE_KEY,
         ), 401
 
-    # Rotate the session after authentication.
+    # Rotate the session after successful login.
     session.clear()
 
     session.permanent = True
@@ -436,7 +442,11 @@ def build_message(
         "utf-8",
     )
 
-    # Standard, legitimate MIME headers.
+    # -----------------------------------------------------
+    # Standard legitimate email headers.
+    # No forged or filtering-evasion headers.
+    # -----------------------------------------------------
+
     message["Subject"] = final_subject
 
     message["From"] = formataddr(
@@ -460,7 +470,7 @@ def build_message(
 
 
 # =========================================================
-# SEND ONE
+# SEND ONE EMAIL
 # =========================================================
 
 def send_one_email(
@@ -488,6 +498,10 @@ def send_one_email(
 
     try:
 
+        # -------------------------------------------------
+        # New authenticated Gmail SMTP connection.
+        # -------------------------------------------------
+
         server = smtplib.SMTP_SSL(
             SMTP_HOST,
             SMTP_PORT,
@@ -495,15 +509,35 @@ def send_one_email(
             timeout=SMTP_TIMEOUT,
         )
 
+        # -------------------------------------------------
+        # Gmail authentication.
+        # -------------------------------------------------
+
         server.login(
             gmail,
             app_password,
         )
 
+        # -------------------------------------------------
+        # Send exactly one recipient.
+        # -------------------------------------------------
+
         server.sendmail(
             gmail,
             [recipient],
             message.as_string(),
+        )
+
+        # -------------------------------------------------
+        # Controlled pacing.
+        #
+        # This is intentionally AFTER the successful send,
+        # so the first two emails are not unnecessarily
+        # delayed.
+        # -------------------------------------------------
+
+        time.sleep(
+            SEND_DELAY_SECONDS
         )
 
         return {
@@ -516,6 +550,7 @@ def send_one_email(
         if server is not None:
 
             try:
+
                 server.quit()
 
             except Exception:
@@ -553,9 +588,9 @@ def send_batch():
     if not isinstance(data, dict):
         data = {}
 
-    # -----------------------------------------------------
-    # Inputs
-    # -----------------------------------------------------
+    # =====================================================
+    # INPUTS
+    # =====================================================
 
     sender_name = clean_header(
         data.get(
@@ -717,12 +752,19 @@ def send_batch():
     # TURNSTILE
     # =====================================================
 
+    forwarded_for = request.headers.get(
+        "X-Forwarded-For"
+    )
+
+    remote_ip = (
+        forwarded_for.split(",")[0].strip()
+        if forwarded_for
+        else request.remote_addr
+    )
+
     verified, verify_error = verify_turnstile(
         turnstile_token,
-        request.headers.get(
-            "X-Forwarded-For",
-            request.remote_addr,
-        ),
+        remote_ip,
     )
 
     if not verified:
@@ -734,7 +776,7 @@ def send_batch():
 
 
     # =====================================================
-    # STREAM
+    # STREAMING GENERATOR
     # =====================================================
 
     @stream_with_context
@@ -748,7 +790,7 @@ def send_batch():
         failed_count = 0
 
         # -------------------------------------------------
-        # Start
+        # START EVENT
         # -------------------------------------------------
 
         yield (
@@ -770,7 +812,7 @@ def send_batch():
 
 
         # =================================================
-        # TWO WORKERS
+        # TWO PARALLEL SENDS
         # =================================================
 
         executor = ThreadPoolExecutor(
@@ -780,6 +822,13 @@ def send_batch():
         future_map = {}
 
         try:
+
+            # -------------------------------------------------
+            # Submit all recipients.
+            #
+            # ThreadPoolExecutor ensures only two are
+            # executing simultaneously.
+            # -------------------------------------------------
 
             for recipient in clean_recipients:
 
@@ -800,7 +849,7 @@ def send_batch():
 
 
             # -------------------------------------------------
-            # Receive each completed result immediately.
+            # Emit each completed email immediately.
             # -------------------------------------------------
 
             for future in as_completed(
@@ -821,10 +870,6 @@ def send_batch():
 
                         sent_count += 1
 
-                        # -------------------------------------
-                        # One event per completed email.
-                        # -------------------------------------
-
                         yield (
                             json.dumps(
                                 {
@@ -841,14 +886,13 @@ def send_batch():
                                     "failed":
                                         failed_count,
                                     "remaining":
-                                        total -
-                                        sent_count -
-                                        failed_count,
+                                        total
+                                        - sent_count
+                                        - failed_count,
                                 },
                                 ensure_ascii=False,
                             ) + "\n"
                         )
-
 
                 except smtplib.SMTPAuthenticationError:
 
@@ -864,7 +908,12 @@ def send_batch():
                                 "result":
                                     "failed",
                                 "error":
-                                    "Gmail authentication failed. Check the Gmail address and App Password.",
+                                    (
+                                        "Gmail authentication "
+                                        "failed. Check the "
+                                        "Gmail address and "
+                                        "App Password."
+                                    ),
                                 "total":
                                     total,
                                 "sent":
@@ -872,14 +921,13 @@ def send_batch():
                                 "failed":
                                     failed_count,
                                 "remaining":
-                                    total -
-                                    sent_count -
-                                    failed_count,
+                                    total
+                                    - sent_count
+                                    - failed_count,
                             },
                             ensure_ascii=False,
                         ) + "\n"
                     )
-
 
                 except (
                     smtplib.SMTPConnectError,
@@ -914,14 +962,13 @@ def send_batch():
                                 "failed":
                                     failed_count,
                                 "remaining":
-                                    total -
-                                    sent_count -
-                                    failed_count,
+                                    total
+                                    - sent_count
+                                    - failed_count,
                             },
                             ensure_ascii=False,
                         ) + "\n"
                     )
-
 
                 except smtplib.SMTPException as exc:
 
@@ -951,14 +998,13 @@ def send_batch():
                                 "failed":
                                     failed_count,
                                 "remaining":
-                                    total -
-                                    sent_count -
-                                    failed_count,
+                                    total
+                                    - sent_count
+                                    - failed_count,
                             },
                             ensure_ascii=False,
                         ) + "\n"
                     )
-
 
                 except Exception as exc:
 
@@ -988,14 +1034,13 @@ def send_batch():
                                 "failed":
                                     failed_count,
                                 "remaining":
-                                    total -
-                                    sent_count -
-                                    failed_count,
+                                    total
+                                    - sent_count
+                                    - failed_count,
                             },
                             ensure_ascii=False,
                         ) + "\n"
                     )
-
 
         finally:
 
@@ -1024,9 +1069,9 @@ def send_batch():
                     "failed":
                         failed_count,
                     "remaining":
-                        total -
-                        sent_count -
-                        failed_count,
+                        total
+                        - sent_count
+                        - failed_count,
                 },
                 ensure_ascii=False,
             ) + "\n"
@@ -1034,7 +1079,7 @@ def send_batch():
 
 
     # =====================================================
-    # RESPONSE
+    # STREAMING RESPONSE
     # =====================================================
 
     response = Response(
@@ -1083,7 +1128,7 @@ def health():
 
 
 # =========================================================
-# LOCAL
+# LOCAL DEVELOPMENT
 # =========================================================
 
 if __name__ == "__main__":
@@ -1091,5 +1136,5 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=5000,
-        debug=True,
+        debug=False,
     )
