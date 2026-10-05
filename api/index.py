@@ -19,6 +19,7 @@ import urllib.request
 import urllib.parse
 import secrets
 import random
+import time
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -40,27 +41,6 @@ STATIC_DIR = BASE_DIR / "static"
 # =========================================================
 # FLASK APP
 # =========================================================
-#
-# IMPORTANT:
-# This keeps your original working project structure.
-#
-# Project should be:
-#
-# project/
-# ├── api/
-# │   └── index.py
-# │
-# ├── templates/
-# │   ├── index.html
-# │   └── login.html
-# │
-# ├── static/
-# │   └── style.css
-# │
-# ├── requirements.txt
-# └── vercel.json
-#
-# =========================================================
 
 app = Flask(
     __name__,
@@ -69,8 +49,6 @@ app = Flask(
     static_url_path="/static"
 )
 
-
-# Explicit Vercel WSGI handler.
 handler = app
 
 
@@ -85,13 +63,16 @@ app.secret_key = os.environ.get(
 
 MAX_RECIPIENTS = 25
 
-# Exactly two simultaneous workers.
+# Exactly two simultaneous SMTP workers.
 MAX_PARALLEL_SENDS = 2
 
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 465
-
 SMTP_TIMEOUT = 20
+
+# Small delay between messages handled by the same worker.
+# This keeps sending a little slower and more controlled.
+SEND_DELAY_SECONDS = 1.0
 
 TURNSTILE_SECRET_KEY = os.environ.get(
     "TURNSTILE_SECRET_KEY",
@@ -188,9 +169,7 @@ def expand_spintax(text):
         if len(options) < 2:
             return match.group(0)
 
-        return random.choice(
-            options
-        )
+        return random.choice(options)
 
     return SPINTAX_RE.sub(
         replace_match,
@@ -208,38 +187,27 @@ def verify_turnstile(
 ):
     """
     Verify Cloudflare Turnstile.
-
-    Turnstile must be configured in Vercel
-    when protection is enabled.
     """
 
     if not TURNSTILE_SECRET_KEY:
-
         return (
             False,
             "TURNSTILE_SECRET_KEY is not configured."
         )
 
     if not token:
-
         return (
             False,
             "Cloudflare verification is required."
         )
 
     payload = {
-        "secret":
-            TURNSTILE_SECRET_KEY,
-
-        "response":
-            token
+        "secret": TURNSTILE_SECRET_KEY,
+        "response": token
     }
 
     if remote_ip:
-
-        payload["remoteip"] = (
-            remote_ip
-        )
+        payload["remoteip"] = remote_ip
 
     encoded = urllib.parse.urlencode(
         payload
@@ -268,10 +236,7 @@ def verify_turnstile(
                 )
             )
 
-        if result.get(
-            "success"
-        ) is True:
-
+        if result.get("success") is True:
             return (
                 True,
                 None
@@ -301,7 +266,6 @@ def verify_turnstile(
 def login():
 
     if authenticated():
-
         return redirect(
             url_for("home")
         )
@@ -317,9 +281,7 @@ def login():
             )
         )
 
-        configured_password = (
-            LOGIN_PASSWORD
-        )
+        configured_password = LOGIN_PASSWORD
 
         if not configured_password:
 
@@ -379,9 +341,7 @@ def home():
 
     return render_template(
         "index.html",
-        turnstile_site_key=(
-            TURNSTILE_SITE_KEY
-        )
+        turnstile_site_key=TURNSTILE_SITE_KEY
     )
 
 
@@ -400,20 +360,15 @@ def build_email(
     """
     Build a normal MIME email.
 
-    No fake headers or misleading
-    delivery information are added.
+    Standard headers only.
     """
 
-    final_subject = (
-        expand_spintax(
-            subject
-        )
+    final_subject = expand_spintax(
+        subject
     )
 
-    final_body = (
-        expand_spintax(
-            body
-        )
+    final_body = expand_spintax(
+        body
     )
 
     content_type = (
@@ -428,9 +383,7 @@ def build_email(
         "utf-8"
     )
 
-    message["Subject"] = (
-        final_subject
-    )
+    message["Subject"] = final_subject
 
     message["From"] = formataddr(
         (
@@ -439,23 +392,15 @@ def build_email(
         )
     )
 
-    message["To"] = (
-        recipient
+    message["To"] = recipient
+
+    message["Date"] = formatdate(
+        localtime=True
     )
 
-    message["Date"] = (
-        formatdate(
-            localtime=True
-        )
-    )
+    message["Message-ID"] = make_msgid()
 
-    message["Message-ID"] = (
-        make_msgid()
-    )
-
-    message["MIME-Version"] = (
-        "1.0"
-    )
+    message["MIME-Version"] = "1.0"
 
     return message
 
@@ -476,16 +421,13 @@ def smtp_worker(
     """
     One worker owns one SMTP connection.
 
-    This is faster than opening and authenticating
-    Gmail separately for every single recipient.
+    Returns one event per recipient so the main
+    streaming generator can update the live counter.
     """
 
-    sent = []
-    failed = []
+    results = []
 
-    context = (
-        ssl.create_default_context()
-    )
+    context = ssl.create_default_context()
 
     server = None
 
@@ -511,12 +453,19 @@ def smtp_worker(
             app_password
         )
 
-
         # -------------------------------------------------
-        # SEND RECIPIENTS
+        # SEND
         # -------------------------------------------------
 
-        for recipient in recipients:
+        for index, recipient in enumerate(
+            recipients
+        ):
+
+            # Delay before subsequent messages.
+            if index > 0:
+                time.sleep(
+                    SEND_DELAY_SECONDS
+                )
 
             try:
 
@@ -535,51 +484,52 @@ def smtp_worker(
                     message.as_string()
                 )
 
-                sent.append(
-                    recipient
-                )
+                results.append({
+                    "email": recipient,
+                    "result": "sent",
+                    "error": None
+                })
+
+            except smtplib.SMTPException as exc:
+
+                results.append({
+                    "email": recipient,
+                    "result": "failed",
+                    "error": str(exc)
+                })
 
             except Exception as exc:
 
-                failed.append({
-                    "email":
-                        recipient,
-
-                    "error":
-                        str(exc)
+                results.append({
+                    "email": recipient,
+                    "result": "failed",
+                    "error": str(exc)
                 })
 
+    except smtplib.SMTPAuthenticationError:
 
-    except smtplib.SMTPAuthenticationError as exc:
-
-        # If authentication itself fails,
-        # all recipients assigned to this
-        # worker are failed.
+        # Login failure means none of this worker's
+        # recipients could be sent.
 
         for recipient in recipients:
 
-            failed.append({
-                "email":
-                    recipient,
-
+            results.append({
+                "email": recipient,
+                "result": "failed",
                 "error":
                     "Gmail authentication failed. "
                     "Check Gmail and App Password."
             })
 
-
     except Exception as exc:
 
         for recipient in recipients:
 
-            failed.append({
-                "email":
-                    recipient,
-
-                "error":
-                    str(exc)
+            results.append({
+                "email": recipient,
+                "result": "failed",
+                "error": str(exc)
             })
-
 
     finally:
 
@@ -596,11 +546,7 @@ def smtp_worker(
                 except Exception:
                     pass
 
-
-    return {
-        "sent": sent,
-        "failed": failed
-    }
+    return results
 
 
 # =========================================================
@@ -612,21 +558,20 @@ def split_recipients(
     workers
 ):
     """
-    Split recipients into balanced chunks.
+    Balanced distribution.
 
     Example:
 
     25 recipients
     2 workers
 
-    -> 13 + 12
+    Worker 1 -> 13
+    Worker 2 -> 12
     """
 
     chunks = [
         []
-        for _ in range(
-            workers
-        )
+        for _ in range(workers)
     ]
 
     for index, recipient in enumerate(
@@ -656,33 +601,31 @@ def split_recipients(
 )
 def send_batch():
 
-    # -----------------------------------------------------
+    # =====================================================
     # AUTH
-    # -----------------------------------------------------
+    # =====================================================
 
     if not authenticated():
 
         return jsonify({
-            "success":
-                False,
-
+            "success": False,
             "message":
                 "Authentication required."
         }), 401
 
 
-    # -----------------------------------------------------
+    # =====================================================
     # READ JSON
-    # -----------------------------------------------------
+    # =====================================================
 
     data = request.get_json(
         silent=True
     ) or {}
 
 
-    # -----------------------------------------------------
+    # =====================================================
     # INPUTS
-    # -----------------------------------------------------
+    # =====================================================
 
     sender_name = clean_header(
         data.get(
@@ -746,9 +689,7 @@ def send_batch():
     if not sender_name:
 
         return jsonify({
-            "success":
-                False,
-
+            "success": False,
             "message":
                 "Sender Name is required."
         }), 400
@@ -757,9 +698,7 @@ def send_batch():
     if not valid_email(gmail):
 
         return jsonify({
-            "success":
-                False,
-
+            "success": False,
             "message":
                 "Enter a valid Gmail address."
         }), 400
@@ -768,9 +707,7 @@ def send_batch():
     if not app_password:
 
         return jsonify({
-            "success":
-                False,
-
+            "success": False,
             "message":
                 "Google App Password is required."
         }), 400
@@ -779,9 +716,7 @@ def send_batch():
     if not subject:
 
         return jsonify({
-            "success":
-                False,
-
+            "success": False,
             "message":
                 "Email subject is required."
         }), 400
@@ -790,9 +725,7 @@ def send_batch():
     if not body.strip():
 
         return jsonify({
-            "success":
-                False,
-
+            "success": False,
             "message":
                 "Message body is required."
         }), 400
@@ -804,9 +737,7 @@ def send_batch():
     ):
 
         return jsonify({
-            "success":
-                False,
-
+            "success": False,
             "message":
                 "Invalid recipient list."
         }), 400
@@ -826,35 +757,26 @@ def send_batch():
             item
         ).strip().lower()
 
-        if not valid_email(
-            email
-        ):
+        if not valid_email(email):
             continue
 
         if email in seen:
             continue
 
-        seen.add(
-            email
-        )
+        seen.add(email)
 
         clean_recipients.append(
             email
         )
 
-        if len(
-            clean_recipients
-        ) >= MAX_RECIPIENTS:
-
+        if len(clean_recipients) >= MAX_RECIPIENTS:
             break
 
 
     if not clean_recipients:
 
         return jsonify({
-            "success":
-                False,
-
+            "success": False,
             "message":
                 "No valid recipients found."
         }), 400
@@ -875,28 +797,21 @@ def send_batch():
         or request.remote_addr
     )
 
-
-    verified, verify_error = (
-        verify_turnstile(
-            turnstile_token,
-            remote_ip
-        )
+    verified, verify_error = verify_turnstile(
+        turnstile_token,
+        remote_ip
     )
-
 
     if not verified:
 
         return jsonify({
-            "success":
-                False,
-
-            "message":
-                verify_error
+            "success": False,
+            "message": verify_error
         }), 403
 
 
     # =====================================================
-    # STREAMING
+    # STREAMING GENERATOR
     # =====================================================
 
     @stream_with_context
@@ -909,33 +824,23 @@ def send_batch():
         sent_count = 0
         failed_count = 0
 
-
         # -------------------------------------------------
-        # START
+        # START EVENT
         # -------------------------------------------------
 
         yield (
             json.dumps({
-                "type":
-                    "start",
-
-                "total":
-                    total,
-
-                "sent":
-                    0,
-
-                "failed":
-                    0,
-
-                "remaining":
-                    total
+                "type": "start",
+                "total": total,
+                "sent": 0,
+                "failed": 0,
+                "remaining": total
             }) + "\n"
         )
 
 
         # -------------------------------------------------
-        # SPLIT INTO 2 WORKERS
+        # SPLIT INTO EXACTLY 2 WORKERS
         # -------------------------------------------------
 
         chunks = split_recipients(
@@ -944,21 +849,18 @@ def send_batch():
         )
 
 
-        executor = (
-            ThreadPoolExecutor(
-                max_workers=
-                    MAX_PARALLEL_SENDS
-            )
-        )
+        # -------------------------------------------------
+        # THREAD POOL
+        # -------------------------------------------------
 
+        with ThreadPoolExecutor(
+            max_workers=MAX_PARALLEL_SENDS
+        ) as executor:
 
-        futures = {}
-
-
-        try:
+            futures = {}
 
             # ---------------------------------------------
-            # START WORKERS
+            # START BOTH WORKERS
             # ---------------------------------------------
 
             for chunk in chunks:
@@ -977,13 +879,11 @@ def send_batch():
                     chunk
                 )
 
-                futures[
-                    future
-                ] = chunk
+                futures[future] = chunk
 
 
             # ---------------------------------------------
-            # PROCESS WORKER RESULTS
+            # RECEIVE WORKER RESULTS
             # ---------------------------------------------
 
             for future in as_completed(
@@ -992,76 +892,43 @@ def send_batch():
 
                 try:
 
-                    result = (
-                        future.result()
-                    )
-
+                    results = future.result()
 
                     # -------------------------------------
-                    # SENT
+                    # EACH EMAIL GETS A LIVE EVENT
                     # -------------------------------------
 
-                    for email in result[
-                        "sent"
-                    ]:
+                    for result in results:
 
-                        sent_count += 1
+                        if result["result"] == "sent":
 
-                        yield (
-                            json.dumps({
-                                "type":
-                                    "progress",
+                            sent_count += 1
 
-                                "email":
-                                    email,
+                        else:
 
-                                "result":
-                                    "sent",
+                            failed_count += 1
 
-                                "total":
-                                    total,
 
-                                "sent":
-                                    sent_count,
-
-                                "failed":
-                                    failed_count,
-
-                                "remaining":
-                                    total -
-                                    sent_count -
-                                    failed_count
-                            }) + "\n"
+                        remaining = (
+                            total
+                            - sent_count
+                            - failed_count
                         )
 
 
-                    # -------------------------------------
-                    # FAILED
-                    # -------------------------------------
-
-                    for failure in result[
-                        "failed"
-                    ]:
-
-                        failed_count += 1
-
                         yield (
                             json.dumps({
                                 "type":
                                     "progress",
 
                                 "email":
-                                    failure[
-                                        "email"
-                                    ],
+                                    result["email"],
 
                                 "result":
-                                    "failed",
+                                    result["result"],
 
                                 "error":
-                                    failure[
-                                        "error"
-                                    ],
+                                    result["error"],
 
                                 "total":
                                     total,
@@ -1073,18 +940,27 @@ def send_batch():
                                     failed_count,
 
                                 "remaining":
-                                    total -
-                                    sent_count -
-                                    failed_count
+                                    remaining,
+
+                                "percent":
+                                    round(
+                                        (
+                                            (
+                                                sent_count
+                                                + failed_count
+                                            )
+                                            / total
+                                        ) * 100
+                                    )
                             }) + "\n"
                         )
 
 
                 except Exception as exc:
 
-                    # ---------------------------------
-                    # Worker-level failure
-                    # ---------------------------------
+                    # -------------------------------------
+                    # WORKER FAILURE
+                    # -------------------------------------
 
                     chunk = futures[
                         future
@@ -1093,6 +969,12 @@ def send_batch():
                     for email in chunk:
 
                         failed_count += 1
+
+                        remaining = (
+                            total
+                            - sent_count
+                            - failed_count
+                        )
 
                         yield (
                             json.dumps({
@@ -1118,22 +1000,24 @@ def send_batch():
                                     failed_count,
 
                                 "remaining":
-                                    total -
-                                    sent_count -
-                                    failed_count
+                                    remaining,
+
+                                "percent":
+                                    round(
+                                        (
+                                            (
+                                                sent_count
+                                                + failed_count
+                                            )
+                                            / total
+                                        ) * 100
+                                    )
                             }) + "\n"
                         )
 
 
-        finally:
-
-            executor.shutdown(
-                wait=True
-            )
-
-
         # =================================================
-        # COMPLETE
+        # COMPLETE EVENT
         # =================================================
 
         yield (
@@ -1157,7 +1041,10 @@ def send_batch():
                     failed_count,
 
                 "remaining":
-                    0
+                    0,
+
+                "percent":
+                    100
             }) + "\n"
         )
 
@@ -1174,7 +1061,6 @@ def send_batch():
         )
     )
 
-
     response.headers[
         "Cache-Control"
     ] = (
@@ -1183,16 +1069,13 @@ def send_batch():
         "must-revalidate"
     )
 
-
     response.headers[
         "Pragma"
     ] = "no-cache"
 
-
     response.headers[
         "X-Accel-Buffering"
     ] = "no"
-
 
     return response
 
@@ -1217,6 +1100,9 @@ def health():
         "parallel_sends":
             MAX_PARALLEL_SENDS,
 
+        "send_delay_seconds":
+            SEND_DELAY_SECONDS,
+
         "max_recipients":
             MAX_RECIPIENTS,
 
@@ -1226,7 +1112,7 @@ def health():
 
 
 # =========================================================
-# BASIC ERROR HANDLERS
+# BASIC ERROR HANDLER
 # =========================================================
 
 @app.errorhandler(404)
