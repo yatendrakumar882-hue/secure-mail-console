@@ -108,7 +108,7 @@ app.config.update(
 MAX_RECIPIENTS = 25
 
 # Maximum simultaneous SMTP operations.
-MAX_PARALLEL_SENDS = 4
+MAX_PARALLEL_SENDS = 3
 
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 465
