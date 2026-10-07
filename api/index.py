@@ -7,7 +7,7 @@ from flask import (
     url_for,
     session,
     Response,
-    stream_with_context
+    stream_with_context,
 )
 
 import smtplib
@@ -19,62 +19,59 @@ import urllib.request
 import urllib.parse
 import secrets
 import time
+import queue
+import threading
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from email.utils import formataddr, formatdate, make_msgid
 from pathlib import Path
 
 
 # =========================================================
-# PATHS
+# APP
 # =========================================================
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-
-
-# =========================================================
-# FLASK APP
-# =========================================================
 
 app = Flask(
     __name__,
     template_folder=str(BASE_DIR / "templates"),
     static_folder=str(BASE_DIR / "static"),
-    static_url_path="/static"
+    static_url_path="/static",
 )
 
-# Explicit WSGI handler
+# Required by Vercel
 handler = app
 
 
 # =========================================================
-# SECURITY / CONFIG
+# ENVIRONMENT VARIABLES
 # =========================================================
 
 SESSION_SECRET = os.environ.get(
     "SESSION_SECRET",
-    ""
-).strip()
-
-LOGIN_PASSWORD = os.environ.get(
-    "LOGIN_PASSWORD",
-    ""
+    "",
 ).strip()
 
 TURNSTILE_SITE_KEY = os.environ.get(
     "TURNSTILE_SITE_KEY",
-    ""
+    "",
 ).strip()
 
 TURNSTILE_SECRET_KEY = os.environ.get(
     "TURNSTILE_SECRET_KEY",
-    ""
+    "",
+).strip()
+
+LOGIN_PASSWORD = os.environ.get(
+    "LOGIN_PASSWORD",
+    "",
 ).strip()
 
 
-# SESSION_SECRET must exist.
 if not SESSION_SECRET:
     raise RuntimeError(
         "SESSION_SECRET is not configured in Vercel."
@@ -89,15 +86,11 @@ if not LOGIN_PASSWORD:
 app.secret_key = SESSION_SECRET
 
 
-# =========================================================
-# SESSION SECURITY
-# =========================================================
-
 app.config.update(
     SESSION_COOKIE_SECURE=True,
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    PERMANENT_SESSION_LIFETIME=3600
+    PERMANENT_SESSION_LIFETIME=3600,
 )
 
 
@@ -107,19 +100,15 @@ app.config.update(
 
 MAX_RECIPIENTS = 25
 
-# Maximum simultaneous SMTP operations.
+# Two controlled SMTP workers.
+# This is intentionally kept at 2 for stable sending.
 MAX_PARALLEL_SENDS = 2
 
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 465
+SMTP_TIMEOUT = 25
 
-# SMTP connection timeout.
-SMTP_TIMEOUT = 20
-
-# Controlled pacing between submitted emails.
-#
-# This is rate control only.
-# It does NOT bypass spam filters or guarantee Inbox placement.
+# Small pacing delay between messages on the same connection.
 SEND_DELAY_SECONDS = 1.8
 
 
@@ -134,10 +123,6 @@ EMAIL_RE = re.compile(
 
 
 def valid_email(value):
-    """
-    Basic email validation.
-    """
-
     if not isinstance(value, str):
         return False
 
@@ -149,120 +134,121 @@ def valid_email(value):
     if len(value) > 254:
         return False
 
-    return bool(
-        EMAIL_RE.fullmatch(value)
-    )
+    return bool(EMAIL_RE.fullmatch(value))
 
 
 def normalize_email(value):
-    """
-    Normalize recipient address for
-    duplicate detection.
-    """
+    return str(value or "").strip().lower()
 
-    return str(
-        value or ""
-    ).strip().lower()
-
-
-# =========================================================
-# AUTHENTICATION
-# =========================================================
 
 def authenticated():
-    return (
-        session.get("authenticated") is True
-    )
+    return session.get("authenticated") is True
 
-
-# =========================================================
-# GLOBAL LOGIN PROTECTION
-# =========================================================
-
-@app.before_request
-def require_login():
-
-    endpoint = request.endpoint
-
-    # Public routes
-    if endpoint in {
-        "login",
-        "health",
-        "static"
-    }:
-        return None
-
-    # Already authenticated
-    if authenticated():
-        return None
-
-    # API / sending request
-    if (
-        request.path.startswith("/api/")
-        or request.path == "/send-batch"
-    ):
-        return jsonify({
-            "success": False,
-            "message": "Authentication required.",
-            "login_required": True
-        }), 401
-
-    # Everything else -> login
-    return redirect(
-        url_for("login")
-    )
-
-
-# =========================================================
-# SAFE HEADER CLEANING
-# =========================================================
 
 def clean_header(value, max_length=998):
-    """
-    Prevent CRLF/header injection.
+    value = str(value or "")
+    value = value.replace("\r", " ")
+    value = value.replace("\n", " ")
+    return value.strip()[:max_length]
 
-    Only normal header-safe text is allowed.
-    """
 
-    value = str(
-        value or ""
+# =========================================================
+# PERSONALIZATION
+# =========================================================
+
+def personalize_template(template, recipient):
+    result = str(template or "")
+
+    values = {
+        "{{hi}}": str(recipient.get("hi", "") or ""),
+        "{{hello}}": str(recipient.get("hello", "") or ""),
+        "{{thanks}}": str(recipient.get("thanks", "") or ""),
+        "{{name}}": str(recipient.get("name", "") or ""),
+        "{{email}}": str(recipient.get("email", "") or ""),
+        "{{ref_code}}": str(
+            recipient.get("ref_code", "") or ""
+        ),
+    }
+
+    for placeholder, value in values.items():
+        result = result.replace(
+            placeholder,
+            value,
+        )
+
+    return result
+
+
+# =========================================================
+# HTML TO PLAIN TEXT
+# =========================================================
+
+def html_to_plain_text(html):
+    text = str(html or "")
+
+    text = re.sub(
+        r"<br\s*/?>",
+        "\n",
+        text,
+        flags=re.I,
     )
 
-    value = (
-        value
-        .replace("\r", " ")
-        .replace("\n", " ")
-        .strip()
+    text = re.sub(
+        r"</p\s*>",
+        "\n\n",
+        text,
+        flags=re.I,
     )
 
-    return value[:max_length]
+    text = re.sub(
+        r"</div\s*>",
+        "\n",
+        text,
+        flags=re.I,
+    )
+
+    text = re.sub(
+        r"<[^>]+>",
+        "",
+        text,
+    )
+
+    replacements = {
+        "&nbsp;": " ",
+        "&amp;": "&",
+        "&lt;": "<",
+        "&gt;": ">",
+        "&quot;": '"',
+        "&#39;": "'",
+    }
+
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    return text.strip()
 
 
 # =========================================================
 # TURNSTILE
 # =========================================================
 
-def verify_turnstile(
-    token,
-    remote_ip=None
-):
+def verify_turnstile(token, remote_ip=None):
 
-    # Turnstile must be configured for sending.
     if not TURNSTILE_SECRET_KEY:
         return (
             False,
-            "TURNSTILE_SECRET_KEY is not configured."
+            "TURNSTILE_SECRET_KEY is not configured.",
         )
 
     if not token:
         return (
             False,
-            "Cloudflare verification is required."
+            "Cloudflare verification is required.",
         )
 
     payload = {
         "secret": TURNSTILE_SECRET_KEY,
-        "response": token
+        "response": token,
     }
 
     if remote_ip:
@@ -279,20 +265,17 @@ def verify_turnstile(
             "Content-Type":
                 "application/x-www-form-urlencoded"
         },
-        method="POST"
+        method="POST",
     )
 
     try:
-
         with urllib.request.urlopen(
             req,
-            timeout=10
+            timeout=10,
         ) as response:
 
             result = json.loads(
-                response
-                .read()
-                .decode("utf-8")
+                response.read().decode("utf-8")
             )
 
         if result.get("success") is True:
@@ -300,14 +283,13 @@ def verify_turnstile(
 
         return (
             False,
-            "Cloudflare verification failed."
+            "Cloudflare verification failed.",
         )
 
     except Exception:
-
         return (
             False,
-            "Unable to verify Cloudflare."
+            "Unable to verify Cloudflare.",
         )
 
 
@@ -315,83 +297,42 @@ def verify_turnstile(
 # LOGIN
 # =========================================================
 
-@app.route(
-    "/login",
-    methods=["GET", "POST"]
-)
+@app.route("/login", methods=["GET", "POST"])
 def login():
 
-    # Already logged in.
     if authenticated():
-        return redirect(
-            url_for("home")
-        )
-
-
-    # -----------------------------------------------------
-    # GET
-    # -----------------------------------------------------
+        return redirect(url_for("home"))
 
     if request.method == "GET":
-
         return render_template(
             "login.html",
             error=None,
-            turnstile_site_key=TURNSTILE_SITE_KEY
+            turnstile_site_key=TURNSTILE_SITE_KEY,
         )
-
-
-    # -----------------------------------------------------
-    # POST
-    # -----------------------------------------------------
 
     password = str(
         request.form.get(
             "password",
-            ""
+            "",
         )
     )
 
-
-    # Never allow empty login password.
-    if not LOGIN_PASSWORD:
-
-        return render_template(
-            "login.html",
-            error=(
-                "LOGIN_PASSWORD is not configured "
-                "in Vercel."
-            ),
-            turnstile_site_key=TURNSTILE_SITE_KEY
-        ), 500
-
-
-    # Constant-time password comparison.
     if not secrets.compare_digest(
         password,
-        LOGIN_PASSWORD
+        LOGIN_PASSWORD,
     ):
 
         return render_template(
             "login.html",
             error="Incorrect password.",
-            turnstile_site_key=TURNSTILE_SITE_KEY
+            turnstile_site_key=TURNSTILE_SITE_KEY,
         ), 401
 
-
-    # -----------------------------------------------------
-    # Successful login
-    # -----------------------------------------------------
-
     session.clear()
-
     session.permanent = True
-
     session["authenticated"] = True
 
-    return redirect(
-        url_for("home")
-    )
+    return redirect(url_for("home"))
 
 
 # =========================================================
@@ -400,7 +341,7 @@ def login():
 
 @app.route(
     "/logout",
-    methods=["GET", "POST"]
+    methods=["GET", "POST"],
 )
 def logout():
 
@@ -418,21 +359,19 @@ def logout():
 @app.route("/")
 def home():
 
-    # Defense-in-depth.
     if not authenticated():
-
         return redirect(
             url_for("login")
         )
 
     return render_template(
         "index.html",
-        turnstile_site_key=TURNSTILE_SITE_KEY
+        turnstile_site_key=TURNSTILE_SITE_KEY,
     )
 
 
 # =========================================================
-# BUILD EMAIL MESSAGE
+# BUILD EMAIL
 # =========================================================
 
 def build_message(
@@ -441,74 +380,73 @@ def build_message(
     subject,
     body,
     is_html,
-    recipient
+    recipient,
 ):
-    """
-    Builds a standard authenticated email.
 
-    Important:
-    - No forged Received headers
-    - No fake Return-Path
-    - No custom anti-filter headers
-    - No random/spintax variation
-    """
+    gmail = gmail.strip().lower()
+    recipient = recipient.strip()
 
-    # -----------------------------------------------------
-    # Keep content consistent.
-    #
-    # Randomized wording is intentionally not used.
-    # -----------------------------------------------------
-
-    final_subject = clean_header(
-        subject
+    sender_name = clean_header(
+        sender_name,
+        200,
     )
 
-    final_body = str(
+    subject = clean_header(
+        subject,
+        998,
+    )
+
+    body = str(
         body or ""
     ).replace(
         "\x00",
-        ""
+        "",
     )
 
+    if is_html:
 
-    # -----------------------------------------------------
-    # MIME type
-    # -----------------------------------------------------
+        message = MIMEMultipart(
+            "alternative"
+        )
 
-    content_type = (
-        "html"
-        if is_html
-        else "plain"
-    )
+        plain_body = html_to_plain_text(
+            body
+        )
 
+        message.attach(
+            MIMEText(
+                plain_body,
+                "plain",
+                "utf-8",
+            )
+        )
 
-    message = MIMEText(
-        final_body,
-        content_type,
-        "utf-8"
-    )
+        message.attach(
+            MIMEText(
+                body,
+                "html",
+                "utf-8",
+            )
+        )
 
+    else:
 
-    # -----------------------------------------------------
-    # Standard email headers
-    # -----------------------------------------------------
+        message = MIMEText(
+            body,
+            "plain",
+            "utf-8",
+        )
 
-    message["Subject"] = final_subject
+    message["Subject"] = subject
 
     message["From"] = formataddr(
         (
-            clean_header(
-                sender_name,
-                max_length=200
-            ),
-            gmail
+            sender_name,
+            gmail,
         )
     )
 
-    message["To"] = clean_header(
-        recipient,
-        max_length=254
-    )
+    message["To"] = recipient
 
     message["Date"] = formatdate(
         localtime=True
@@ -518,94 +456,376 @@ def build_message(
 
     message["MIME-Version"] = "1.0"
 
-
     return message
 
 
 # =========================================================
-# SEND ONE EMAIL
+# NORMALIZE RECIPIENT
 # =========================================================
 
-def send_one_email(
+def normalize_recipient(item):
+
+    if isinstance(item, str):
+
+        return {
+            "email": normalize_email(item),
+            "name": "",
+            "hi": "",
+            "hello": "",
+            "thanks": "",
+            "ref_code": "",
+        }
+
+    if not isinstance(item, dict):
+        return None
+
+    email = normalize_email(
+        item.get("email", "")
+    )
+
+    name = str(
+        item.get("name", "")
+        or ""
+    ).strip()
+
+    hi = str(
+        item.get("hi", "")
+        or ""
+    ).strip()
+
+    hello = str(
+        item.get("hello", "")
+        or ""
+    ).strip()
+
+    thanks = str(
+        item.get("thanks", "")
+        or ""
+    ).strip()
+
+    ref_code = str(
+        item.get("ref_code", "")
+        or ""
+    ).strip()
+
+    name = (
+        name
+        .replace("\r", " ")
+        .replace("\n", " ")
+    )
+
+    hi = (
+        hi
+        .replace("\r", " ")
+        .replace("\n", " ")
+    )
+
+    hello = (
+        hello
+        .replace("\r", " ")
+        .replace("\n", " ")
+    )
+
+    thanks = (
+        thanks
+        .replace("\r", " ")
+        .replace("\n", " ")
+    )
+
+    ref_code = (
+        ref_code
+        .replace("\r", " ")
+        .replace("\n", " ")
+    )
+
+    return {
+        "email": email,
+        "name": name[:200],
+        "hi": hi[:100],
+        "hello": hello[:100],
+        "thanks": thanks[:100],
+        "ref_code": ref_code[:200],
+    }
+
+
+# =========================================================
+# CREATE SMTP CONNECTION
+# =========================================================
+
+def create_smtp_connection(
+    gmail,
+    app_password,
+):
+
+    clean_app_password = re.sub(
+        r"\s+",
+        "",
+        str(app_password or ""),
+    )
+
+    context = ssl.create_default_context()
+
+    server = smtplib.SMTP_SSL(
+        SMTP_HOST,
+        SMTP_PORT,
+        context=context,
+        timeout=SMTP_TIMEOUT,
+    )
+
+    server.ehlo()
+
+    server.login(
+        gmail,
+        clean_app_password,
+    )
+
+    return server
+
+
+# =========================================================
+# SEND RECIPIENT
+# =========================================================
+
+def send_recipient(
+    server,
+    gmail,
+    sender_name,
+    subject,
+    body,
+    is_html,
+    recipient_data,
+):
+
+    recipient = normalize_email(
+        recipient_data.get(
+            "email",
+            "",
+        )
+    )
+
+    personalized_subject = personalize_template(
+        subject,
+        recipient_data,
+    )
+
+    personalized_body = personalize_template(
+        body,
+        recipient_data,
+    )
+
+    message = build_message(
+        gmail=gmail,
+        sender_name=sender_name,
+        subject=personalized_subject,
+        body=personalized_body,
+        is_html=is_html,
+        recipient=recipient,
+    )
+
+    refused = server.sendmail(
+        gmail,
+        [recipient],
+        message.as_string(),
+    )
+
+    if refused:
+
+        return {
+            "email": recipient,
+            "result": "failed",
+            "error": "SMTP refused recipient.",
+        }
+
+    return {
+        "email": recipient,
+        "result": "sent",
+    }
+
+
+# =========================================================
+# SMTP WORKER
+# =========================================================
+
+def smtp_worker(
+    worker_items,
     gmail,
     app_password,
     sender_name,
     subject,
     body,
     is_html,
-    recipient
+    result_queue,
+    stop_event,
 ):
-    """
-    Sends one email through authenticated Gmail SMTP.
 
-    A separate SMTP connection is used for each message.
-    This keeps failures isolated between recipients.
-    """
+    server = None
 
-    # -----------------------------------------------------
-    # Small controlled delay.
-    #
-    # This is NOT a spam-filter bypass.
-    # -----------------------------------------------------
+    try:
 
-    time.sleep(
-        SEND_DELAY_SECONDS
-    )
-
-
-    # -----------------------------------------------------
-    # TLS / SSL context
-    # -----------------------------------------------------
-
-    context = ssl.create_default_context()
-
-
-    # -----------------------------------------------------
-    # Build clean message
-    # -----------------------------------------------------
-
-    message = build_message(
-        gmail=gmail,
-        sender_name=sender_name,
-        subject=subject,
-        body=body,
-        is_html=is_html,
-        recipient=recipient
-    )
-
-
-    # -----------------------------------------------------
-    # SMTP connection
-    # -----------------------------------------------------
-
-    with smtplib.SMTP_SSL(
-        SMTP_HOST,
-        SMTP_PORT,
-        context=context,
-        timeout=SMTP_TIMEOUT
-    ) as server:
-
-        # Explicit EHLO.
-        server.ehlo()
-
-        # Gmail authentication.
-        server.login(
+        # One authenticated connection for this worker.
+        server = create_smtp_connection(
             gmail,
-            app_password
+            app_password,
         )
 
-        # Envelope sender is the authenticated Gmail account.
-        server.sendmail(
-            gmail,
-            [recipient],
-            message.as_string()
-        )
+        for index, recipient_data in enumerate(
+            worker_items
+        ):
+
+            if stop_event.is_set():
+                break
+
+            recipient = recipient_data["email"]
+
+            try:
+
+                result = send_recipient(
+                    server=server,
+                    gmail=gmail,
+                    sender_name=sender_name,
+                    subject=subject,
+                    body=body,
+                    is_html=is_html,
+                    recipient_data=recipient_data,
+                )
+
+                result_queue.put(result)
+
+            except smtplib.SMTPAuthenticationError:
+
+                result_queue.put({
+                    "email": recipient,
+                    "result": "failed",
+                    "error":
+                        "Gmail authentication failed. Check Gmail and App Password.",
+                })
+
+                # Authentication failure affects this connection,
+                # so do not continue attempting sends on it.
+                break
+
+            except smtplib.SMTPRecipientsRefused:
+
+                result_queue.put({
+                    "email": recipient,
+                    "result": "failed",
+                    "error":
+                        "SMTP recipient was refused.",
+                })
+
+            except (
+                smtplib.SMTPConnectError,
+                smtplib.SMTPServerDisconnected,
+                TimeoutError,
+                ConnectionError,
+            ):
+
+                result_queue.put({
+                    "email": recipient,
+                    "result": "failed",
+                    "error":
+                        "SMTP connection or timeout error.",
+                })
+
+                break
+
+            except smtplib.SMTPException as exc:
+
+                result_queue.put({
+                    "email": recipient,
+                    "result": "failed",
+                    "error": str(exc)[:500],
+                })
+
+            except Exception as exc:
+
+                result_queue.put({
+                    "email": recipient,
+                    "result": "failed",
+                    "error": str(exc)[:500],
+                })
+
+            # Pace messages on the same SMTP connection.
+            if (
+                index < len(worker_items) - 1
+                and SEND_DELAY_SECONDS > 0
+            ):
+
+                time.sleep(
+                    SEND_DELAY_SECONDS
+                )
+
+    except smtplib.SMTPAuthenticationError:
+
+        # If login itself fails, mark the entire
+        # unprocessed worker queue as failed.
+        for recipient_data in worker_items:
+
+            result_queue.put({
+                "email":
+                    recipient_data["email"],
+                "result":
+                    "failed",
+                "error":
+                    "Gmail authentication failed. Check Gmail and App Password.",
+            })
+
+    except Exception as exc:
+
+        for recipient_data in worker_items:
+
+            result_queue.put({
+                "email":
+                    recipient_data["email"],
+                "result":
+                    "failed",
+                "error":
+                    str(exc)[:500],
+            })
+
+    finally:
+
+        if server is not None:
+
+            try:
+                server.quit()
+            except Exception:
+                try:
+                    server.close()
+                except Exception:
+                    pass
 
 
-    return {
-        "email": recipient,
-        "result": "sent"
-    }
+# =========================================================
+# SPLIT WORK
+# =========================================================
+
+def split_into_workers(items, workers):
+
+    if not items:
+        return []
+
+    workers = max(
+        1,
+        min(
+            workers,
+            len(items),
+        ),
+    )
+
+    chunks = [
+        []
+        for _ in range(workers)
+    ]
+
+    for index, item in enumerate(items):
+        chunks[index % workers].append(item)
+
+    return [
+        chunk
+        for chunk in chunks
+        if chunk
+    ]
 
 
 # =========================================================
@@ -614,26 +834,19 @@ def send_one_email(
 
 @app.route(
     "/send-batch",
-    methods=["POST"]
+    methods=["POST"],
 )
 def send_batch():
-
-    # -----------------------------------------------------
-    # Defense-in-depth authentication
-    # -----------------------------------------------------
 
     if not authenticated():
 
         return jsonify({
             "success": False,
-            "message": "Authentication required.",
-            "login_required": True
+            "message":
+                "Authentication required.",
+            "login_required":
+                True,
         }), 401
-
-
-    # -----------------------------------------------------
-    # JSON request
-    # -----------------------------------------------------
 
     data = request.get_json(
         silent=True
@@ -641,76 +854,71 @@ def send_batch():
 
     if not isinstance(
         data,
-        dict
+        dict,
     ):
 
         return jsonify({
             "success": False,
-            "message": "Invalid JSON request."
+            "message":
+                "Invalid JSON request.",
         }), 400
-
-
-    # =====================================================
-    # INPUTS
-    # =====================================================
 
     sender_name = clean_header(
         data.get(
             "sender_name",
-            ""
+            "",
         ),
-        max_length=200
+        200,
     )
 
     gmail = clean_header(
         data.get(
             "gmail",
-            ""
+            "",
         ),
-        max_length=254
+        254,
     )
 
     app_password = str(
         data.get(
             "app_password",
-            ""
+            "",
         )
     ).strip()
 
     subject = clean_header(
         data.get(
             "subject",
-            ""
+            "",
         ),
-        max_length=998
+        998,
     )
 
     body = str(
         data.get(
             "body",
-            ""
+            "",
         )
     )
 
     is_html = (
         data.get(
             "is_html",
-            False
+            False,
         ) is True
     )
 
     recipients = data.get(
         "recipients",
-        []
+        [],
     )
 
     turnstile_token = str(
         data.get(
             "turnstile_token",
-            ""
+            "",
         )
     ).strip()
-
 
     # =====================================================
     # VALIDATION
@@ -721,20 +929,17 @@ def send_batch():
         return jsonify({
             "success": False,
             "message":
-                "Sender Name is required."
+                "Sender Name is required.",
         }), 400
-
 
     if not valid_email(gmail):
 
         return jsonify({
             "success": False,
             "message":
-                "Enter a valid Gmail address."
+                "Enter a valid Gmail address.",
         }), 400
 
-
-    # Gmail SMTP should use Gmail sender.
     if not gmail.lower().endswith(
         "@gmail.com"
     ):
@@ -742,77 +947,71 @@ def send_batch():
         return jsonify({
             "success": False,
             "message":
-                "Please use a Gmail address with Gmail SMTP."
+                "Please use a Gmail address with Gmail SMTP.",
         }), 400
-
 
     if not app_password:
 
         return jsonify({
             "success": False,
             "message":
-                "Google App Password is required."
+                "Google App Password is required.",
         }), 400
-
 
     if not subject:
 
         return jsonify({
             "success": False,
             "message":
-                "Email subject is required."
+                "Email subject is required.",
         }), 400
-
 
     if not body.strip():
 
         return jsonify({
             "success": False,
             "message":
-                "Message body is required."
+                "Message body is required.",
         }), 400
 
-
-    # Reasonable body limit.
     if len(body) > 100_000:
 
         return jsonify({
             "success": False,
             "message":
-                "Message body is too large."
+                "Message body is too large.",
         }), 400
-
 
     if not isinstance(
         recipients,
-        list
+        list,
     ):
 
         return jsonify({
             "success": False,
             "message":
-                "Invalid recipient list."
+                "Invalid recipient list.",
         }), 400
 
-
     # =====================================================
-    # CLEAN + DEDUPLICATE RECIPIENTS
+    # RECIPIENT CLEANUP
     # =====================================================
 
     clean_recipients = []
-
     seen = set()
-
 
     for item in recipients:
 
-        email = normalize_email(
+        recipient = normalize_recipient(
             item
         )
 
-        if not valid_email(
-            email
-        ):
+        if not recipient:
+            continue
+
+        email = recipient["email"]
+
+        if not valid_email(email):
             continue
 
         if email in seen:
@@ -821,24 +1020,20 @@ def send_batch():
         seen.add(email)
 
         clean_recipients.append(
-            email
+            recipient
         )
 
-
-    # Hard limit.
     clean_recipients = clean_recipients[
         :MAX_RECIPIENTS
     ]
-
 
     if not clean_recipients:
 
         return jsonify({
             "success": False,
             "message":
-                "No valid recipients found."
+                "No valid recipients found.",
         }), 400
-
 
     # =====================================================
     # TURNSTILE
@@ -860,20 +1055,17 @@ def send_batch():
 
         remote_ip = request.remote_addr
 
-
     verified, verify_error = verify_turnstile(
         turnstile_token,
-        remote_ip
+        remote_ip,
     )
-
 
     if not verified:
 
         return jsonify({
             "success": False,
-            "message": verify_error
+            "message": verify_error,
         }), 403
-
 
     # =====================================================
     # STREAMING GENERATOR
@@ -889,10 +1081,14 @@ def send_batch():
         sent_count = 0
         failed_count = 0
 
+        result_queue = queue.Queue()
 
-        # -------------------------------------------------
-        # Initial event
-        # -------------------------------------------------
+        stop_event = threading.Event()
+
+        chunks = split_into_workers(
+            clean_recipients,
+            MAX_PARALLEL_SENDS,
+        )
 
         yield (
             json.dumps(
@@ -901,425 +1097,215 @@ def send_batch():
                     "total": total,
                     "sent": 0,
                     "failed": 0,
-                    "remaining": total
+                    "remaining": total,
+                    "parallel":
+                        len(chunks),
+                    "delay":
+                        SEND_DELAY_SECONDS,
                 },
-                ensure_ascii=False
+                ensure_ascii=False,
             )
             + "\n"
         )
 
-
-        # -------------------------------------------------
-        # Maximum 2 simultaneous sends.
-        # -------------------------------------------------
-
         executor = ThreadPoolExecutor(
-            max_workers=MAX_PARALLEL_SENDS
+            max_workers=len(chunks)
         )
 
-
-        future_map = {}
-
+        futures = []
 
         try:
 
-            # -------------------------------------------------
-            # Submit jobs.
-            #
-            # ThreadPoolExecutor itself limits actual
-            # simultaneous execution to 2.
-            # -------------------------------------------------
-
-            for recipient in clean_recipients:
+            for chunk in chunks:
 
                 future = executor.submit(
-                    send_one_email,
+                    smtp_worker,
+                    chunk,
                     gmail,
                     app_password,
                     sender_name,
                     subject,
                     body,
                     is_html,
-                    recipient
+                    result_queue,
+                    stop_event,
                 )
 
-                future_map[
-                    future
-                ] = recipient
+                futures.append(future)
 
+            processed = 0
 
-            # -------------------------------------------------
-            # Process completed messages immediately.
-            # -------------------------------------------------
-
-            for future in as_completed(
-                future_map
-            ):
-
-                recipient = future_map[
-                    future
-                ]
-
+            while processed < total:
 
                 try:
 
-                    result = future.result()
+                    result = result_queue.get(
+                        timeout=0.5
+                    )
 
+                except queue.Empty:
 
-                    if result.get(
-                        "result"
-                    ) == "sent":
+                    # If every worker has stopped but
+                    # the queue is unexpectedly empty,
+                    # prevent an infinite wait.
+                    if all(
+                        future.done()
+                        for future in futures
+                    ):
+                        break
 
-                        sent_count += 1
+                    continue
 
+                processed += 1
 
-                        yield (
-                            json.dumps(
-                                {
-                                    "type":
-                                        "progress",
+                recipient = result.get(
+                    "email",
+                    "",
+                )
 
-                                    "email":
-                                        recipient,
+                if result.get("result") == "sent":
 
-                                    "result":
-                                        "sent",
+                    sent_count += 1
 
-                                    "total":
-                                        total,
+                    event = {
+                        "type":
+                            "progress",
+                        "email":
+                            recipient,
+                        "result":
+                            "sent",
+                        "total":
+                            total,
+                        "sent":
+                            sent_count,
+                        "failed":
+                            failed_count,
+                        "remaining":
+                            total
+                            - sent_count
+                            - failed_count,
+                    }
 
-                                    "sent":
-                                        sent_count,
-
-                                    "failed":
-                                        failed_count,
-
-                                    "remaining":
-                                        total
-                                        - sent_count
-                                        - failed_count
-                                },
-                                ensure_ascii=False
-                            )
-                            + "\n"
-                        )
-
-
-                except smtplib.SMTPAuthenticationError:
+                else:
 
                     failed_count += 1
 
+                    event = {
+                        "type":
+                            "progress",
+                        "email":
+                            recipient,
+                        "result":
+                            "failed",
+                        "error":
+                            result.get(
+                                "error",
+                                "SMTP delivery failed.",
+                            ),
+                        "total":
+                            total,
+                        "sent":
+                            sent_count,
+                        "failed":
+                            failed_count,
+                        "remaining":
+                            total
+                            - sent_count
+                            - failed_count,
+                    }
 
-                    yield (
-                        json.dumps(
-                            {
-                                "type":
-                                    "progress",
-
-                                "email":
-                                    recipient,
-
-                                "result":
-                                    "failed",
-
-                                "error":
-                                    "Gmail authentication failed. Check Gmail address and App Password.",
-
-                                "total":
-                                    total,
-
-                                "sent":
-                                    sent_count,
-
-                                "failed":
-                                    failed_count,
-
-                                "remaining":
-                                    total
-                                    - sent_count
-                                    - failed_count
-                            },
-                            ensure_ascii=False
-                        )
-                        + "\n"
+                yield (
+                    json.dumps(
+                        event,
+                        ensure_ascii=False,
                     )
-
-
-                except smtplib.SMTPRecipientsRefused:
-
-                    failed_count += 1
-
-
-                    yield (
-                        json.dumps(
-                            {
-                                "type":
-                                    "progress",
-
-                                "email":
-                                    recipient,
-
-                                "result":
-                                    "failed",
-
-                                "error":
-                                    "Recipient was refused by Gmail SMTP.",
-
-                                "total":
-                                    total,
-
-                                "sent":
-                                    sent_count,
-
-                                "failed":
-                                    failed_count,
-
-                                "remaining":
-                                    total
-                                    - sent_count
-                                    - failed_count
-                            },
-                            ensure_ascii=False
-                        )
-                        + "\n"
-                    )
-
-
-                except (
-                    smtplib.SMTPConnectError,
-                    smtplib.SMTPServerDisconnected,
-                    TimeoutError,
-                    ConnectionError
-                ) as exc:
-
-                    failed_count += 1
-
-
-                    error_text = str(
-                        exc
-                    ).strip()
-
-
-                    if not error_text:
-                        error_text = (
-                            "SMTP connection or "
-                            "network timeout."
-                        )
-
-
-                    yield (
-                        json.dumps(
-                            {
-                                "type":
-                                    "progress",
-
-                                "email":
-                                    recipient,
-
-                                "result":
-                                    "failed",
-
-                                "error":
-                                    error_text[:250],
-
-                                "total":
-                                    total,
-
-                                "sent":
-                                    sent_count,
-
-                                "failed":
-                                    failed_count,
-
-                                "remaining":
-                                    total
-                                    - sent_count
-                                    - failed_count
-                            },
-                            ensure_ascii=False
-                        )
-                        + "\n"
-                    )
-
-
-                except smtplib.SMTPException as exc:
-
-                    failed_count += 1
-
-
-                    error_text = str(
-                        exc
-                    ).strip()
-
-
-                    if not error_text:
-                        error_text = (
-                            "SMTP error while "
-                            "sending."
-                        )
-
-
-                    yield (
-                        json.dumps(
-                            {
-                                "type":
-                                    "progress",
-
-                                "email":
-                                    recipient,
-
-                                "result":
-                                    "failed",
-
-                                "error":
-                                    error_text[:250],
-
-                                "total":
-                                    total,
-
-                                "sent":
-                                    sent_count,
-
-                                "failed":
-                                    failed_count,
-
-                                "remaining":
-                                    total
-                                    - sent_count
-                                    - failed_count
-                            },
-                            ensure_ascii=False
-                        )
-                        + "\n"
-                    )
-
-
-                except Exception as exc:
-
-                    failed_count += 1
-
-
-                    error_text = str(
-                        exc
-                    ).strip()
-
-
-                    if not error_text:
-                        error_text = (
-                            "Unexpected error "
-                            "while sending."
-                        )
-
-
-                    yield (
-                        json.dumps(
-                            {
-                                "type":
-                                    "progress",
-
-                                "email":
-                                    recipient,
-
-                                "result":
-                                    "failed",
-
-                                "error":
-                                    error_text[:250],
-
-                                "total":
-                                    total,
-
-                                "sent":
-                                    sent_count,
-
-                                "failed":
-                                    failed_count,
-
-                                "remaining":
-                                    total
-                                    - sent_count
-                                    - failed_count
-                            },
-                            ensure_ascii=False
-                        )
-                        + "\n"
-                    )
-
+                    + "\n"
+                )
 
         finally:
+
+            stop_event.set()
 
             executor.shutdown(
                 wait=True
             )
 
+        # Any worker failure that somehow left
+        # recipients unreported is accounted for.
+        remaining_unreported = (
+            total
+            - sent_count
+            - failed_count
+        )
 
-        # =================================================
-        # FINAL EVENT
-        # =================================================
+        if remaining_unreported > 0:
+
+            failed_count += (
+                remaining_unreported
+            )
 
         yield (
             json.dumps(
                 {
                     "type":
                         "complete",
-
                     "success":
-                        True,
-
+                        failed_count == 0,
                     "message":
                         "Sending completed.",
-
                     "total":
                         total,
-
                     "sent":
                         sent_count,
-
                     "failed":
                         failed_count,
-
                     "remaining":
                         total
                         - sent_count
-                        - failed_count
+                        - failed_count,
                 },
-                ensure_ascii=False
+                ensure_ascii=False,
             )
             + "\n"
         )
 
-
     # =====================================================
-    # STREAM RESPONSE
+    # RESPONSE
     # =====================================================
 
     response = Response(
         generate(),
         content_type=(
-            "application/x-ndjson; charset=utf-8"
-        )
+            "application/x-ndjson; "
+            "charset=utf-8"
+        ),
     )
 
-
-    # -----------------------------------------------------
-    # Prevent caching/buffering where supported.
-    # -----------------------------------------------------
-
-    response.headers["Cache-Control"] = (
-        "no-cache, no-store, must-revalidate, "
-        "no-transform, max-age=0"
+    response.headers[
+        "Cache-Control"
+    ] = (
+        "no-cache, "
+        "no-store, "
+        "must-revalidate, "
+        "no-transform, "
+        "max-age=0"
     )
 
-    response.headers["Pragma"] = "no-cache"
+    response.headers[
+        "Pragma"
+    ] = "no-cache"
 
-    response.headers["Expires"] = "0"
+    response.headers[
+        "Expires"
+    ] = "0"
 
-    response.headers["X-Accel-Buffering"] = "no"
+    response.headers[
+        "X-Accel-Buffering"
+    ] = "no"
 
-    response.headers["X-Content-Type-Options"] = (
-        "nosniff"
-    )
-
+    response.headers[
+        "X-Content-Type-Options"
+    ] = "nosniff"
 
     return response
 
@@ -1332,18 +1318,28 @@ def send_batch():
 def health():
 
     return jsonify({
-        "status": "ok",
-        "service": "YATENDRA Mail Console",
-        "mailer": "Gmail SMTP",
-        "content_variation": False,
+        "status":
+            "ok",
+        "service":
+            "YATENDRA Mail Console",
+        "mailer":
+            "Gmail SMTP",
         "parallel_sends":
             MAX_PARALLEL_SENDS,
         "send_delay":
             SEND_DELAY_SECONDS,
         "max_recipients":
             MAX_RECIPIENTS,
+        "placeholders": [
+            "{{hi}}",
+            "{{hello}}",
+            "{{thanks}}",
+            "{{name}}",
+            "{{email}}",
+            "{{ref_code}}",
+        ],
         "authenticated":
-            authenticated()
+            authenticated(),
     })
 
 
@@ -1356,5 +1352,5 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=5000,
-        debug=False
+        debug=False,
     )
