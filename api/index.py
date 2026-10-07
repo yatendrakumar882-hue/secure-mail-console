@@ -101,8 +101,8 @@ app.config.update(
 MAX_RECIPIENTS = 25
 
 # Two controlled SMTP workers.
-# This is intentionally kept at 2 for stable sending.
-MAX_PARALLEL_SENDS = 2
+# This is intentionally kept at 3 for stable sending.
+MAX_PARALLEL_SENDS = 3
 
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 465
