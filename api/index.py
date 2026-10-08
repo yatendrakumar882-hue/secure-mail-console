@@ -98,11 +98,11 @@ MAX_PARALLEL_SENDS = 2
 
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 465
-SMTP_TIMEOUT = 25
+SMTP_TIMEOUT = 30
 
 # Each worker waits before its SMTP transaction.
 # With two workers this keeps traffic paced instead of bursting.
-SEND_DELAY_SECONDS = 1.8
+SEND_DELAY_SECONDS = 2.5
 
 
 # =========================================================
@@ -187,6 +187,8 @@ def html_to_plain_text(html):
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
     text = re.sub(r"</p\s*>", "\n\n", text, flags=re.I)
     text = re.sub(r"</div\s*>", "\n", text, flags=re.I)
+    text = re.sub(r"<script\b[^>]*>.*?</script>", "", text, flags=re.I | re.S)
+    text = re.sub(r"<style\b[^>]*>.*?</style>", "", text, flags=re.I | re.S)
     text = re.sub(r"<[^>]+>", "", text)
 
     replacements = {
@@ -332,7 +334,7 @@ def build_message(
     recipient = normalize_email(recipient)
 
     sender_name = clean_header(sender_name, 200)
-    subject = clean_header(subject, 998)
+    subject = clean_header(subject, 200)
 
     body = str(body or "").replace("\x00", "")
 
@@ -371,7 +373,9 @@ def build_message(
         (sender_name, gmail)
     )
     message["To"] = recipient
-    message["Date"] = formatdate(localtime=True)
+    # Standard RFC 5322 Date + a fresh Message-ID for every recipient.
+    # Do not add fake Received/Return-Path/X-Mailer headers.
+    message["Date"] = formatdate(localtime=False, usegmt=True)
     message["Message-ID"] = make_msgid(
         domain=gmail.split("@", 1)[1]
     )
@@ -586,7 +590,7 @@ def send_batch():
 
     subject = clean_header(
         data.get("subject", ""),
-        998,
+        200,
     )
 
     body = str(
