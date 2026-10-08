@@ -23,6 +23,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.policy import SMTP
 from email.utils import formataddr, formatdate, make_msgid
 from pathlib import Path
 
@@ -93,7 +94,7 @@ app.config.update(
 #
 
 MAX_RECIPIENTS = 25
-MAX_PARALLEL_SENDS = 3
+MAX_PARALLEL_SENDS = 2
 
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 465
@@ -336,7 +337,7 @@ def build_message(
     body = str(body or "").replace("\x00", "")
 
     if is_html:
-        message = MIMEMultipart("alternative")
+        message = MIMEMultipart("alternative", policy=SMTP)
 
         # Plain-text fallback is important for compatibility.
         message.attach(
@@ -352,6 +353,7 @@ def build_message(
                 body,
                 "html",
                 "utf-8",
+                policy=SMTP,
             )
         )
     else:
@@ -359,6 +361,7 @@ def build_message(
             body,
             "plain",
             "utf-8",
+            policy=SMTP,
         )
 
     # Use the authenticated Gmail address as From.
@@ -369,7 +372,9 @@ def build_message(
     )
     message["To"] = recipient
     message["Date"] = formatdate(localtime=True)
-    message["Message-ID"] = make_msgid()
+    message["Message-ID"] = make_msgid(
+        domain=gmail.split("@", 1)[1]
+    )
 
     return message
 
@@ -915,6 +920,8 @@ def health():
         "parallel_sends": MAX_PARALLEL_SENDS,
         "send_delay": SEND_DELAY_SECONDS,
         "max_recipients": MAX_RECIPIENTS,
+        "rfc_message_id": True,
+        "one_recipient_per_message": True,
         "turnstile_enabled": TURNSTILE_ENABLED,
         "placeholders": list(PLACEHOLDERS),
         "authenticated": authenticated(),
