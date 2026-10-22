@@ -65,7 +65,7 @@ MAX_RECIPIENTS = 25
 
 # Sequential sending avoids opening several SMTP sessions at once.
 # This is not a guarantee of inbox placement.
-SEND_DELAY_SECONDS = 1.0
+SEND_DELAY_SECONDS = 0.3
 
 EMAIL_RE = re.compile(
     r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
