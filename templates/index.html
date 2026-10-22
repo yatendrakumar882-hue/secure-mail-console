@@ -1,4 +1,4 @@
-<CodeBlock language="html" editable>
+
 <!doctype html>
 <html lang="en">
 <head>
@@ -22,30 +22,31 @@
   </a>
 </header>
 
-
 <main class="container">
   <div class="page-heading">
     <h1><i class="fa-solid fa-paper-plane"></i> Bulk Email Sender</h1>
   </div>
 
-<div class="dashboard-grid">
+  <div class="dashboard-grid">
     <section class="card compose-card">
-      <div class="section-title"><i class="fa-solid fa-pen-to-square"></i> Compose Message</div>
+      <div class="section-title">
+        <i class="fa-solid fa-pen-to-square"></i> Compose Message
+      </div>
 
-<div class="two-column">
+      <div class="two-column">
         <div class="field">
           <label for="senderName">Sender Name</label>
           <input id="senderName" type="text" placeholder="Your name" autocomplete="off">
         </div>
         <div class="field">
           <label for="gmail">Your Gmail</label>
-          <input id="gmail" type="email" placeholder="your@gmail.com" autocomplete="off">
+          <input id="gmail" type="email" placeholder="your@gmail.com" autocomplete="email">
         </div>
         <div class="field">
           <label for="appPassword">App Password</label>
           <div class="password-field">
             <input id="appPassword" type="password" placeholder="Google App Password" autocomplete="new-password">
-            <button type="button" onclick="togglePassword()" aria-label="Show or hide password">
+            <button type="button" id="togglePassword" aria-label="Show or hide App Password">
               <i id="passwordIcon" class="fa-regular fa-eye"></i>
             </button>
           </div>
@@ -56,18 +57,18 @@
         </div>
       </div>
 
-<div class="field body-field">
+      <div class="field body-field">
         <div class="body-header">
           <label for="messageBody">Message Body</label>
           <div class="mode-buttons">
-            <button id="plainButton" class="mode active" type="button" onclick="setMode(false)">Plain Text</button>
-            <button id="htmlButton" class="mode" type="button" onclick="setMode(true)">HTML</button>
+            <button id="plainButton" class="mode active" type="button">Plain Text</button>
+            <button id="htmlButton" class="mode" type="button">HTML</button>
           </div>
         </div>
         <textarea id="messageBody" rows="10" spellcheck="false"></textarea>
       </div>
 
-<div class="spintax-status">
+      <div class="spintax-status">
         <i class="fa-solid fa-circle-info"></i>
         <div>
           <strong>Message settings</strong>
@@ -75,7 +76,9 @@
         </div>
       </div>
 
-<div class="security-title"><i class="fa-solid fa-shield-halved"></i> Spam Protection</div>
+      <div class="security-title">
+        <i class="fa-solid fa-shield-halved"></i> Spam Protection
+      </div>
       <div class="security-box">
         {% if turnstile_site_key %}
         <div class="cf-turnstile"
@@ -85,41 +88,47 @@
              data-expired-callback="turnstileExpired"
              data-error-callback="turnstileExpired"></div>
         {% else %}
-        <div class="turnstile-warning">Turnstile Site Key is not configured in Vercel.</div>
+        <div class="turnstile-warning">Turnstile Site Key is not configured.</div>
         {% endif %}
       </div>
     </section>
 
-<section class="right-column">
+    <section class="right-column">
       <div class="card recipients-card">
         <div class="section-title">
           <i class="fa-solid fa-users"></i>
           <span>Recipients</span>
           <span id="recipientCount" class="count-badge">0 found</span>
         </div>
-        <div class="recipient-subtitle">Paste email addresses separated by commas or new lines</div>
+        <div class="recipient-subtitle">
+          Paste email addresses separated by commas or new lines
+        </div>
         <textarea id="recipients" class="recipients-box" spellcheck="false"></textarea>
         <label class="consent-row">
           <input id="consentConfirmed" type="checkbox">
-          I confirm these recipients agreed to receive this email.
+          <span>I confirm these recipients agreed to receive this email.</span>
         </label>
       </div>
 
-<div class="card progress-card">
-        <div class="section-title"><i class="fa-solid fa-chart-pie"></i> Progress Monitor</div>
+      <div class="card progress-card">
+        <div class="section-title">
+          <i class="fa-solid fa-chart-pie"></i> Progress Monitor
+        </div>
         <div class="stats-grid">
           <div class="stat-box"><span>TOTAL</span><strong id="totalCount">0</strong></div>
           <div class="stat-box"><span>SENT</span><strong id="sentCount" class="green">0</strong></div>
           <div class="stat-box"><span>FAILED</span><strong id="failedCount" class="red">0</strong></div>
           <div class="stat-box"><span>REMAINING</span><strong id="remainingCount" class="orange">0</strong></div>
         </div>
-        <div class="progress-track"><div id="progressBar" class="progress-fill"></div></div>
-        <div id="status" class="status">Ready to send</div>
+        <div class="progress-track">
+          <div id="progressBar" class="progress-fill"></div>
+        </div>
+        <div id="status" class="status" role="status" aria-live="polite">Ready to send</div>
         <div class="send-row">
-          <button id="sendButton" class="send-button" type="button" onclick="sendBatch()">
+          <button id="sendButton" class="send-button" type="button">
             <i class="fa-solid fa-paper-plane"></i> Send All
           </button>
-          <button id="stopButton" class="stop-button" type="button" onclick="stopSending()" disabled>
+          <button id="stopButton" class="stop-button" type="button" disabled>
             <i class="fa-solid fa-stop"></i> Stop Sending
           </button>
         </div>
@@ -128,59 +137,249 @@
   </div>
 </main>
 
-<div id="completeModal" class="complete-modal">
+<div id="completeModal" class="complete-modal" role="dialog" aria-modal="true" aria-labelledby="completeTitle">
   <div class="complete-box">
     <div class="complete-icon"><i class="fa-solid fa-check"></i></div>
-    <div class="complete-title">YATENDRA ❤️</div>
+    <div id="completeTitle" class="complete-title">YATENDRA ❤️</div>
     <div id="completeDetails" class="complete-details"></div>
-    <button type="button" class="complete-button" onclick="closeCompletePopup()">OK</button>
+    <button id="closeModalButton" type="button" class="complete-button">OK</button>
   </div>
 </div>
-<div id="toast" class="toast"></div>
+
+<div id="toast" class="toast" role="alert" aria-live="assertive"></div>
 
 <script>
+"use strict";
+
 let isHTML = false;
 let turnstileToken = "";
 let sending = false;
 let activeController = null;
+let toastTimer = null;
 
-function turnstileCompleted(token) { turnstileToken = token || ""; }
-function turnstileExpired() { turnstileToken = ""; }
+const $ = id => document.getElementById(id);
 
-function togglePassword() {
-  const input = document.getElementById("appPassword");
-  const icon = document.getElementById("passwordIcon");
-  input.type = input.type === "password" ? "text" : "password";
-  icon.className = input.type === "password" ? "fa-regular fa-eye" : "fa-regular fa-eye-slash";
+window.turnstileCompleted = function(token) {
+  turnstileToken = token || "";
+};
+
+window.turnstileExpired = function() {
+  turnstileToken = "";
+};
+
+function setStatus(message, kind = "") {
+  $("status").textContent = message;
+  $("status").className = "status " + kind;
+}
+
+function showToast(message) {
+  const toast = $("toast");
+  toast.textContent = message;
+  toast.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove("show"), 5000);
 }
 
 function setMode(html) {
   isHTML = html;
-  document.getElementById("plainButton").classList.toggle("active", !html);
-  document.getElementById("htmlButton").classList.toggle("active", html);
+  $("plainButton").classList.toggle("active", !html);
+  $("htmlButton").classList.toggle("active", html);
 }
 
 function validEmail(value) {
-return /^[A-Za-z0-9.!#$%&'*+/=?^_`~-]+@[A-Za-z0-9-]+(?:.[A-Za-z0-9-]+)+$/.test(value);
+  return /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(value);
 }
 
-function getRecipients() 
+function getRecipients() {
+  const input = $("recipients").value;
+  const parts = input.split(/[\s,;]+/);
 
-function updateRecipientCount() 
-document.getElementById("recipients").addEventListener("input", updateRecipientCount);
+  return [...new Set(
+    parts.map(value => value.trim().toLowerCase())
+      .filter(value => value && validEmail(value))
+  )].slice(0, 25);
+}
 
-function setStatus(message, kind = "") 
+function updateRecipientCount() {
+  const count = getRecipients().length;
+  $("recipientCount").textContent = count + " found";
 
-function updateProgress(total, sent, failed, remaining) 
+  if (!sending) {
+    $("totalCount").textContent = count;
+    $("remainingCount").textContent = count;
+  }
+}
 
-function showToast(message) 
+function updateProgress(total, sent, failed, remaining) {
+  $("totalCount").textContent = total;
+  $("sentCount").textContent = sent;
+  $("failedCount").textContent = failed;
+  $("remainingCount").textContent = remaining;
 
-function showCompletePopup(sent, failed) 
+  const processed = sent + failed;
+  $("progressBar").style.width =
+    (total ? Math.round(processed / total * 100) : 0) + "%";
+}
 
-function closeCompletePopup() 
+function showCompletePopup(sent, failed) {
+  $("completeDetails").textContent =
+    sent + " accepted by Gmail SMTP; " + failed +
+    " failed. SMTP acceptance does not guarantee Inbox delivery.";
+  $("completeModal").classList.add("show");
+}
 
-async function sendBatch() 
+function closeCompletePopup() {
+  $("completeModal").classList.remove("show");
+}
 
-function stopSending() 
+$("togglePassword").addEventListener("click", () => {
+  const input = $("appPassword");
+  input.type = input.type === "password" ? "text" : "password";
+  $("passwordIcon").className =
+    input.type === "password" ? "fa-regular fa-eye" : "fa-regular fa-eye-slash";
+});
+
+$("plainButton").addEventListener("click", () => setMode(false));
+$("htmlButton").addEventListener("click", () => setMode(true));
+$("recipients").addEventListener("input", updateRecipientCount);
+$("closeModalButton").addEventListener("click", closeCompletePopup);
+$("sendButton").addEventListener("click", sendBatch);
+$("stopButton").addEventListener("click", stopSending);
+
+async function sendBatch() {
+  if (sending) return;
+
+  const sender_name = $("senderName").value.trim();
+  const gmail = $("gmail").value.trim().toLowerCase();
+  const app_password = $("appPassword").value.trim();
+  const subject = $("subject").value.trim();
+  const body = $("messageBody").value;
+  const recipients = getRecipients();
+
+  if (!sender_name || !gmail || !app_password || !subject || !body.trim()) {
+    showToast("Please complete the sender name, Gmail, App Password, subject and message.");
+    return;
+  }
+
+  if (!gmail.endsWith("@gmail.com") || !validEmail(gmail)) {
+    showToast("Enter a valid @gmail.com sender address.");
+    return;
+  }
+
+  if (!recipients.length) {
+    showToast("Please enter at least one valid recipient address.");
+    return;
+  }
+
+  if (!$("consentConfirmed").checked) {
+    showToast("Please confirm that the recipients agreed to receive your email.");
+    return;
+  }
+
+  if (!turnstileToken) {
+    showToast("Complete Cloudflare verification again before sending.");
+    return;
+  }
+
+  sending = true;
+  activeController = new AbortController();
+  $("sendButton").disabled = true;
+  $("stopButton").disabled = false;
+
+  updateProgress(recipients.length, 0, 0, recipients.length);
+  setStatus("Connecting to the server...", "sending");
+
+  try {
+    const response = await fetch("/send-batch", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      signal: activeController.signal,
+      body: JSON.stringify({
+        sender_name,
+        gmail,
+        app_password,
+        subject,
+        body,
+        is_html: isHTML,
+        recipients,
+        turnstile_token: turnstileToken,
+        consent_confirmed: true
+      })
+    });
+
+    const contentType = response.headers.get("content-type") || "";
+    let result = {};
+
+    if (contentType.includes("application/json")) {
+      result = await response.json();
+    } else {
+      const text = await response.text();
+      throw new Error(
+        "Server returned a non-JSON response (HTTP " + response.status +
+        "). Check Vercel Logs. " + text.slice(0, 180)
+      );
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        (result.message || "The server rejected the request.") +
+        " (HTTP " + response.status + ")"
+      );
+    }
+
+    const total = Number(result.total || recipients.length);
+    const sent = Number(result.sent || 0);
+    const failed = Number(result.failed || 0);
+    const remaining = Number(
+      result.remaining !== undefined
+        ? result.remaining
+        : Math.max(0, total - sent - failed)
+    );
+
+    updateProgress(total, sent, failed, remaining);
+    setStatus(result.message || "Request completed.", failed ? "error" : "success");
+    showCompletePopup(sent, failed);
+
+    if (Array.isArray(result.errors) && result.errors.length) {
+      const first = result.errors[0];
+      showToast(
+        "Some emails failed. " +
+        (first.error || "Check Vercel Logs for details.")
+      );
+    }
+
+  } catch (error) {
+    if (error.name === "AbortError") {
+      setStatus("Request cancelled. Some messages may already have been sent.", "error");
+      showToast("Request cancelled.");
+    } else {
+      setStatus(error.message || "Request failed.", "error");
+      showToast(error.message || "Could not send the request.");
+    }
+  } finally {
+    sending = false;
+    activeController = null;
+    $("sendButton").disabled = false;
+    $("stopButton").disabled = true;
+
+    turnstileToken = "";
+    if (window.turnstile) {
+      try { window.turnstile.reset(); } catch (_) {}
+    }
+  }
+}
+
+function stopSending() {
+  if (activeController) {
+    activeController.abort();
+  }
+}
 
 updateRecipientCount();
+</script>
+</body>
+</html>
