@@ -1,892 +1,1527 @@
-from flask import (
-    Flask,
-    render_template,
-    request,
-    jsonify,
-    redirect,
-    url_for,
-    session,
-    Response,
-    stream_with_context,
-)
+<!doctype html>
+<html lang="en">
 
-import smtplib
-import ssl
-import re
-import os
-import json
-import urllib.request
-import urllib.parse
-import secrets
-import time
+<head>
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+<meta charset="utf-8">
 
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.utils import formataddr, formatdate, make_msgid
-from pathlib import Path
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+>
 
+<meta
+    name="autocomplete"
+    content="off"
+>
 
-# =========================================================
-# APP
-# =========================================================
+<title>Secure Mail Console</title>
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+<link
+    rel="stylesheet"
+    href="{{ url_for('static', filename='style.css') }}"
+>
 
-app = Flask(
-    __name__,
-    template_folder=str(BASE_DIR / "templates"),
-    static_folder=str(BASE_DIR / "static"),
-    static_url_path="/static",
-)
+<link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+>
 
-handler = app
+{% if turnstile_site_key %}
+<script
+src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+async
+defer
+></script>
+{% endif %}
+
+</head>
 
 
-# =========================================================
-# VERCEL ENVIRONMENT VARIABLES
-# =========================================================
-
-SESSION_SECRET = os.environ.get(
-    "SESSION_SECRET", ""
-).strip()
-
-TURNSTILE_SITE_KEY = os.environ.get(
-    "TURNSTILE_SITE_KEY", ""
-).strip()
-
-TURNSTILE_SECRET_KEY = os.environ.get(
-    "TURNSTILE_SECRET_KEY", ""
-).strip()
-
-LOGIN_PASSWORD = os.environ.get(
-    "LOGIN_PASSWORD", ""
-).strip()
+<body
+    autocomplete="off"
+>
 
 
-if not SESSION_SECRET:
-    raise RuntimeError(
-        "SESSION_SECRET is not configured in Vercel."
-    )
+<header class="topbar">
 
-if not LOGIN_PASSWORD:
-    raise RuntimeError(
-        "LOGIN_PASSWORD is not configured in Vercel."
-    )
+<div class="brand">
 
+<div class="brand-icon">
+<i class="fa-solid fa-shield-halved"></i>
+</div>
 
-app.secret_key = SESSION_SECRET
+<div class="brand-title">
+Secure Mail Console
+</div>
 
-app.config.update(
-    SESSION_COOKIE_SECURE=True,
-    SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_SAMESITE="Lax",
-    PERMANENT_SESSION_LIFETIME=3600,
-)
+</div>
 
 
-# =========================================================
-# MAIL SETTINGS
-# =========================================================
+<a
+href="{{ url_for('logout') }}"
+class="logout-button"
+>
 
-MAX_RECIPIENTS = 25
-MAX_PARALLEL_SENDS = 4
+<i class="fa-solid fa-right-from-bracket"></i>
 
-SMTP_HOST = "smtp.gmail.com"
-SMTP_PORT = 465
-SMTP_TIMEOUT = 25
+Logout
 
-SEND_DELAY_SECONDS = 1.8
+</a>
 
-
-# =========================================================
-# EMAIL VALIDATION
-# =========================================================
-
-EMAIL_RE = re.compile(
-    r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
-    r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$"
-)
+</header>
 
 
-def valid_email(value):
-    if not isinstance(value, str):
-        return False
-
-    value = value.strip()
-
-    if not value:
-        return False
-
-    if len(value) > 254:
-        return False
-
-    return bool(EMAIL_RE.fullmatch(value))
+<main class="container">
 
 
-def normalize_email(value):
-    return str(value or "").strip().lower()
+<div class="page-heading">
+
+<h1>
+<i class="fa-solid fa-paper-plane"></i>
+Bulk Email Sender
+</h1>
+
+</div>
 
 
-def authenticated():
-    return session.get("authenticated") is True
+<div class="dashboard-grid">
 
 
-def clean_header(value, max_length=998):
-    value = str(value or "")
-    value = value.replace("\r", " ")
-    value = value.replace("\n", " ")
-    return value.strip()[:max_length]
+<!-- COMPOSE -->
+
+<section class="card compose-card">
 
 
-# =========================================================
-# PERSONALIZATION
-# =========================================================
+<div class="section-title">
 
-def personalize_template(template, recipient):
-    """
-    Available placeholders:
+<i class="fa-solid fa-pen-to-square"></i>
 
-        {{hi}}
-        {{hello}}
-        {{thanks}}
-        {{name}}
-        {{email}}
-        {{ref_code}}
+<span>
+Compose Message
+</span>
 
-    These are replaced only when present in the template.
-    """
+</div>
 
-    result = str(template or "")
 
-    values = {
-        "{{hi}}": str(recipient.get("hi", "") or ""),
-        "{{hello}}": str(recipient.get("hello", "") or ""),
-        "{{thanks}}": str(recipient.get("thanks", "") or ""),
-        "{{name}}": str(recipient.get("name", "") or ""),
-        "{{email}}": str(recipient.get("email", "") or ""),
-        "{{ref_code}}": str(recipient.get("ref_code", "") or ""),
+<div class="two-column">
+
+
+<div class="field">
+
+<label>
+Sender Name
+</label>
+
+<input
+id="senderName"
+type="text"
+autocomplete="off"
+placeholder="Your name"
+>
+
+</div>
+
+
+<div class="field">
+
+<label>
+Your Gmail
+</label>
+
+<input
+id="gmail"
+type="email"
+autocomplete="off"
+placeholder="your@gmail.com"
+>
+
+</div>
+
+
+<div class="field">
+
+<label>
+App Password
+</label>
+
+<div class="password-field">
+
+<input
+id="appPassword"
+type="password"
+autocomplete="new-password"
+placeholder="Google App Password"
+>
+
+<button
+type="button"
+onclick="togglePassword()"
+>
+
+<i
+id="passwordIcon"
+class="fa-regular fa-eye"
+></i>
+
+</button>
+
+</div>
+
+</div>
+
+
+<div class="field">
+
+<label>
+Email Subject
+</label>
+
+<input
+id="subject"
+type="text"
+autocomplete="off"
+placeholder="Email subject"
+>
+
+</div>
+
+</div>
+
+
+<div class="field body-field">
+
+
+<div class="body-header">
+
+<label>
+Message Body
+</label>
+
+
+<div class="mode-buttons">
+
+<button
+id="plainButton"
+class="mode active"
+type="button"
+onclick="setMode(false)"
+>
+Plain Text
+</button>
+
+
+<button
+id="htmlButton"
+class="mode"
+type="button"
+onclick="setMode(true)"
+>
+HTML
+</button>
+
+</div>
+
+</div>
+
+
+<!-- IMPORTANT:
+     This textarea intentionally contains NOTHING.
+     Do not add default text here.
+-->
+
+<textarea
+id="messageBody"
+name="messageBody"
+autocomplete="off"
+autocorrect="off"
+autocapitalize="off"
+spellcheck="false"
+></textarea>
+
+
+</div>
+
+
+<!-- SPINTAX STATUS -->
+
+<div class="spintax-status">
+
+<i class="fa-solid fa-shuffle"></i>
+
+<div>
+
+<strong>
+Spintax Enabled
+</strong>
+
+<span>
+Spintax is always ON.
+</span>
+
+</div>
+
+</div>
+
+
+<div class="security-title">
+
+<i class="fa-solid fa-shield-halved"></i>
+
+Spam Protection
+
+</div>
+
+
+<div class="security-box">
+
+{% if turnstile_site_key %}
+
+<div
+class="cf-turnstile"
+data-sitekey="{{ turnstile_site_key }}"
+data-theme="light"
+data-callback="turnstileCompleted"
+data-expired-callback="turnstileExpired"
+data-error-callback="turnstileError"
+></div>
+
+{% else %}
+
+<div class="turnstile-warning">
+Turnstile Site Key is not configured.
+</div>
+
+{% endif %}
+
+</div>
+
+
+</section>
+
+
+<!-- RIGHT -->
+
+<section class="right-column">
+
+
+<div class="card recipients-card">
+
+
+<div class="section-title">
+
+<i class="fa-solid fa-users"></i>
+
+<span>
+Recipients
+</span>
+
+<span
+id="recipientCount"
+class="count-badge"
+>
+0 found
+</span>
+
+</div>
+
+
+<div class="recipient-subtitle">
+Paste emails (comma separated, new lines, or Excel copy)
+</div>
+
+
+<textarea
+id="recipients"
+class="recipients-box"
+autocomplete="off"
+spellcheck="false"
+></textarea>
+
+
+</div>
+
+
+<!-- PROGRESS -->
+
+<div class="card progress-card">
+
+
+<div class="section-title">
+
+<i class="fa-solid fa-chart-pie"></i>
+
+<span>
+Progress Monitor
+</span>
+
+</div>
+
+
+<div class="stats-grid">
+
+
+<div class="stat-box">
+
+<span>TOTAL</span>
+
+<strong id="totalCount">
+0
+</strong>
+
+</div>
+
+
+<div class="stat-box">
+
+<span>SENT</span>
+
+<strong
+id="sentCount"
+class="green"
+>
+0
+</strong>
+
+</div>
+
+
+<div class="stat-box">
+
+<span>FAILED</span>
+
+<strong
+id="failedCount"
+class="red"
+>
+0
+</strong>
+
+</div>
+
+
+<div class="stat-box">
+
+<span>REMAINING</span>
+
+<strong
+id="remainingCount"
+class="orange"
+>
+0
+</strong>
+
+</div>
+
+
+</div>
+
+
+<div class="progress-track">
+
+<div
+id="progressBar"
+class="progress-fill"
+></div>
+
+</div>
+
+
+<div
+id="status"
+class="status"
+>
+Ready to send
+</div>
+
+
+<div class="send-row">
+
+
+<button
+id="sendButton"
+class="send-button"
+type="button"
+onclick="sendBatch()"
+>
+
+<i class="fa-solid fa-paper-plane"></i>
+
+Send All
+
+</button>
+
+
+<button
+id="stopButton"
+class="stop-button"
+type="button"
+onclick="stopSending()"
+disabled
+>
+
+<i class="fa-solid fa-stop"></i>
+
+Stop Sending
+
+</button>
+
+
+</div>
+
+
+</div>
+
+</section>
+
+</div>
+
+</main>
+
+
+<!-- COMPLETION POPUP -->
+
+<div
+id="completeModal"
+class="complete-modal"
+>
+
+<div
+class="complete-box"
+id="completeBox"
+>
+
+
+<div class="complete-icon">
+
+<i class="fa-solid fa-circle-check"></i>
+
+</div>
+
+
+<div class="complete-title">
+YATENDRA ❤️
+</div>
+
+
+<div
+id="completeDetails"
+class="complete-details"
+>
+All emails have been processed.
+</div>
+
+
+<button
+type="button"
+class="complete-button"
+onclick="closeCompletePopup()"
+>
+OK
+</button>
+
+
+</div>
+
+</div>
+
+
+<div
+id="toast"
+class="toast"
+></div>
+
+
+<script>
+
+let isHTML = false;
+
+let sending = false;
+
+let turnstileToken = "";
+
+let currentController = null;
+
+
+/*
+=========================================================
+FORCE MESSAGE BODY BLANK
+=========================================================
+*/
+
+function forceBlankMessageBody() {
+
+    const body =
+        document.getElementById(
+            "messageBody"
+        );
+
+    if (body) {
+        body.value = "";
+        body.defaultValue = "";
     }
-
-    for placeholder, value in values.items():
-        result = result.replace(placeholder, value)
-
-    return result
+}
 
 
-# =========================================================
-# HTML TO PLAIN TEXT
-# =========================================================
+/*
+Run immediately after DOM is ready.
+This also clears any browser-restored value.
+*/
 
-def html_to_plain_text(html):
-    text = str(html or "")
+document.addEventListener(
+    "DOMContentLoaded",
+    function() {
 
-    text = re.sub(
-        r"<br\s*/?>",
-        "\n",
-        text,
-        flags=re.I,
-    )
+        forceBlankMessageBody();
 
-    text = re.sub(
-        r"</p\s*>",
-        "\n\n",
-        text,
-        flags=re.I,
-    )
+        setTimeout(
+            forceBlankMessageBody,
+            50
+        );
 
-    text = re.sub(
-        r"</div\s*>",
-        "\n",
-        text,
-        flags=re.I,
-    )
+        setTimeout(
+            forceBlankMessageBody,
+            300
+        );
 
-    text = re.sub(
-        r"<[^>]+>",
-        "",
-        text,
-    )
-
-    replacements = {
-        "&nbsp;": " ",
-        "&amp;": "&",
-        "&lt;": "<",
-        "&gt;": ">",
-        "&quot;": '"',
-        "&#39;": "'",
     }
-
-    for old, new in replacements.items():
-        text = text.replace(old, new)
-
-    return text.strip()
+);
 
 
-# =========================================================
-# TURNSTILE VERIFICATION
-# =========================================================
+/*
+Also clear when browser restores page
+from back/forward cache.
+*/
 
-def verify_turnstile(token, remote_ip=None):
-    if not TURNSTILE_SECRET_KEY:
-        return False, "TURNSTILE_SECRET_KEY is not configured."
-
-    if not token:
-        return False, "Cloudflare verification is required."
-
-    payload = {
-        "secret": TURNSTILE_SECRET_KEY,
-        "response": token,
+window.addEventListener(
+    "pageshow",
+    function() {
+        forceBlankMessageBody();
     }
+);
 
-    if remote_ip:
-        payload["remoteip"] = remote_ip
 
-    encoded = urllib.parse.urlencode(
-        payload
-    ).encode("utf-8")
+/*
+=========================================================
+TURNSTILE
+=========================================================
+*/
 
-    req = urllib.request.Request(
-        "https://challenges.cloudflare.com/turnstile/v0/siteverify",
-        data=encoded,
-        headers={
-            "Content-Type": "application/x-www-form-urlencoded"
-        },
-        method="POST",
-    )
+function turnstileCompleted(token) {
+    turnstileToken = token || "";
+}
 
-    try:
-        with urllib.request.urlopen(req, timeout=10) as response:
-            result = json.loads(
-                response.read().decode("utf-8")
+function turnstileExpired() {
+    turnstileToken = "";
+}
+
+function turnstileError() {
+    turnstileToken = "";
+}
+
+
+/*
+=========================================================
+PASSWORD
+=========================================================
+*/
+
+function togglePassword() {
+
+    const input =
+        document.getElementById(
+            "appPassword"
+        );
+
+    const icon =
+        document.getElementById(
+            "passwordIcon"
+        );
+
+
+    if (input.type === "password") {
+
+        input.type = "text";
+
+        icon.className =
+            "fa-regular fa-eye-slash";
+
+    } else {
+
+        input.type = "password";
+
+        icon.className =
+            "fa-regular fa-eye";
+
+    }
+}
+
+
+/*
+=========================================================
+MODE
+=========================================================
+*/
+
+function setMode(htmlMode) {
+
+    isHTML = htmlMode;
+
+
+    document
+        .getElementById("plainButton")
+        .classList.toggle(
+            "active",
+            !htmlMode
+        );
+
+
+    document
+        .getElementById("htmlButton")
+        .classList.toggle(
+            "active",
+            htmlMode
+        );
+}
+
+
+/*
+=========================================================
+EMAIL
+=========================================================
+*/
+
+function isValidEmail(email) {
+
+    return /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/
+        .test(email);
+
+}
+
+
+/*
+=========================================================
+RECIPIENTS
+=========================================================
+*/
+
+function getRecipients() {
+
+    const value =
+        document
+            .getElementById(
+                "recipients"
             )
-
-        if result.get("success") is True:
-            return True, None
-
-        return False, "Cloudflare verification failed."
-
-    except Exception:
-        return False, "Unable to verify Cloudflare."
+            .value;
 
 
-# =========================================================
-# LOGIN
-# =========================================================
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if authenticated():
-        return redirect(url_for("home"))
-
-    if request.method == "GET":
-        return render_template(
-            "login.html",
-            error=None,
-            turnstile_site_key=TURNSTILE_SITE_KEY,
-        )
-
-    password = str(
-        request.form.get("password", "")
-    )
-
-    if not secrets.compare_digest(
-        password,
-        LOGIN_PASSWORD,
-    ):
-        return render_template(
-            "login.html",
-            error="Incorrect password.",
-            turnstile_site_key=TURNSTILE_SITE_KEY,
-        ), 401
-
-    session.clear()
-    session.permanent = True
-    session["authenticated"] = True
-
-    return redirect(url_for("home"))
+    const pieces =
+        value.split(
+            /[\s,;]+/
+        );
 
 
-# =========================================================
-# LOGOUT
-# =========================================================
-
-@app.route("/logout", methods=["GET", "POST"])
-def logout():
-    session.clear()
-    return redirect(url_for("login"))
+    const unique = [];
 
 
-# =========================================================
-# HOME
-# =========================================================
+    for (const piece of pieces) {
 
-@app.route("/")
-def home():
-    if not authenticated():
-        return redirect(url_for("login"))
-
-    return render_template(
-        "index.html",
-        turnstile_site_key=TURNSTILE_SITE_KEY,
-    )
+        const email =
+            piece
+                .trim()
+                .toLowerCase();
 
 
-# =========================================================
-# BUILD EMAIL
-# =========================================================
+        if (!email) continue;
 
-def build_message(
-    gmail,
-    sender_name,
-    subject,
-    body,
-    is_html,
-    recipient,
-):
-    gmail = gmail.strip().lower()
-    recipient = recipient.strip()
+        if (!isValidEmail(email)) continue;
 
-    sender_name = clean_header(sender_name, 200)
-    subject = clean_header(subject, 998)
+        if (!unique.includes(email)) {
 
-    body = str(body or "").replace("\x00", "")
+            unique.push(email);
 
-    if is_html:
-        message = MIMEMultipart("alternative")
-
-        plain_body = html_to_plain_text(body)
-
-        message.attach(
-            MIMEText(
-                plain_body,
-                "plain",
-                "utf-8",
-            )
-        )
-
-        message.attach(
-            MIMEText(
-                body,
-                "html",
-                "utf-8",
-            )
-        )
-    else:
-        message = MIMEText(
-            body,
-            "plain",
-            "utf-8",
-        )
-
-    message["Subject"] = subject
-    message["From"] = formataddr((sender_name, gmail))
-    message["To"] = recipient
-    message["Date"] = formatdate(localtime=True)
-    message["Message-ID"] = make_msgid()
-
-    return message
-
-
-# =========================================================
-# NORMALIZE RECIPIENT
-# =========================================================
-
-def normalize_recipient(item):
-    if isinstance(item, str):
-        return {
-            "email": normalize_email(item),
-            "name": "",
-            "hi": "",
-            "hello": "",
-            "thanks": "",
-            "ref_code": "",
         }
 
-    if not isinstance(item, dict):
-        return None
-
-    email = normalize_email(item.get("email", ""))
-
-    name = str(item.get("name", "") or "").strip()
-    hi = str(item.get("hi", "") or "").strip()
-    hello = str(item.get("hello", "") or "").strip()
-    thanks = str(item.get("thanks", "") or "").strip()
-    ref_code = str(item.get("ref_code", "") or "").strip()
-
-    name = name.replace("\r", " ").replace("\n", " ")
-    hi = hi.replace("\r", " ").replace("\n", " ")
-    hello = hello.replace("\r", " ").replace("\n", " ")
-    thanks = thanks.replace("\r", " ").replace("\n", " ")
-    ref_code = ref_code.replace("\r", " ").replace("\n", " ")
-
-    return {
-        "email": email,
-        "name": name[:200],
-        "hi": hi[:100],
-        "hello": hello[:100],
-        "thanks": thanks[:100],
-        "ref_code": ref_code[:200],
     }
 
 
-# =========================================================
-# SEND ONE EMAIL
-# =========================================================
+    return unique.slice(
+        0,
+        25
+    );
+}
 
-def send_one_email(
-    gmail,
-    app_password,
-    sender_name,
-    subject,
-    body,
-    is_html,
-    recipient_data,
-):
-    recipient = normalize_email(
-        recipient_data.get("email", "")
-    )
 
-    clean_app_password = re.sub(
-        r"\s+",
-        "",
-        str(app_password or ""),
-    )
+function updateRecipientCount() {
 
-    personalized_subject = personalize_template(
-        subject,
-        recipient_data,
-    )
+    const list =
+        getRecipients();
 
-    personalized_body = personalize_template(
-        body,
-        recipient_data,
-    )
 
-    if SEND_DELAY_SECONDS > 0:
-        time.sleep(SEND_DELAY_SECONDS)
-
-    message = build_message(
-        gmail=gmail,
-        sender_name=sender_name,
-        subject=personalized_subject,
-        body=personalized_body,
-        is_html=is_html,
-        recipient=recipient,
-    )
-
-    context = ssl.create_default_context()
-
-    with smtplib.SMTP_SSL(
-        SMTP_HOST,
-        SMTP_PORT,
-        context=context,
-        timeout=SMTP_TIMEOUT,
-    ) as server:
-        server.ehlo()
-
-        server.login(
-            gmail,
-            clean_app_password,
+    document
+        .getElementById(
+            "recipientCount"
         )
+        .textContent =
+        list.length + " found";
 
-        refused = server.sendmail(
-            gmail,
-            [recipient],
-            message.as_string(),
+
+    if (!sending) {
+
+        document
+            .getElementById(
+                "totalCount"
+            )
+            .textContent =
+            list.length;
+
+
+        document
+            .getElementById(
+                "remainingCount"
+            )
+            .textContent =
+            list.length;
+
+    }
+}
+
+
+document
+    .getElementById(
+        "recipients"
+    )
+    .addEventListener(
+        "input",
+        updateRecipientCount
+    );
+
+
+/*
+=========================================================
+STATUS
+=========================================================
+*/
+
+function setStatus(
+    message,
+    type = ""
+) {
+
+    const status =
+        document.getElementById(
+            "status"
+        );
+
+
+    status.textContent =
+        message;
+
+
+    status.className =
+        "status " + type;
+}
+
+
+/*
+=========================================================
+PROGRESS
+=========================================================
+*/
+
+function updateProgress(
+    total,
+    sent,
+    failed,
+    remaining
+) {
+
+    const completed =
+        sent + failed;
+
+
+    const percent =
+        total > 0
+            ? Math.round(
+                completed /
+                total *
+                100
+            )
+            : 0;
+
+
+    document
+        .getElementById(
+            "totalCount"
         )
+        .textContent =
+        total;
 
-        if refused:
-            return {
-                "email": recipient,
-                "result": "failed",
-                "error": "SMTP refused recipient.",
+
+    document
+        .getElementById(
+            "sentCount"
+        )
+        .textContent =
+        sent;
+
+
+    document
+        .getElementById(
+            "failedCount"
+        )
+        .textContent =
+        failed;
+
+
+    document
+        .getElementById(
+            "remainingCount"
+        )
+        .textContent =
+        remaining;
+
+
+    document
+        .getElementById(
+            "progressBar"
+        )
+        .style.width =
+        percent + "%";
+}
+
+
+/*
+=========================================================
+POPUP
+=========================================================
+*/
+
+function showCompletePopup(
+    sent,
+    failed
+) {
+
+    document
+        .getElementById(
+            "completeDetails"
+        )
+        .textContent =
+        `${sent} sent${failed ? ` • ${failed} failed` : ""}`;
+
+
+    document
+        .getElementById(
+            "completeModal"
+        )
+        .classList.add(
+            "show"
+        );
+}
+
+
+function closeCompletePopup() {
+
+    document
+        .getElementById(
+            "completeModal"
+        )
+        .classList.remove(
+            "show"
+        );
+}
+
+
+/*
+=========================================================
+CLOSE POPUP BY CLICKING ANYWHERE
+=========================================================
+*/
+
+document.addEventListener(
+    "click",
+    function(event) {
+
+        const modal =
+            document.getElementById(
+                "completeModal"
+            );
+
+
+        if (
+            modal &&
+            modal.classList.contains(
+                "show"
+            )
+        ) {
+
+            /*
+            Clicking anywhere closes it.
+            */
+
+            closeCompletePopup();
+
+        }
+
+    }
+);
+
+
+/*
+=========================================================
+CLOSE POPUP WITH ANY KEY
+=========================================================
+*/
+
+document.addEventListener(
+    "keydown",
+    function() {
+
+        const modal =
+            document.getElementById(
+                "completeModal"
+            );
+
+
+        if (
+            modal &&
+            modal.classList.contains(
+                "show"
+            )
+        ) {
+
+            closeCompletePopup();
+
+        }
+
+    }
+);
+
+
+/*
+=========================================================
+SEND
+=========================================================
+*/
+
+async function sendBatch() {
+
+    if (sending) return;
+
+
+    const senderName =
+        document
+            .getElementById(
+                "senderName"
+            )
+            .value
+            .trim();
+
+
+    const gmail =
+        document
+            .getElementById(
+                "gmail"
+            )
+            .value
+            .trim();
+
+
+    const appPassword =
+        document
+            .getElementById(
+                "appPassword"
+            )
+            .value
+            .trim();
+
+
+    const subject =
+        document
+            .getElementById(
+                "subject"
+            )
+            .value
+            .trim();
+
+
+    const body =
+        document
+            .getElementById(
+                "messageBody"
+            )
+            .value;
+
+
+    const recipients =
+        getRecipients();
+
+
+    if (!senderName) {
+
+        showToast(
+            "Enter Sender Name."
+        );
+
+        return;
+    }
+
+
+    if (!isValidEmail(gmail)) {
+
+        showToast(
+            "Enter a valid Gmail address."
+        );
+
+        return;
+    }
+
+
+    if (!appPassword) {
+
+        showToast(
+            "Enter Google App Password."
+        );
+
+        return;
+    }
+
+
+    if (!subject) {
+
+        showToast(
+            "Enter email subject."
+        );
+
+        return;
+    }
+
+
+    if (!body.trim()) {
+
+        showToast(
+            "Enter message body."
+        );
+
+        return;
+    }
+
+
+    if (!recipients.length) {
+
+        showToast(
+            "Add at least one valid recipient."
+        );
+
+        return;
+    }
+
+
+    if (!turnstileToken) {
+
+        showToast(
+            "Complete Cloudflare verification."
+        );
+
+        return;
+    }
+
+
+    sending = true;
+
+
+    currentController =
+        new AbortController();
+
+
+    const sendButton =
+        document.getElementById(
+            "sendButton"
+        );
+
+
+    const stopButton =
+        document.getElementById(
+            "stopButton"
+        );
+
+
+    sendButton.disabled = true;
+
+    stopButton.disabled = false;
+
+
+    updateProgress(
+        recipients.length,
+        0,
+        0,
+        recipients.length
+    );
+
+
+    setStatus(
+        "Sending emails...",
+        "sending"
+    );
+
+
+    try {
+
+        const response =
+            await fetch(
+                "/send-batch",
+                {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
+
+                    signal:
+                        currentController.signal,
+
+                    body: JSON.stringify({
+
+                        sender_name:
+                            senderName,
+
+                        gmail:
+                            gmail,
+
+                        app_password:
+                            appPassword,
+
+                        subject:
+                            subject,
+
+                        body:
+                            body,
+
+                        is_html:
+                            isHTML,
+
+                        recipients:
+                            recipients,
+
+                        turnstile_token:
+                            turnstileToken
+
+                    })
+                }
+            );
+
+
+        if (!response.ok) {
+
+            let message =
+                "Sending request failed.";
+
+
+            try {
+
+                const data =
+                    await response.json();
+
+                message =
+                    data.message ||
+                    message;
+
+            } catch (e) {}
+
+
+            throw new Error(
+                message
+            );
+        }
+
+
+        const reader =
+            response.body.getReader();
+
+
+        const decoder =
+            new TextDecoder(
+                "utf-8"
+            );
+
+
+        let buffer = "";
+
+
+        while (true) {
+
+            const {
+                value,
+                done
+            } =
+                await reader.read();
+
+
+            if (done) break;
+
+
+            buffer +=
+                decoder.decode(
+                    value,
+                    {
+                        stream: true
+                    }
+                );
+
+
+            const lines =
+                buffer.split(
+                    "\n"
+                );
+
+
+            buffer =
+                lines.pop() || "";
+
+
+            for (
+                const line
+                of lines
+            ) {
+
+                if (!line.trim()) {
+                    continue;
+                }
+
+
+                let event;
+
+
+                try {
+
+                    event =
+                        JSON.parse(
+                            line
+                        );
+
+                } catch (e) {
+
+                    continue;
+                }
+
+
+                if (
+                    event.type ===
+                    "start"
+                ) {
+
+                    updateProgress(
+                        event.total,
+                        event.sent,
+                        event.failed,
+                        event.remaining
+                    );
+
+                }
+
+
+                else if (
+                    event.type ===
+                    "progress"
+                ) {
+
+                    updateProgress(
+                        event.total,
+                        event.sent,
+                        event.failed,
+                        event.remaining
+                    );
+
+
+                    setStatus(
+                        `Sending emails... ${event.sent}/${event.total}`,
+                        "sending"
+                    );
+
+                }
+
+
+                else if (
+                    event.type ===
+                    "complete"
+                ) {
+
+                    updateProgress(
+                        event.total,
+                        event.sent,
+                        event.failed,
+                        event.remaining
+                    );
+
+
+                    setStatus(
+                        event.message,
+                        "success"
+                    );
+
+
+                    showCompletePopup(
+                        event.sent,
+                        event.failed
+                    );
+
+                }
+
+
+                else if (
+                    event.type ===
+                    "error"
+                ) {
+
+                    updateProgress(
+                        event.total ||
+                        recipients.length,
+
+                        event.sent || 0,
+
+                        event.failed || 0,
+
+                        event.remaining ?? 0
+                    );
+
+
+                    setStatus(
+                        event.message ||
+                        "Sending failed.",
+                        "error"
+                    );
+
+
+                    showToast(
+                        event.message ||
+                        "Sending failed."
+                    );
+
+                }
+
             }
 
-    return {
-        "email": recipient,
-        "result": "sent",
+        }
+
+
+    } catch (error) {
+
+        if (
+            error.name ===
+            "AbortError"
+        ) {
+
+            setStatus(
+                "Sending stopped.",
+                "error"
+            );
+
+
+            showToast(
+                "Sending stopped."
+            );
+
+        } else {
+
+            setStatus(
+                error.message ||
+                "Connection error.",
+                "error"
+            );
+
+
+            showToast(
+                error.message ||
+                "Unable to contact server."
+            );
+
+        }
+
     }
 
 
-# =========================================================
-# SEND BATCH
-# =========================================================
-
-@app.route("/send-batch", methods=["POST"])
-def send_batch():
-    if not authenticated():
-        return jsonify({
-            "success": False,
-            "message": "Authentication required.",
-            "login_required": True,
-        }), 401
-
-    data = request.get_json(silent=True)
-
-    if not isinstance(data, dict):
-        return jsonify({
-            "success": False,
-            "message": "Invalid JSON request.",
-        }), 400
-
-    sender_name = clean_header(
-        data.get("sender_name", ""),
-        200,
-    )
-
-    gmail = clean_header(
-        data.get("gmail", ""),
-        254,
-    )
-
-    app_password = str(
-        data.get("app_password", "")
-    ).strip()
-
-    subject = clean_header(
-        data.get("subject", ""),
-        998,
-    )
-
-    body = str(data.get("body", ""))
-
-    is_html = data.get("is_html", False) is True
-
-    recipients = data.get("recipients", [])
-
-    turnstile_token = str(
-        data.get("turnstile_token", "")
-    ).strip()
-
-    # -----------------------------------------------------
-    # VALIDATION
-    # -----------------------------------------------------
-
-    if not sender_name:
-        return jsonify({
-            "success": False,
-            "message": "Sender Name is required.",
-        }), 400
-
-    if not valid_email(gmail):
-        return jsonify({
-            "success": False,
-            "message": "Enter a valid Gmail address.",
-        }), 400
-
-    if not gmail.lower().endswith("@gmail.com"):
-        return jsonify({
-            "success": False,
-            "message": "Please use a Gmail address with Gmail SMTP.",
-        }), 400
-
-    if not app_password:
-        return jsonify({
-            "success": False,
-            "message": "Google App Password is required.",
-        }), 400
-
-    if not subject:
-        return jsonify({
-            "success": False,
-            "message": "Email subject is required.",
-        }), 400
-
-    if not body.strip():
-        return jsonify({
-            "success": False,
-            "message": "Message body is required.",
-        }), 400
-
-    if len(body) > 100_000:
-        return jsonify({
-            "success": False,
-            "message": "Message body is too large.",
-        }), 400
-
-    if not isinstance(recipients, list):
-        return jsonify({
-            "success": False,
-            "message": "Invalid recipient list.",
-        }), 400
-
-    # -----------------------------------------------------
-    # RECIPIENT CLEANUP
-    # -----------------------------------------------------
-
-    clean_recipients = []
-    seen = set()
+    sending = false;
 
-    for item in recipients:
-        recipient = normalize_recipient(item)
-
-        if not recipient:
-            continue
-
-        email = recipient["email"]
-
-        if not valid_email(email):
-            continue
-
-        if email in seen:
-            continue
-
-        seen.add(email)
-        clean_recipients.append(recipient)
-
-    clean_recipients = clean_recipients[:MAX_RECIPIENTS]
-
-    if not clean_recipients:
-        return jsonify({
-            "success": False,
-            "message": "No valid recipients found.",
-        }), 400
-
-    # -----------------------------------------------------
-    # TURNSTILE
-    # -----------------------------------------------------
-
-    forwarded_for = request.headers.get("X-Forwarded-For")
-
-    if forwarded_for:
-        remote_ip = forwarded_for.split(",", 1)[0].strip()
-    else:
-        remote_ip = request.remote_addr
-
-    verified, verify_error = verify_turnstile(
-        turnstile_token,
-        remote_ip,
-    )
-
-    if not verified:
-        return jsonify({
-            "success": False,
-            "message": verify_error,
-        }), 403
-
-    # =====================================================
-    # STREAMING PROGRESS
-    # =====================================================
-
-    @stream_with_context
-    def generate():
-        total = len(clean_recipients)
-
-        sent_count = 0
-        failed_count = 0
-
-        yield json.dumps({
-            "type": "start",
-            "total": total,
-            "sent": 0,
-            "failed": 0,
-            "remaining": total,
-        }, ensure_ascii=False) + "\n"
-
-        executor = ThreadPoolExecutor(
-            max_workers=MAX_PARALLEL_SENDS
-        )
-
-        future_map = {}
-
-        try:
-            for recipient_data in clean_recipients:
-                future = executor.submit(
-                    send_one_email,
-                    gmail,
-                    app_password,
-                    sender_name,
-                    subject,
-                    body,
-                    is_html,
-                    recipient_data,
-                )
-
-                future_map[future] = recipient_data
-
-            for future in as_completed(future_map):
-                recipient_data = future_map[future]
-                recipient = recipient_data["email"]
-
-                try:
-                    result = future.result()
-
-                    if result.get("result") == "sent":
-                        sent_count += 1
-
-                        event = {
-                            "type": "progress",
-                            "email": recipient,
-                            "result": "sent",
-                            "total": total,
-                            "sent": sent_count,
-                            "failed": failed_count,
-                            "remaining": total - sent_count - failed_count,
-                        }
-                    else:
-                        failed_count += 1
-
-                        event = {
-                            "type": "progress",
-                            "email": recipient,
-                            "result": "failed",
-                            "error": result.get(
-                                "error",
-                                "SMTP delivery failed.",
-                            ),
-                            "total": total,
-                            "sent": sent_count,
-                            "failed": failed_count,
-                            "remaining": total - sent_count - failed_count,
-                        }
-
-                    yield json.dumps(
-                        event,
-                        ensure_ascii=False,
-                    ) + "\n"
-
-                except smtplib.SMTPAuthenticationError:
-                    failed_count += 1
-
-                    yield json.dumps({
-                        "type": "progress",
-                        "email": recipient,
-                        "result": "failed",
-                        "error": "Gmail authentication failed. Check Gmail and App Password.",
-                        "total": total,
-                        "sent": sent_count,
-                        "failed": failed_count,
-                        "remaining": total - sent_count - failed_count,
-                    }) + "\n"
-
-                except smtplib.SMTPRecipientsRefused:
-                    failed_count += 1
-
-                    yield json.dumps({
-                        "type": "progress",
-                        "email": recipient,
-                        "result": "failed",
-                        "error": "Recipient was refused by the SMTP server.",
-                        "total": total,
-                        "sent": sent_count,
-                        "failed": failed_count,
-                        "remaining": total - sent_count - failed_count,
-                    }) + "\n"
-
-                except (
-                    smtplib.SMTPConnectError,
-                    smtplib.SMTPServerDisconnected,
-                    TimeoutError,
-                    ConnectionError,
-                ):
-                    failed_count += 1
-
-                    yield json.dumps({
-                        "type": "progress",
-                        "email": recipient,
-                        "result": "failed",
-                        "error": "SMTP connection or timeout error.",
-                        "total": total,
-                        "sent": sent_count,
-                        "failed": failed_count,
-                        "remaining": total - sent_count - failed_count,
-                    }) + "\n"
-
-                except smtplib.SMTPException as exc:
-                    failed_count += 1
-
-                    yield json.dumps({
-                        "type": "progress",
-                        "email": recipient,
-                        "result": "failed",
-                        "error": str(exc)[:500],
-                        "total": total,
-                        "sent": sent_count,
-                        "failed": failed_count,
-                        "remaining": total - sent_count - failed_count,
-                    }) + "\n"
-
-                except Exception as exc:
-                    failed_count += 1
-
-                    yield json.dumps({
-                        "type": "progress",
-                        "email": recipient,
-                        "result": "failed",
-                        "error": str(exc)[:500],
-                        "total": total,
-                        "sent": sent_count,
-                        "failed": failed_count,
-                        "remaining": total - sent_count - failed_count,
-                    }) + "\n"
-
-        finally:
-            executor.shutdown(wait=True)
-
-        yield json.dumps({
-            "type": "complete",
-            "success": True,
-            "message": "Sending completed.",
-            "total": total,
-            "sent": sent_count,
-            "failed": failed_count,
-            "remaining": total - sent_count - failed_count,
-        }, ensure_ascii=False) + "\n"
-
-    # =====================================================
-    # RESPONSE
-    # =====================================================
-
-    response = Response(
-        generate(),
-        content_type="application/x-ndjson; charset=utf-8",
-    )
-
-    response.headers["Cache-Control"] = (
-        "no-cache, no-store, must-revalidate, no-transform, max-age=0"
-    )
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    response.headers["X-Accel-Buffering"] = "no"
-    response.headers["X-Content-Type-Options"] = "nosniff"
-
-    return response
-
-
-# =========================================================
-# HEALTH CHECK
-# =========================================================
-
-@app.route("/health")
-def health():
-    return jsonify({
-        "status": "ok",
-        "service": "YATENDRA Mail Console",
-        "mailer": "Gmail SMTP",
-        "parallel_sends": MAX_PARALLEL_SENDS,
-        "send_delay": SEND_DELAY_SECONDS,
-        "max_recipients": MAX_RECIPIENTS,
-        "placeholders": [
-            "{{hi}}",
-            "{{hello}}",
-            "{{thanks}}",
-            "{{name}}",
-            "{{email}}",
-            "{{ref_code}}",
-        ],
-        "authenticated": authenticated(),
-    })
-
-
-# =========================================================
-# LOCAL DEVELOPMENT
-# =========================================================
-
-if __name__ == "__main__":
-    app.run(
-        host="0.0.0.0",
-        port=5000,
-        debug=False,
-    )
+    currentController = null;
+
+    sendButton.disabled = false;
+
+    stopButton.disabled = true;
+}
+
+
+/*
+=========================================================
+STOP
+=========================================================
+*/
+
+function stopSending() {
+
+    if (
+        !sending ||
+        !currentController
+    ) {
+        return;
+    }
+
+
+    currentController.abort();
+
+
+    setStatus(
+        "Stopping...",
+        "error"
+    );
+}
+
+
+/*
+=========================================================
+TOAST
+=========================================================
+*/
+
+function showToast(message) {
+
+    const toast =
+        document.getElementById(
+            "toast"
+        );
+
+
+    toast.textContent =
+        message;
+
+
+    toast.classList.add(
+        "show"
+    );
+
+
+    setTimeout(
+        function() {
+
+            toast.classList.remove(
+                "show"
+            );
+
+        },
+        3500
+    );
+}
+
+
+/*
+Initial state
+*/
+
+updateRecipientCount();
+
+forceBlankMessageBody();
+
+</script>
+
+</body>
+</html>
