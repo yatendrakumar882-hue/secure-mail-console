@@ -5,13 +5,12 @@ import ssl
 import json
 import hmac
 import html
-import time
 import smtplib
 from pathlib import Path
 from datetime import timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid, formatdate
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from flask import (
     Flask,
@@ -35,7 +34,7 @@ app = Flask(
 handler = app
 
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "").strip()
-LOGIN_PASSWORD = os.environ.get("LOGIN_PASSWORD", "").strip()
+LOGIN_PASSWORD = os.environ.get("LOGIN_PASSWORD", "")
 
 if len(SESSION_SECRET) < 32:
     raise RuntimeError(
@@ -57,10 +56,8 @@ app.config.update(
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 465
 SMTP_TIMEOUT = 25
-
 MAX_RECIPIENTS = 25
 MAX_PARALLEL_SENDS = 2
-SEND_DELAY_SECONDS = 0
 
 EMAIL_RE = re.compile(
     r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
@@ -69,7 +66,6 @@ EMAIL_RE = re.compile(
 
 
 def clean(value, limit=250):
-    """Clean header/input values and enforce a length limit."""
     return (
         str(value or "")
         .replace("\r", " ")
@@ -143,9 +139,6 @@ def personalize(value, recipient):
 
 
 def send_one(gmail, app_password, sender_name, subject, body, is_html, recipient):
-    if SEND_DELAY_SECONDS:
-        time.sleep(SEND_DELAY_SECONDS)
-
     message = EmailMessage()
     message["Subject"] = clean(personalize(subject, recipient), 250)
     message["From"] = formataddr((clean(sender_name), gmail))
@@ -164,17 +157,14 @@ def send_one(gmail, app_password, sender_name, subject, body, is_html, recipient
     else:
         message.set_content(content)
 
-    context = ssl.create_default_context()
-
     with smtplib.SMTP_SSL(
         SMTP_HOST,
         SMTP_PORT,
-        context=context,
+        context=ssl.create_default_context(),
         timeout=SMTP_TIMEOUT,
     ) as smtp:
         smtp.ehlo()
         smtp.login(gmail, re.sub(r"\s+", "", app_password))
-
         refused = smtp.send_message(
             message,
             from_addr=gmail,
@@ -193,9 +183,10 @@ def login():
     if request.method == "GET":
         return render_template("login.html", error=None)
 
-    submitted_password = str(request.form.get("password", ""))
-
-    if not hmac.compare_digest(submitted_password, LOGIN_PASSWORD):
+    if not hmac.compare_digest(
+        str(request.form.get("password", "")),
+        LOGIN_PASSWORD,
+    ):
         return render_template(
             "login.html",
             error="Incorrect password.",
@@ -204,7 +195,6 @@ def login():
     session.clear()
     session.permanent = True
     session["authenticated"] = True
-
     return redirect(url_for("home"))
 
 
@@ -218,7 +208,6 @@ def logout():
 def home():
     if not logged_in():
         return redirect(url_for("login"))
-
     return render_template("index.html")
 
 
@@ -228,18 +217,12 @@ def health():
         "status": "ok",
         "smtp": "Gmail SMTP",
         "max_recipients": MAX_RECIPIENTS,
-        "parallel_sends": MAX_PARALLEL_SENDS,
     })
 
 
 @app.route("/favicon.ico")
 def favicon():
     return Response("", status=204)
-
-
-@app.route("/sw.js")
-def service_worker():
-    return Response("", mimetype="application/javascript")
 
 
 @app.route("/send-batch", methods=["POST"])
@@ -264,7 +247,11 @@ def send_batch():
     is_html = data.get("is_html") is True
     incoming = data.get("recipients", [])
 
-    if not sender_name or not valid_email(gmail) or not gmail.endswith("@gmail.com"):
+    if (
+        not sender_name
+        or not valid_email(gmail)
+        or not gmail.endswith("@gmail.com")
+    ):
         return error("Enter a sender name and valid @gmail.com address.")
 
     if not app_password or not subject or not body.strip():
@@ -277,9 +264,7 @@ def send_batch():
         return error("Recipients must be a list.")
 
     if data.get("consent_confirmed") is not True:
-        return error(
-            "Confirm recipients have permission to receive this email."
-        )
+        return error("Confirm recipients have permission to receive this email.")
 
     recipients = []
     seen = set()
@@ -292,19 +277,15 @@ def send_batch():
             invalid += 1
             continue
 
-        if recipient["email"] in seen:
-            continue
-
-        seen.add(recipient["email"])
-        recipients.append(recipient)
+        if recipient["email"] not in seen:
+            seen.add(recipient["email"])
+            recipients.append(recipient)
 
     if not recipients:
         return error("No valid recipients found.")
 
     if len(recipients) > MAX_RECIPIENTS:
-        return error(
-            f"Maximum {MAX_RECIPIENTS} unique recipients per batch."
-        )
+        return error(f"Maximum {MAX_RECIPIENTS} recipients per batch.")
 
     def generate():
         total = len(recipients)
@@ -314,8 +295,8 @@ def send_batch():
         yield event_line({
             "type": "start",
             "total": total,
-            "sent": sent,
-            "failed": failed,
+            "sent": 0,
+            "failed": 0,
             "remaining": total,
             "invalid_skipped": invalid,
         })
@@ -343,83 +324,46 @@ def send_batch():
                 try:
                     future.result()
                     sent += 1
-
-                    event = {
-                        "type": "progress",
-                        "recipient": recipient["email"],
-                        "result": "sent",
-                    }
-
+                    result = "sent"
+                    detail = "Gmail accepted the message."
                 except smtplib.SMTPAuthenticationError:
                     failed += 1
-                    event = {
-                        "type": "progress",
-                        "recipient": recipient["email"],
-                        "result": "failed",
-                        "error": (
-                            "Gmail authentication failed. "
-                            "Check the Gmail address and App Password."
-                        ),
-                    }
-
+                    result = "failed"
+                    detail = "Gmail authentication failed; check App Password."
                 except smtplib.SMTPRecipientsRefused:
                     failed += 1
-                    event = {
-                        "type": "progress",
-                        "recipient": recipient["email"],
-                        "result": "failed",
-                        "error": "Gmail refused this recipient.",
-                    }
-
+                    result = "failed"
+                    detail = "Gmail refused this recipient."
                 except smtplib.SMTPResponseException as exc:
                     failed += 1
-                    event = {
-                        "type": "progress",
-                        "recipient": recipient["email"],
-                        "result": "failed",
-                        "error": (
-                            f"SMTP error {exc.smtp_code}: "
-                            f"{str(exc.smtp_error)[:200]}"
-                        ),
-                    }
-
+                    result = "failed"
+                    detail = f"SMTP error {exc.smtp_code}."
                 except (smtplib.SMTPException, TimeoutError, OSError) as exc:
                     failed += 1
-                    event = {
-                        "type": "progress",
-                        "recipient": recipient["email"],
-                        "result": "failed",
-                        "error": (
-                            f"SMTP/network error: {str(exc)[:200]}"
-                        ),
-                    }
-
+                    result = "failed"
+                    detail = f"SMTP/network error: {str(exc)[:150]}"
                 except Exception:
                     failed += 1
-                    event = {
-                        "type": "progress",
-                        "recipient": recipient["email"],
-                        "result": "failed",
-                        "error": (
-                            "Unexpected error. Check Vercel logs."
-                        ),
-                    }
+                    result = "failed"
+                    detail = "Unexpected error; check Vercel logs."
 
-                event.update({
+                yield event_line({
+                    "type": "progress",
+                    "recipient": recipient["email"],
+                    "result": result,
+                    "error": detail if result == "failed" else None,
                     "total": total,
                     "sent": sent,
                     "failed": failed,
                     "remaining": total - sent - failed,
                 })
 
-                yield event_line(event)
-
         yield event_line({
             "type": "complete",
             "success": failed == 0,
             "message": (
-                "Sending attempt finished. Gmail SMTP acceptance "
-                "does not prove Inbox delivery."
+                "Sending attempt finished. SMTP acceptance does not "
+                "confirm Inbox delivery."
             ),
             "total": total,
             "sent": sent,
@@ -434,7 +378,6 @@ def send_batch():
     response.headers["Cache-Control"] = "no-store, no-cache, no-transform"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Accel-Buffering"] = "no"
-
     return response
 
 
