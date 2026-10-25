@@ -125,13 +125,13 @@ def send_batch():
     html_mode = data.get("htmlMode") is True
 
     if data.get("consentConfirmed") is not True:
-        return jsonify({"error": "Confirm recipient permission first."}), 400
+        return jsonify({"error": "Confirm recipient permission first."}), 200
     if not EMAIL_RE.fullmatch(sender_email):
-        return jsonify({"error": "Enter a valid Gmail address."}), 400
+        return jsonify({"error": "Enter a valid Gmail address."}), 200
     if not app_password:
-        return jsonify({"error": "Enter your Google App Password."}), 400
+        return jsonify({"error": "Enter your Google App Password."}), 200
     if not isinstance(recipients, list):
-        return jsonify({"error": "Recipients must be a list."}), 400
+        return jsonify({"error": "Recipients must be a list."}), 200
 
     recipients = list(dict.fromkeys(
         item.strip() for item in recipients
@@ -139,11 +139,11 @@ def send_batch():
     ))
 
     if not recipients:
-        return jsonify({"error": "No valid recipient addresses found."}), 400
+        return jsonify({"error": "No valid recipient addresses found."}), 200
     if len(recipients) > 25:
-        return jsonify({"error": "Maximum 25 recipients per batch."}), 400
+        return jsonify({"error": "Maximum 25 recipients per batch."}), 200
     if not subject or not body:
-        return jsonify({"error": "Subject and message are required."}), 400
+        return jsonify({"error": "Subject and message are required."}), 200
 
     results = []
     for i, recipient in enumerate(recipients):
