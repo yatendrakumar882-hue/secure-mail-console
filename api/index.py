@@ -7,10 +7,7 @@ import smtplib
 
 from email.message import EmailMessage
 from email.utils import formataddr
-from flask import (
-    Flask, render_template, request, redirect,
-    url_for, session, jsonify
-)
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -36,7 +33,6 @@ try:
 except ValueError:
     SMTP_PORT = 587
 
-# Sending delay is controlled from Vercel Environment Variables.
 try:
     MAIL_GAP_SECONDS = max(
         0.0,
@@ -45,6 +41,7 @@ try:
 except ValueError:
     MAIL_GAP_SECONDS = 1.0
 
+MAX_BATCH_SIZE = 5
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -53,7 +50,6 @@ def logged_in():
 
 
 def expand_spintax(text):
-    """Supports simple forms such as {Hello|Hi|Hey}."""
     return re.sub(
         r"\{([^{}|]+(?:\|[^{}|]+)+)\}",
         lambda match: random.choice(match.group(1).split("|")),
@@ -79,9 +75,7 @@ def send_smtp(
     message["Subject"] = subject
 
     if html_mode:
-        message.set_content(
-            "This email contains HTML content. Please view it in an HTML-capable email client."
-        )
+        message.set_content("Please view this message in an HTML-capable email client.")
         message.add_alternative(body, subtype="html")
     else:
         message.set_content(body)
@@ -110,13 +104,10 @@ def send_smtp(
 
     except smtplib.SMTPAuthenticationError:
         return False, "Gmail login failed. Check Gmail address and App Password."
-
     except smtplib.SMTPRecipientsRefused:
         return False, "Recipient address rejected by SMTP server"
-
     except smtplib.SMTPDataError as exc:
         return False, f"SMTP rejected message (code {exc.smtp_code})"
-
     except (smtplib.SMTPException, OSError, TimeoutError) as exc:
         return False, f"SMTP connection failed: {str(exc)[:160]}"
 
@@ -155,7 +146,6 @@ def logout():
 def index():
     if not logged_in():
         return redirect(url_for("login"))
-
     return render_template("index.html")
 
 
@@ -196,41 +186,48 @@ def send_batch():
         if isinstance(item, str):
             address = item.strip()
             key = address.lower()
-
             if EMAIL_RE.fullmatch(address) and key not in seen:
                 clean_recipients.append(address)
                 seen.add(key)
 
-    if len(clean_recipients) != 1:
-        return jsonify({
-            "error": "Send one recipient per request for live progress."
-        }), 400
+    if not clean_recipients:
+        return jsonify({"error": "No valid recipients found."}), 400
+
+    if len(clean_recipients) > MAX_BATCH_SIZE:
+        return jsonify({"error": "Maximum 5 recipients per batch."}), 400
 
     if not subject or not body:
         return jsonify({"error": "Subject and message are required."}), 400
 
-    recipient = clean_recipients[0]
+    results = []
 
-    ok, detail = send_smtp(
-        recipient,
-        subject,
-        body,
-        sender_name,
-        sender_email,
-        app_password,
-        html_mode,
-    )
+    # Sequential sending within a batch of up to 5 recipients.
+    for index, recipient in enumerate(clean_recipients):
+        ok, detail = send_smtp(
+            recipient,
+            subject,
+            body,
+            sender_name,
+            sender_email,
+            app_password,
+            html_mode,
+        )
 
-    result = {
-        "email": recipient,
-        "status": "sent" if ok else "failed",
-        "detail": detail,
-    }
+        results.append({
+            "email": recipient,
+            "status": "sent" if ok else "failed",
+            "detail": detail,
+        })
+
+        if index < len(clean_recipients) - 1 and MAIL_GAP_SECONDS > 0:
+            time.sleep(MAIL_GAP_SECONDS)
+
+    sent = sum(item["status"] == "sent" for item in results)
 
     return jsonify({
-        "total": 1,
-        "sent": 1 if ok else 0,
-        "failed": 0 if ok else 1,
-        "results": [result],
+        "total": len(results),
+        "sent": sent,
+        "failed": len(results) - sent,
+        "results": results,
         "delaySeconds": MAIL_GAP_SECONDS,
     })
