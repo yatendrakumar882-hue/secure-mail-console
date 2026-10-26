@@ -1,19 +1,16 @@
-import json
 import os
 import re
-import random
 import ssl
-import smtplib
 import time
+import random
+import json
 import urllib.parse
 import urllib.request
+import smtplib
+
 from email.message import EmailMessage
 from email.utils import formataddr
-
-from flask import (
-    Flask, render_template, request, redirect,
-    url_for, session, jsonify
-)
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -24,21 +21,21 @@ app = Flask(
 )
 
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "").strip()
-app.secret_key = SESSION_SECRET or ""
+app.secret_key = SESSION_SECRET
 app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = os.environ.get("VERCEL", "").lower() == "1"
+app.config["SESSION_COOKIE_SECURE"] = bool(os.environ.get("VERCEL"))
 
 LOGIN_PASSWORD = os.environ.get("LOGIN_PASSWORD", "")
-SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip() or "smtp.gmail.com"
+SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
 
 try:
     SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 except ValueError:
     SMTP_PORT = 587
 
-# Delay is controlled by MAIL_GAP_SECONDS in Vercel Environment Variables.
+# Sending delay is configured ONLY in Vercel Environment Variables.
 try:
     MAIL_GAP_SECONDS = max(
         0.0,
@@ -58,13 +55,20 @@ def logged_in():
     return session.get("logged_in") is True
 
 
+def expand_spintax(text):
+    return re.sub(
+        r"\{([^{}|]+(?:\|[^{}|]+)+)\}",
+        lambda match: random.choice(match.group(1).split("|")),
+        text,
+    )
+
+
 def verify_turnstile(token, remote_ip=None):
-    """Verify Cloudflare Turnstile when both keys are configured."""
     if not TURNSTILE_ENABLED:
         return True, None
 
     if not token:
-        return False, "Please complete the security verification and try again."
+        return False, "Please complete security verification."
 
     payload = {
         "secret": TURNSTILE_SECRET_KEY,
@@ -74,11 +78,9 @@ def verify_turnstile(token, remote_ip=None):
     if remote_ip:
         payload["remoteip"] = remote_ip
 
-    encoded = urllib.parse.urlencode(payload).encode("utf-8")
-
     req = urllib.request.Request(
         "https://challenges.cloudflare.com/turnstile/v0/siteverify",
-        data=encoded,
+        data=urllib.parse.urlencode(payload).encode("utf-8"),
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         method="POST",
     )
@@ -90,20 +92,11 @@ def verify_turnstile(token, remote_ip=None):
         if result.get("success") is True:
             return True, None
 
-        return False, "Security verification failed. Refresh and try again."
+        return False, "Security verification failed. Please try again."
 
     except Exception:
-        app.logger.exception("Turnstile verification request failed")
-        return False, "Security verification is temporarily unavailable. Try again later."
-
-
-def expand_spintax(text):
-    """Expand simple Spintax, e.g. {Hello|Hi|Hey}. Nested forms are unsupported."""
-    return re.sub(
-        r"\{([^{}|]+(?:\|[^{}|]+)+)\}",
-        lambda match: random.choice(match.group(1).split("|")),
-        text,
-    )
+        app.logger.exception("Turnstile verification failed")
+        return False, "Security verification is temporarily unavailable."
 
 
 def send_smtp(
@@ -115,8 +108,8 @@ def send_smtp(
     app_password,
     html_mode=False,
 ):
-    body = expand_spintax(body)
     subject = expand_spintax(subject)
+    body = expand_spintax(body)
 
     message = EmailMessage()
     message["From"] = formataddr((sender_name or sender_email, sender_email))
@@ -125,7 +118,7 @@ def send_smtp(
 
     if html_mode:
         message.set_content(
-            "This message contains HTML content. Please view it in an HTML-capable email client."
+            "This message contains HTML. Please use an HTML-capable email client."
         )
         message.add_alternative(body, subtype="html")
     else:
@@ -154,7 +147,7 @@ def send_smtp(
         return True, "SMTP accepted the message; inbox placement is not guaranteed."
 
     except smtplib.SMTPAuthenticationError:
-        return False, "Login failed. Check Gmail address and Google App Password."
+        return False, "Gmail login failed. Check your address and App Password."
 
     except smtplib.SMTPRecipientsRefused:
         return False, "Recipient address rejected by SMTP server"
@@ -177,9 +170,9 @@ def login():
 
     if request.method == "POST":
         if not LOGIN_PASSWORD:
-            error = "Set LOGIN_PASSWORD in Vercel Environment Variables first."
-        elif not SESSION_SECRET:
-            error = "Set a strong SESSION_SECRET in Vercel Environment Variables first."
+            error = "Set LOGIN_PASSWORD in Vercel Environment Variables."
+        elif not SESSION_SECRET or len(SESSION_SECRET) < 32:
+            error = "Set SESSION_SECRET to a random value of at least 32 characters."
         elif request.form.get("password", "") == LOGIN_PASSWORD:
             session.clear()
             session["logged_in"] = True
@@ -225,6 +218,9 @@ def send_batch():
     if data.get("consentConfirmed") is not True:
         return jsonify({"error": "Confirm recipient permission first."}), 400
 
+    if not SESSION_SECRET or len(SESSION_SECRET) < 32:
+        return jsonify({"error": "Configure a strong SESSION_SECRET."}), 500
+
     verified, verify_error = verify_turnstile(
         str(data.get("turnstileToken", "")),
         request.remote_addr,
@@ -234,7 +230,7 @@ def send_batch():
         return jsonify({"error": verify_error}), 400
 
     if not EMAIL_RE.fullmatch(sender_email):
-        return jsonify({"error": "Enter a valid Gmail address."}), 400
+        return jsonify({"error": "Enter a valid sender email address."}), 400
 
     if not app_password:
         return jsonify({"error": "Enter your Google App Password."}), 400
@@ -248,48 +244,47 @@ def send_batch():
     for item in recipients:
         if isinstance(item, str):
             address = item.strip()
-            normalized = address.lower()
+            key = address.lower()
 
-            if EMAIL_RE.fullmatch(address) and normalized not in seen:
-                seen.add(normalized)
+            if EMAIL_RE.fullmatch(address) and key not in seen:
                 clean_recipients.append(address)
+                seen.add(key)
 
     if not clean_recipients:
-        return jsonify({"error": "No valid recipient addresses found."}), 400
+        return jsonify({"error": "No valid recipients found."}), 400
 
-    if len(clean_recipients) > 25:
-        return jsonify({"error": "Maximum 25 recipients per batch."}), 400
+    # One recipient per request allows the UI to update after each result.
+    if len(clean_recipients) != 1:
+        return jsonify({
+            "error": "Send one recipient per request for live progress."
+        }), 400
 
     if not subject or not body:
         return jsonify({"error": "Subject and message are required."}), 400
 
-    results = []
+    recipient = clean_recipients[0]
 
-    for i, recipient in enumerate(clean_recipients):
-        ok, detail = send_smtp(
-            recipient,
-            subject,
-            body,
-            sender_name,
-            sender_email,
-            app_password,
-            html_mode,
-        )
+    ok, detail = send_smtp(
+        recipient,
+        subject,
+        body,
+        sender_name,
+        sender_email,
+        app_password,
+        html_mode,
+    )
 
-        results.append({
-            "email": recipient,
-            "status": "sent" if ok else "failed",
-            "detail": detail,
-        })
-
-        if i < len(clean_recipients) - 1 and MAIL_GAP_SECONDS > 0:
-            time.sleep(MAIL_GAP_SECONDS)
-
-    sent = sum(item["status"] == "sent" for item in results)
+    result = {
+        "email": recipient,
+        "status": "sent" if ok else "failed",
+        "detail": detail,
+    }
 
     return jsonify({
-        "total": len(results),
-        "sent": sent,
-        "failed": len(results) - sent,
-        "results": results,
+        "total": 1,
+        "sent": 1 if ok else 0,
+        "failed": 0 if ok else 1,
+        "results": [result],
+        # Frontend reads the delay from this response; no fixed JS delay.
+        "delaySeconds": MAIL_GAP_SECONDS,
     })
