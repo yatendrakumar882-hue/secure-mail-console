@@ -21,7 +21,7 @@ app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
 LOGIN_PASSWORD = os.environ.get("LOGIN_PASSWORD", "")
 SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
-MAIL_GAP_SECONDS = max(0.0, min(float(os.environ.get("MAIL_GAP_SECONDS", "0.01")), 10.0))
+MAIL_GAP_SECONDS = max(0.0, min(float(os.environ.get("MAIL_GAP_SECONDS", "0.00")), 10.0))
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
