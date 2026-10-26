@@ -36,12 +36,12 @@ except ValueError:
     SMTP_PORT = 465
 
 try:
-    MAIL_GAP_SECONDS = max(
+    MAIL_GAP_MS = max(
         0.0,
-        min(float(os.environ.get("MAIL_GAP_SECONDS", "1")), 60.0)
+        min(float(os.environ.get("MAIL_GAP_MS", "1")), 60.0)
     )
 except ValueError:
-    MAIL_GAP_SECONDS = 1.0
+    MAIL_GAP_MS = 1.0
 
 MAX_BATCH_SIZE = 5
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -210,5 +210,5 @@ def send_batch():
         "sent": int(ok),
         "failed": int(not ok),
         "results": [result],
-        "delaySeconds": MAIL_GAP_SECONDS,
+        "delaySeconds": MAIL_GAP_SMS,
     })
