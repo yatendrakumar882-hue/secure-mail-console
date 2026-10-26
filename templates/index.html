@@ -6,14 +6,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Bulk Email Sender</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-
   <style>
+    #activeSender {
+      font-size: 12px;
+      color: #536783;
+      overflow-wrap: anywhere;
+      margin: 8px 0 14px;
+    }
     .monitor-results {
-      margin-top: 16px;
-      max-height: 300px;
+      margin-top: 14px;
+      max-height: 240px;
       overflow-y: auto;
     }
-
     .monitor-result {
       padding: 9px 2px;
       border-bottom: 1px solid #e5eaf2;
@@ -21,44 +25,24 @@
       line-height: 1.5;
       overflow-wrap: anywhere;
     }
-
     .monitor-result.sent { color: #087e58; }
     .monitor-result.failed { color: #c72d38; }
-
-    .monitor-result .result-detail {
+    .monitor-result small {
       display: block;
-      color: #71829e;
       margin-top: 3px;
+      color: #71829e;
     }
-
-    .monitor-result.pending { color: #8a6a16; }
-
-    #status {
-      overflow-wrap: anywhere;
-    }
-
-    #sendBtn:disabled {
-      opacity: .65;
-      cursor: wait;
-    }
-
-    @media (max-width: 480px) {
-      .monitor-results { max-height: 220px; }
-    }
+    #sendBtn:disabled { opacity: .6; cursor: wait; }
   </style>
 </head>
-
 <body>
+
 <header class="topbar">
-  <div class="app-title">
-    <span class="plane">➤</span> Bulk Email Sender
-  </div>
+  <div class="app-title"><span class="plane">➤</span> Bulk Email Sender</div>
   <a class="logout-btn" href="{{ url_for('logout') }}">↪ Logout</a>
 </header>
 
 <main class="dashboard">
-
-  <!-- COMPOSE MESSAGE -->
   <section class="card compose">
     <h2>✎ Compose Message</h2>
 
@@ -67,66 +51,37 @@
         <label for="senderName">Sender Name</label>
         <input id="senderName" placeholder="Your name" maxlength="100">
       </div>
-
       <div>
         <label for="senderEmail">Your Gmail</label>
-        <input
-          id="senderEmail"
-          type="email"
-          placeholder="your@gmail.com"
-          autocomplete="username"
-          required
-        >
+        <input id="senderEmail" type="email"
+               placeholder="your@gmail.com" autocomplete="username" required>
       </div>
-
       <div>
         <label for="appPassword">App Password</label>
         <div class="password-wrap">
-          <input
-            id="appPassword"
-            type="password"
-            placeholder="Google App Password"
-            autocomplete="off"
-            required
-          >
-          <button
-            type="button"
-            id="togglePassword"
-            aria-label="Show or hide password"
-          >◉</button>
+          <input id="appPassword" type="password"
+                 placeholder="Google App Password" autocomplete="off" required>
+          <button type="button" id="togglePassword"
+                  aria-label="Show or hide password">◉</button>
         </div>
         <small>Use your Google App Password, not your normal account password.</small>
       </div>
-
       <div>
         <label for="subject">Email Subject</label>
-        <input
-          id="subject"
-          placeholder="Email subject"
-          maxlength="200"
-          required
-        >
+        <input id="subject" placeholder="Email subject" maxlength="200" required>
       </div>
     </div>
 
     <div class="body-heading">
       <label for="messageBody">Message Body</label>
       <div class="mode-switch">
-        <button type="button" class="mode active" data-mode="plain">
-          Plain Text
-        </button>
-        <button type="button" class="mode" data-mode="html">
-          HTML
-        </button>
+        <button type="button" class="mode active" data-mode="plain">Plain Text</button>
+        <button type="button" class="mode" data-mode="html">HTML</button>
       </div>
     </div>
 
-    <textarea
-      id="messageBody"
-      class="message-body"
-      placeholder="Write your email message..."
-      required
-    ></textarea>
+    <textarea id="messageBody" class="message-body"
+              placeholder="Write your email message..." required></textarea>
 
     <div class="info-strip">
       <span class="shuffle">⤨</span>
@@ -137,25 +92,14 @@
     </div>
 
     <h3 class="security-heading">◈ Recipient Permission</h3>
-
     <div class="consent-row">
       <input id="consent" type="checkbox">
-      <label for="consent">
-        I confirm these recipients have agreed to receive this email.
-      </label>
+      <label for="consent">I confirm these recipients have agreed to receive this email.</label>
     </div>
-
-    <p class="help-text">
-      Only send messages to recipients who have consented.
-    </p>
-    <p class="help-text">
-      Form details remain unchanged after sending.
-    </p>
+    <p class="help-text">Only send messages to recipients who have consented.</p>
   </section>
 
   <div class="right-column">
-
-    <!-- RECIPIENTS -->
     <section class="card recipients-card">
       <div class="section-heading">
         <div>
@@ -164,61 +108,33 @@
         </div>
         <span id="foundBadge" class="badge">0 found</span>
       </div>
-
-      <textarea
-        id="recipients"
-        class="recipient-input"
-        placeholder="person@example.com&#10;another@example.com"
-      ></textarea>
-
-      <small>Maximum 25 recipients per sending job; batches of 5.</small>
+      <textarea id="recipients" class="recipient-input"
+                placeholder="person@example.com&#10;another@example.com"></textarea>
+      <small>Maximum 25 recipients per job; batches of 5.</small>
     </section>
 
-    <!-- ONE PROGRESS MONITOR ONLY -->
     <section class="card progress-card">
       <h2>◔ Progress Monitor</h2>
+      <p id="activeSender">No sending job selected</p>
 
       <div class="stats-grid">
-        <div class="stat">
-          <span>TOTAL</span>
-          <strong id="total">0</strong>
-        </div>
-
-        <div class="stat">
-          <span>SENT</span>
-          <strong class="green" id="sent">0</strong>
-        </div>
-
-        <div class="stat">
-          <span>FAILED</span>
-          <strong class="red" id="failed">0</strong>
-        </div>
-
-        <div class="stat">
-          <span>REMAINING</span>
-          <strong class="orange" id="remaining">0</strong>
-        </div>
+        <div class="stat"><span>TOTAL</span><strong id="total">0</strong></div>
+        <div class="stat"><span>SENT</span><strong class="green" id="sent">0</strong></div>
+        <div class="stat"><span>FAILED</span><strong class="red" id="failed">0</strong></div>
+        <div class="stat"><span>REMAINING</span><strong class="orange" id="remaining">0</strong></div>
       </div>
 
       <div class="progress-track">
         <div id="progressBar"></div>
       </div>
 
-      <p id="status" class="status" role="status" aria-live="polite">
-        Ready to send
-      </p>
+      <p id="status" class="status" role="status" aria-live="polite">Ready to send</p>
 
       <div class="action-row">
-        <button id="sendBtn" class="send-btn" type="button">
-          ➤ Send All
-        </button>
-
-        <button id="stopBtn" class="stop-btn" type="button" disabled>
-          ■ Stop Sending
-        </button>
+        <button id="sendBtn" class="send-btn" type="button">➤ Send All</button>
+        <button id="stopBtn" class="stop-btn" type="button" disabled>■ Stop Sending</button>
       </div>
 
-      <!-- All recipient results appear here; no separate job cards. -->
       <div id="results" class="monitor-results" aria-live="polite"></div>
     </section>
   </div>
@@ -227,21 +143,10 @@
 <script>
 (() => {
   const $ = id => document.getElementById(id);
-
   let mode = "plain";
+  let activeJob = null;
   let nextJobId = 0;
   let stopRequested = false;
-  let activeRuns = 0;
-
-  // Every run owns its snapshot, but all results appear in one monitor.
-  const jobs = [];
-
-  const totals = {
-    total: 0,
-    sent: 0,
-    failed: 0,
-    processed: 0
-  };
 
   $("togglePassword").addEventListener("click", () => {
     const input = $("appPassword");
@@ -251,7 +156,6 @@
   document.querySelectorAll(".mode").forEach(button => {
     button.addEventListener("click", () => {
       mode = button.dataset.mode;
-
       document.querySelectorAll(".mode").forEach(item => {
         item.classList.toggle("active", item === button);
       });
@@ -271,55 +175,30 @@
     $("foundBadge").textContent = `${getRecipients().length} found`;
   });
 
-  function updateMonitor() {
-    $("total").textContent = totals.total;
-    $("sent").textContent = totals.sent;
-    $("failed").textContent = totals.failed;
-    $("remaining").textContent =
-      Math.max(0, totals.total - totals.processed);
+  function updateMonitor(job) {
+    $("activeSender").textContent = `Sending from: ${job.senderEmail}`;
+    $("total").textContent = job.total;
+    $("sent").textContent = job.sent;
+    $("failed").textContent = job.failed;
+    $("remaining").textContent = job.total - job.processed;
 
-    const percent = totals.total
-      ? Math.round(totals.processed / totals.total * 100)
+    const percent = job.total
+      ? Math.round(job.processed / job.total * 100)
       : 0;
-
     $("progressBar").style.width = `${percent}%`;
-
-    const remaining = Math.max(0, totals.total - totals.processed);
-
-    if (activeRuns > 0) {
-      $("status").textContent =
-        `${activeRuns} active sending job(s) · ` +
-        `${totals.processed}/${totals.total} processed`;
-    } else if (totals.total > 0 && remaining === 0) {
-      $("status").textContent =
-        `Completed · Sent ${totals.sent} · Failed ${totals.failed}`;
-    } else if (stopRequested) {
-      $("status").textContent =
-        `Stopped · Sent ${totals.sent} · Failed ${totals.failed} · Remaining ${remaining}`;
-    } else {
-      $("status").textContent = "Ready to send";
-    }
-
-    $("sendBtn").disabled = activeRuns > 0;
-    $("stopBtn").disabled = activeRuns === 0;
   }
 
-  function addResult(email, status, detail, senderEmail) {
+  function addResult(item) {
     const row = document.createElement("div");
-    row.className = `monitor-result ${status}`;
+    row.className = `monitor-result ${item.status}`;
 
-    const heading = document.createElement("strong");
-    heading.textContent = `${status.toUpperCase()} — ${email}`;
+    const title = document.createElement("strong");
+    title.textContent = `${item.status.toUpperCase()} — ${item.email}`;
 
-    const detailLine = document.createElement("span");
-    detailLine.className = "result-detail";
-    detailLine.textContent = detail;
+    const detail = document.createElement("small");
+    detail.textContent = item.detail || "";
 
-    const senderLine = document.createElement("span");
-    senderLine.className = "result-detail";
-    senderLine.textContent = `Sender: ${senderEmail}`;
-
-    row.append(heading, detailLine, senderLine);
+    row.append(title, detail);
     $("results").prepend(row);
   }
 
@@ -327,40 +206,17 @@
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  function createSnapshot() {
-    return {
-      id: ++nextJobId,
-      senderEmail: $("senderEmail").value.trim(),
-      appPassword: $("appPassword").value.trim(),
-      senderName: $("senderName").value.trim(),
-      subject: $("subject").value.trim(),
-      body: $("messageBody").value.trim(),
-      htmlMode: mode === "html",
-      consentConfirmed: $("consent").checked,
-      recipients: [...getRecipients()],
-      stopped: false,
-      finished: false,
-      delaySeconds: 0
-    };
-  }
-
   async function runJob(job) {
     try {
+      $("status").textContent = "Sending started…";
+
       for (let start = 0; start < job.recipients.length; start += 5) {
         if (job.stopped) break;
 
         const batch = job.recipients.slice(start, start + 5);
 
-        $("status").textContent =
-          `Batch ${Math.floor(start / 5) + 1} · ` +
-          `Processing ${totals.processed}/${totals.total}`;
-
-        // The backend currently accepts one recipient per request.
-        // Each result is therefore reflected immediately.
         for (const recipient of batch) {
           if (job.stopped) break;
-
-          let resultReceived = false;
 
           try {
             const response = await fetch("/send-batch", {
@@ -379,144 +235,116 @@
             });
 
             const data = await response.json();
-
             if (!response.ok) {
               throw new Error(data.error || "Sending request failed.");
             }
 
             const item = data.results && data.results[0];
+            if (!item) throw new Error("No result returned.");
 
-            if (!item) {
-              throw new Error("Server returned no recipient result.");
-            }
+            job.delaySeconds = Math.max(0, Number(data.delaySeconds) || 0);
+            if (item.status === "sent") job.sent++;
+            else job.failed++;
 
-            job.delaySeconds = Math.max(
-              0,
-              Number(data.delaySeconds) || 0
-            );
-
-            if (item.status === "sent") {
-              totals.sent++;
-            } else {
-              totals.failed++;
-            }
-
-            totals.processed++;
-            resultReceived = true;
-
-            addResult(
-              item.email,
-              item.status,
-              item.detail,
-              job.senderEmail
-            );
-
-            updateMonitor();
-
-          } catch (error) {
-            // Avoid automatic retries because SMTP may have accepted the
-            // message even if the browser did not receive the response.
-            job.stopped = true;
-
-            addResult(
-              recipient,
-              "failed",
-              `Request error; delivery may be uncertain: ${error.message}`,
-              job.senderEmail
-            );
+            job.processed++;
+            addResult(item);
+            updateMonitor(job);
 
             $("status").textContent =
-              `Stopped after a request error for ${recipient}.`;
+              `${job.processed}/${job.total} processed · Sent ${job.sent} · Failed ${job.failed}`;
 
+            if (job.processed < job.total && job.delaySeconds > 0) {
+              await sleep(job.delaySeconds * 1000);
+            }
+          } catch (error) {
+            job.stopped = true;
+            $("status").textContent =
+              `Request error: ${error.message}. Delivery may be uncertain.`;
             break;
-          }
-
-          if (
-            resultReceived &&
-            !job.stopped &&
-            job.delaySeconds > 0 &&
-            totals.processed < totals.total
-          ) {
-            await sleep(job.delaySeconds * 1000);
           }
         }
       }
+
+      $("status").textContent = job.stopped
+        ? `Stopped · Sent ${job.sent} · Failed ${job.failed} · Remaining ${job.total - job.processed}`
+        : `Completed · Sent ${job.sent} · Failed ${job.failed} · Remaining ${job.total - job.processed}`;
+
     } finally {
       job.finished = true;
-
-      // Do not clear the visible form fields.
-      // Clear the in-memory job password after completion.
       job.appPassword = "";
-
-      activeRuns = Math.max(0, activeRuns - 1);
-      updateMonitor();
+      $("sendBtn").disabled = false;
+      $("stopBtn").disabled = true;
     }
   }
 
   $("stopBtn").addEventListener("click", () => {
-    stopRequested = true;
-
-    for (const job of jobs) {
-      if (!job.finished) {
-        job.stopped = true;
-      }
+    if (activeJob) {
+      activeJob.stopped = true;
+      stopRequested = true;
+      $("status").textContent = "Stop requested; current request may finish.";
+      $("stopBtn").disabled = true;
     }
-
-    $("status").textContent =
-      "Stopping active jobs after their current request.";
   });
 
   $("sendBtn").addEventListener("click", () => {
+    if (activeJob && !activeJob.finished) {
+      $("status").textContent =
+        "The current Gmail ID is still sending. Wait until it finishes.";
+      return;
+    }
+
+    const recipients = getRecipients();
     const senderEmail = $("senderEmail").value.trim();
     const appPassword = $("appPassword").value.trim();
     const subject = $("subject").value.trim();
     const body = $("messageBody").value.trim();
-    const recipients = getRecipients();
 
-    if (
-      !senderEmail ||
-      !appPassword ||
-      !subject ||
-      !body ||
-      recipients.length === 0
-    ) {
-      $("status").textContent =
-        "Complete the Gmail, App Password, recipients, subject and message fields.";
+    if (!senderEmail || !appPassword || !subject || !body || !recipients.length) {
+      $("status").textContent = "Complete all required fields first.";
       return;
     }
 
     if (recipients.length > 25) {
-      $("status").textContent =
-        "Maximum 25 recipients per sending job.";
+      $("status").textContent = "Maximum 25 recipients per job.";
       return;
     }
 
     if (!$("consent").checked) {
-      $("status").textContent =
-        "Confirm recipient permission before sending.";
+      $("status").textContent = "Confirm recipient permission first.";
       return;
     }
 
-    if (activeRuns > 0) {
-      $("status").textContent =
-        "Wait for the active job to finish before starting another job.";
-      return;
-    }
+    const job = {
+      id: ++nextJobId,
+      senderEmail,
+      appPassword,
+      senderName: $("senderName").value.trim(),
+      subject,
+      body,
+      htmlMode: mode === "html",
+      consentConfirmed: true,
+      recipients: [...recipients],
+      total: recipients.length,
+      sent: 0,
+      failed: 0,
+      processed: 0,
+      stopped: false,
+      finished: false,
+      delaySeconds: 0
+    };
 
-    // Snapshot means later edits do not alter the active job.
-    const job = createSnapshot();
-
-    jobs.push(job);
-
-    totals.total += job.recipients.length;
+    // The monitor belongs only to the currently selected sending job.
+    activeJob = job;
     stopRequested = false;
-    activeRuns++;
+    $("results").replaceChildren();
+    $("status").textContent = "Preparing to send…";
+    $("sendBtn").disabled = true;
+    $("stopBtn").disabled = false;
 
-    // Keep the Gmail, password, subject, body and recipients on screen.
-    // Nothing is reset after clicking Send All.
-    updateMonitor();
-
+    updateMonitor(job);
     void runJob(job);
+
+    // Intentionally do not reset any form fields.
   });
 })();
 </script>
