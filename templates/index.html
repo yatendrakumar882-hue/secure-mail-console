@@ -4,11 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Bulk Email Sender</title>
-
-  {% if turnstile_site_key %}
-  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
-  {% endif %}
-
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -70,21 +65,13 @@
       </div>
     </div>
 
-    <h3 class="security-heading">◈ Spam Protection</h3>
-
+    <h3 class="security-heading">◈ Recipient Permission</h3>
     <div class="consent-row">
       <input id="consent" type="checkbox">
       <label for="consent">
         I confirm these recipients have agreed to receive this email.
       </label>
     </div>
-
-    {% if turnstile_site_key %}
-    <div style="margin-top:14px">
-      <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}"></div>
-    </div>
-    {% endif %}
-
     <p class="help-text">Only send messages to recipients who have consented.</p>
     <p class="help-text">Your App Password is not saved to browser storage.</p>
   </section>
@@ -182,13 +169,13 @@
   function updateProgress(total, sent, failed, processed) {
     $("sent").textContent = sent;
     $("failed").textContent = failed;
-    $("remaining").textContent = Math.max(0, total - processed);
+    $("remaining").textContent = total - processed;
 
-    const percent = total
+    const percentage = total
       ? Math.round(processed / total * 100)
       : 0;
 
-    $("progressBar").style.width = `${percent}%`;
+    $("progressBar").style.width = `${percentage}%`;
   }
 
   function sleep(ms) {
@@ -198,7 +185,7 @@
   $("stopBtn").addEventListener("click", () => {
     stopped = true;
     $("status").textContent =
-      "Stop requested. Waiting for the current email to finish.";
+      "Stop requested. The current email request may finish first.";
     $("stopBtn").disabled = true;
   });
 
@@ -230,7 +217,6 @@
 
     busy = true;
     stopped = false;
-
     $("sendBtn").disabled = true;
     $("stopBtn").disabled = false;
     $("results").replaceChildren();
@@ -240,22 +226,18 @@
     let failed = 0;
     let processed = 0;
     let delaySeconds = 0;
+    let interrupted = false;
 
     $("total").textContent = total;
     updateProgress(total, sent, failed, processed);
-    $("status").textContent = "Starting email delivery…";
+    $("status").textContent = "Starting sending…";
 
     try {
       for (const recipient of recipients) {
         if (stopped) break;
 
         $("status").textContent =
-          `Sending email ${processed + 1} of ${total}…`;
-
-        const tokenInput =
-          document.querySelector('[name="cf-turnstile-response"]');
-
-        const turnstileToken = tokenInput ? tokenInput.value : "";
+          `Sending ${processed + 1} of ${total}: ${recipient}`;
 
         let response;
         let data;
@@ -263,9 +245,7 @@
         try {
           response = await fetch("/send-batch", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json"
-            },
+            headers: {"Content-Type": "application/json"},
             body: JSON.stringify({
               recipients: [recipient],
               senderEmail,
@@ -274,30 +254,16 @@
               subject,
               body,
               htmlMode: mode === "html",
-              consentConfirmed: $("consent").checked,
-              turnstileToken
+              consentConfirmed: $("consent").checked
             })
           });
 
           data = await response.json();
 
         } catch (error) {
-          // Network failure: mark this recipient as failed and update the UI.
-          failed++;
-          processed++;
-
-          showResult({
-            email: recipient,
-            status: "failed",
-            detail: "Network error: " + error.message
-          });
-
-          updateProgress(total, sent, failed, processed);
+          interrupted = true;
           $("status").textContent =
-            `Processed ${processed} of ${total}; network error occurred.`;
-
-          // Avoid continuing after a network failure because delivery
-          // status may be uncertain for the affected request.
+            `Connection error. Delivery status for ${recipient} may be uncertain.`;
           break;
         }
 
@@ -305,9 +271,15 @@
           throw new Error(data.error || "Sending request failed.");
         }
 
-        delaySeconds = Number(data.delaySeconds) || 0;
+        delaySeconds = Math.max(0, Number(data.delaySeconds) || 0);
 
-        for (const item of data.results || []) {
+        const items = data.results || [];
+
+        if (items.length !== 1) {
+          throw new Error("Unexpected server response. Check the backend deployment.");
+        }
+
+        for (const item of items) {
           showResult(item);
 
           if (item.status === "sent") {
@@ -318,28 +290,27 @@
 
           processed++;
 
-          // Update immediately after each recipient's result.
+          // Update counters immediately after each server result.
           updateProgress(total, sent, failed, processed);
 
           $("status").textContent =
-            `Processed ${processed} of ${total} — Sent: ${sent}, Failed: ${failed}`;
+            `Processed ${processed}/${total} · Sent ${sent} · Failed ${failed}`;
         }
 
         if (processed < total && !stopped && delaySeconds > 0) {
-          // Delay comes from the backend's MAIL_GAP_SECONDS environment setting.
           await sleep(delaySeconds * 1000);
         }
       }
 
       if (stopped) {
         $("status").textContent =
-          `Stopped. Sent: ${sent}, Failed: ${failed}, Remaining: ${total - processed}.`;
-      } else if (processed === total) {
+          `Stopped · Sent ${sent} · Failed ${failed} · Remaining ${total - processed}`;
+      } else if (interrupted) {
         $("status").textContent =
-          `Completed. Sent: ${sent}, Failed: ${failed}, Remaining: 0.`;
+          `Interrupted · Sent ${sent} · Failed ${failed} · Remaining ${total - processed}`;
       } else {
         $("status").textContent =
-          `Paused after ${processed} of ${total}. Sent: ${sent}, Failed: ${failed}, Remaining: ${total - processed}.`;
+          `Finished · Sent ${sent} · Failed ${failed} · Remaining ${total - processed}`;
       }
 
     } catch (error) {
@@ -349,12 +320,6 @@
       busy = false;
       $("sendBtn").disabled = false;
       $("stopBtn").disabled = true;
-
-      if (window.turnstile && document.querySelector(".cf-turnstile")) {
-        try {
-          window.turnstile.reset();
-        } catch (_) {}
-      }
     }
   });
 })();
