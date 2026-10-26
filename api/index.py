@@ -4,10 +4,13 @@ import ssl
 import time
 import random
 import smtplib
-
 from email.message import EmailMessage
 from email.utils import formataddr
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+
+from flask import (
+    Flask, render_template, request, redirect,
+    url_for, session, jsonify
+)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -75,7 +78,9 @@ def send_smtp(
     message["Subject"] = subject
 
     if html_mode:
-        message.set_content("Please view this message in an HTML-capable email client.")
+        message.set_content(
+            "This message contains HTML content. Please view it in an HTML-capable email client."
+        )
         message.add_alternative(body, subtype="html")
     else:
         message.set_content(body)
@@ -103,7 +108,7 @@ def send_smtp(
         return True, "SMTP accepted the message; inbox placement is not guaranteed."
 
     except smtplib.SMTPAuthenticationError:
-        return False, "Gmail login failed. Check Gmail address and App Password."
+        return False, "Gmail login failed. Check the Gmail address and App Password."
     except smtplib.SMTPRecipientsRefused:
         return False, "Recipient address rejected by SMTP server"
     except smtplib.SMTPDataError as exc:
@@ -201,7 +206,7 @@ def send_batch():
 
     results = []
 
-    # Sequential sending within a batch of up to 5 recipients.
+    # Each job sends its own batch independently.
     for index, recipient in enumerate(clean_recipients):
         ok, detail = send_smtp(
             recipient,
