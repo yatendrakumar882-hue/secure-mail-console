@@ -1,10 +1,12 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Bulk Email Sender</title>
+  {% if turnstile_site_key %}
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+  {% endif %}
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -68,6 +70,13 @@
       <input id="consent" type="checkbox">
       <label for="consent">I confirm these recipients have agreed to receive this email.</label>
     </div>
+
+    {% if turnstile_site_key %}
+    <div class="turnstile-wrap" style="margin-top:14px">
+      <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}"></div>
+    </div>
+    {% endif %}
+
     <p class="help-text">Only send messages to recipients who have consented.</p>
     <p class="help-text">The App Password remains in this form after sending. It is not saved to browser storage.</p>
   </section>
@@ -202,62 +211,62 @@
     $("status").textContent = "Sending…";
 
     try {
-      for (let start = 0; start < recipients.length; start += 5) {
-        if (stopped) break;
+      const turnstileInput =
+        document.querySelector('[name="cf-turnstile-response"]');
+      const turnstileToken = turnstileInput ? turnstileInput.value : "";
 
-        const batch = recipients.slice(start, start + 5);
+      const response = await fetch("/send-batch", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          recipients,
+          senderEmail,
+          appPassword,
+          senderName,
+          subject,
+          body,
+          htmlMode: mode === "html",
+          consentConfirmed: $("consent").checked,
+          turnstileToken
+        })
+      });
 
-        const response = await fetch("/send-batch", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({
-            recipients: batch,
-            senderEmail,
-            appPassword,
-            senderName,
-            subject,
-            body,
-            htmlMode: mode === "html",
-            consentConfirmed: $("consent").checked
-          })
-        });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Sending request failed.");
+      }
 
-        const data = await response.json();
+      for (const item of data.results || []) {
+        showResult(item);
+        if (item.status === "sent") sent++;
+        else failed++;
 
-        if (!response.ok) {
-          throw new Error(data.error || "Sending request failed.");
-        }
-
-        for (const item of data.results || []) {
-          showResult(item);
-          if (item.status === "sent") sent++;
-          else failed++;
-          processed++;
-        }
-
+        processed++;
         $("sent").textContent = sent;
         $("failed").textContent = failed;
         $("remaining").textContent = recipients.length - processed;
         $("progressBar").style.width =
           `${Math.round(processed / recipients.length * 100)}%`;
-        $("status").textContent =
-          `Processed ${processed} of ${recipients.length}`;
       }
 
-      $("status").textContent = stopped
-        ? `Stopped. SMTP accepted: ${sent}; failed: ${failed}.`
-        : `Finished. SMTP accepted: ${sent}; failed: ${failed}.`;
+      $("status").textContent =
+        `Finished. SMTP accepted: ${sent}; failed: ${failed}.`;
 
     } catch (error) {
       $("status").textContent = `Error: ${error.message}`;
 
     } finally {
+      if (window.turnstile && document.querySelector(".cf-turnstile")) {
+        try {
+          window.turnstile.reset();
+        } catch (_) {}
+      }
+
       busy = false;
       $("sendBtn").disabled = false;
       $("stopBtn").disabled = true;
 
-      // FIX: App Password ko clear nahi karna.
-      // Isliye sending ke baad field ki value bani rahegi.
+      // App Password ko sending ke baad clear nahi kiya jata.
     }
   });
 })();
