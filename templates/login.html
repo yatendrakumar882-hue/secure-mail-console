@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -18,8 +17,14 @@
 
     <form method="post" action="{{ url_for('login') }}">
       <label for="password">Workspace Password</label>
-      <input id="password" name="password" type="password"
-             placeholder="Enter password" autocomplete="current-password" required>
+      <input
+        id="password"
+        name="password"
+        type="password"
+        placeholder="Enter password"
+        autocomplete="current-password"
+        required
+      >
       <button class="primary-btn" type="submit">Sign in ›</button>
     </form>
   </main>
