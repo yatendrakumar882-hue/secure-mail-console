@@ -3,14 +3,14 @@ import re
 import ssl
 import time
 import random
-import json
-import urllib.parse
-import urllib.request
 import smtplib
 
 from email.message import EmailMessage
 from email.utils import formataddr
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from flask import (
+    Flask, render_template, request, redirect,
+    url_for, session, jsonify
+)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -21,13 +21,14 @@ app = Flask(
 )
 
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "").strip()
+LOGIN_PASSWORD = os.environ.get("LOGIN_PASSWORD", "")
+
 app.secret_key = SESSION_SECRET
 app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = bool(os.environ.get("VERCEL"))
 
-LOGIN_PASSWORD = os.environ.get("LOGIN_PASSWORD", "")
 SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
 
 try:
@@ -35,7 +36,7 @@ try:
 except ValueError:
     SMTP_PORT = 587
 
-# Sending delay is configured ONLY in Vercel Environment Variables.
+# Sending delay is controlled from Vercel Environment Variables.
 try:
     MAIL_GAP_SECONDS = max(
         0.0,
@@ -43,10 +44,6 @@ try:
     )
 except ValueError:
     MAIL_GAP_SECONDS = 1.0
-
-TURNSTILE_SITE_KEY = os.environ.get("TURNSTILE_SITE_KEY", "").strip()
-TURNSTILE_SECRET_KEY = os.environ.get("TURNSTILE_SECRET_KEY", "").strip()
-TURNSTILE_ENABLED = bool(TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY)
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -56,47 +53,12 @@ def logged_in():
 
 
 def expand_spintax(text):
+    """Supports simple forms such as {Hello|Hi|Hey}."""
     return re.sub(
         r"\{([^{}|]+(?:\|[^{}|]+)+)\}",
         lambda match: random.choice(match.group(1).split("|")),
         text,
     )
-
-
-def verify_turnstile(token, remote_ip=None):
-    if not TURNSTILE_ENABLED:
-        return True, None
-
-    if not token:
-        return False, "Please complete security verification."
-
-    payload = {
-        "secret": TURNSTILE_SECRET_KEY,
-        "response": token,
-    }
-
-    if remote_ip:
-        payload["remoteip"] = remote_ip
-
-    req = urllib.request.Request(
-        "https://challenges.cloudflare.com/turnstile/v0/siteverify",
-        data=urllib.parse.urlencode(payload).encode("utf-8"),
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        method="POST",
-    )
-
-    try:
-        with urllib.request.urlopen(req, timeout=8) as response:
-            result = json.loads(response.read().decode("utf-8"))
-
-        if result.get("success") is True:
-            return True, None
-
-        return False, "Security verification failed. Please try again."
-
-    except Exception:
-        app.logger.exception("Turnstile verification failed")
-        return False, "Security verification is temporarily unavailable."
 
 
 def send_smtp(
@@ -118,7 +80,7 @@ def send_smtp(
 
     if html_mode:
         message.set_content(
-            "This message contains HTML. Please use an HTML-capable email client."
+            "This email contains HTML content. Please view it in an HTML-capable email client."
         )
         message.add_alternative(body, subtype="html")
     else:
@@ -147,7 +109,7 @@ def send_smtp(
         return True, "SMTP accepted the message; inbox placement is not guaranteed."
 
     except smtplib.SMTPAuthenticationError:
-        return False, "Gmail login failed. Check your address and App Password."
+        return False, "Gmail login failed. Check Gmail address and App Password."
 
     except smtplib.SMTPRecipientsRefused:
         return False, "Recipient address rejected by SMTP server"
@@ -171,7 +133,7 @@ def login():
     if request.method == "POST":
         if not LOGIN_PASSWORD:
             error = "Set LOGIN_PASSWORD in Vercel Environment Variables."
-        elif not SESSION_SECRET or len(SESSION_SECRET) < 32:
+        elif len(SESSION_SECRET) < 32:
             error = "Set SESSION_SECRET to a random value of at least 32 characters."
         elif request.form.get("password", "") == LOGIN_PASSWORD:
             session.clear()
@@ -194,16 +156,16 @@ def index():
     if not logged_in():
         return redirect(url_for("login"))
 
-    return render_template(
-        "index.html",
-        turnstile_site_key=TURNSTILE_SITE_KEY if TURNSTILE_ENABLED else "",
-    )
+    return render_template("index.html")
 
 
 @app.post("/send-batch")
 def send_batch():
     if not logged_in():
         return jsonify({"error": "Please sign in again."}), 401
+
+    if len(SESSION_SECRET) < 32:
+        return jsonify({"error": "Configure a strong SESSION_SECRET."}), 500
 
     data = request.get_json(silent=True) or {}
 
@@ -217,17 +179,6 @@ def send_batch():
 
     if data.get("consentConfirmed") is not True:
         return jsonify({"error": "Confirm recipient permission first."}), 400
-
-    if not SESSION_SECRET or len(SESSION_SECRET) < 32:
-        return jsonify({"error": "Configure a strong SESSION_SECRET."}), 500
-
-    verified, verify_error = verify_turnstile(
-        str(data.get("turnstileToken", "")),
-        request.remote_addr,
-    )
-
-    if not verified:
-        return jsonify({"error": verify_error}), 400
 
     if not EMAIL_RE.fullmatch(sender_email):
         return jsonify({"error": "Enter a valid sender email address."}), 400
@@ -250,10 +201,6 @@ def send_batch():
                 clean_recipients.append(address)
                 seen.add(key)
 
-    if not clean_recipients:
-        return jsonify({"error": "No valid recipients found."}), 400
-
-    # One recipient per request allows the UI to update after each result.
     if len(clean_recipients) != 1:
         return jsonify({
             "error": "Send one recipient per request for live progress."
@@ -285,6 +232,5 @@ def send_batch():
         "sent": 1 if ok else 0,
         "failed": 0 if ok else 1,
         "results": [result],
-        # Frontend reads the delay from this response; no fixed JS delay.
         "delaySeconds": MAIL_GAP_SECONDS,
     })
