@@ -242,7 +242,7 @@
             const item = data.results && data.results[0];
             if (!item) throw new Error("No result returned.");
 
-            job.delaySeconds = Math.max(0, Number(data.delaySeconds) || 0);
+            job.delayMs = Math.max(0, Number(data.delayMs) || 0);
             if (item.status === "sent") job.sent++;
             else job.failed++;
 
@@ -253,8 +253,8 @@
             $("status").textContent =
               `${job.processed}/${job.total} processed · Sent ${job.sent} · Failed ${job.failed}`;
 
-            if (job.processed < job.total && job.delaySeconds > 0) {
-              await sleep(job.delaySeconds * 1000);
+            if (job.processed < job.total && job.delayMS > 0) {
+              await sleep(job.delayMS * 1000);
             }
           } catch (error) {
             job.stopped = true;
@@ -330,7 +330,7 @@
       processed: 0,
       stopped: false,
       finished: false,
-      delaySeconds: 0
+      delayMs: 0
     };
 
     // The monitor belongs only to the currently selected sending job.
