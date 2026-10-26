@@ -4,12 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Bulk Email Sender</title>
+
   {% if turnstile_site_key %}
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   {% endif %}
+
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+
 <header class="topbar">
   <div class="app-title"><span class="plane">➤</span> Bulk Email Sender</div>
   <a class="logout-btn" href="{{ url_for('logout') }}">↪ Logout</a>
@@ -24,22 +27,24 @@
         <label for="senderName">Sender Name</label>
         <input id="senderName" placeholder="Your name" maxlength="100">
       </div>
+
       <div>
         <label for="senderEmail">Your Gmail</label>
-        <input id="senderEmail" type="email" placeholder="your@gmail.com"
-               autocomplete="username" required>
+        <input id="senderEmail" type="email"
+               placeholder="your@gmail.com" autocomplete="username" required>
       </div>
+
       <div>
         <label for="appPassword">App Password</label>
         <div class="password-wrap">
           <input id="appPassword" type="password"
-                 placeholder="Google App Password"
-                 autocomplete="current-password" required>
+                 placeholder="Google App Password" required>
           <button type="button" id="togglePassword"
                   aria-label="Show or hide password">◉</button>
         </div>
         <small>Use your Google App Password, not your normal account password.</small>
       </div>
+
       <div>
         <label for="subject">Email Subject</label>
         <input id="subject" placeholder="Email subject" maxlength="200" required>
@@ -66,19 +71,22 @@
     </div>
 
     <h3 class="security-heading">◈ Spam Protection</h3>
+
     <div class="consent-row">
       <input id="consent" type="checkbox">
-      <label for="consent">I confirm these recipients have agreed to receive this email.</label>
+      <label for="consent">
+        I confirm these recipients have agreed to receive this email.
+      </label>
     </div>
 
     {% if turnstile_site_key %}
-    <div class="turnstile-wrap" style="margin-top:14px">
+    <div style="margin-top:14px">
       <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}"></div>
     </div>
     {% endif %}
 
     <p class="help-text">Only send messages to recipients who have consented.</p>
-    <p class="help-text">The App Password remains in this form after sending. It is not saved to browser storage.</p>
+    <p class="help-text">Your App Password is not saved to browser storage.</p>
   </section>
 
   <div class="right-column">
@@ -90,13 +98,15 @@
         </div>
         <span id="foundBadge" class="badge">0 found</span>
       </div>
+
       <textarea id="recipients" class="recipient-input"
                 placeholder="person@example.com&#10;another@example.com"></textarea>
-      <small>Maximum 25 recipients per batch.</small>
+      <small>Maximum 25 recipients per run.</small>
     </section>
 
     <section class="card progress-card">
       <h2>◔ Progress Monitor</h2>
+
       <div class="stats-grid">
         <div class="stat"><span>TOTAL</span><strong id="total">0</strong></div>
         <div class="stat"><span>SENT</span><strong class="green" id="sent">0</strong></div>
@@ -104,14 +114,22 @@
         <div class="stat"><span>REMAINING</span><strong class="orange" id="remaining">0</strong></div>
       </div>
 
-      <div class="progress-track"><div id="progressBar"></div></div>
-      <p id="status" class="status" role="status">Ready to send</p>
+      <div class="progress-track">
+        <div id="progressBar"></div>
+      </div>
+
+      <p id="status" class="status" role="status" aria-live="polite">
+        Ready to send
+      </p>
 
       <div class="action-row">
         <button id="sendBtn" class="send-btn" type="button">➤ Send All</button>
-        <button id="stopBtn" class="stop-btn" type="button" disabled>■ Stop Sending</button>
+        <button id="stopBtn" class="stop-btn" type="button" disabled>
+          ■ Stop Sending
+        </button>
       </div>
-      <div id="results" class="results"></div>
+
+      <div id="results" class="results" aria-live="polite"></div>
     </section>
   </div>
 </main>
@@ -119,13 +137,14 @@
 <script>
 (() => {
   const $ = id => document.getElementById(id);
+
   let mode = "plain";
   let busy = false;
   let stopped = false;
 
   $("togglePassword").addEventListener("click", () => {
-    const field = $("appPassword");
-    field.type = field.type === "password" ? "text" : "password";
+    const input = $("appPassword");
+    input.type = input.type === "password" ? "text" : "password";
   });
 
   document.querySelectorAll(".mode").forEach(button => {
@@ -160,10 +179,26 @@
     $("results").prepend(row);
   }
 
+  function updateProgress(total, sent, failed, processed) {
+    $("sent").textContent = sent;
+    $("failed").textContent = failed;
+    $("remaining").textContent = Math.max(0, total - processed);
+
+    const percent = total
+      ? Math.round(processed / total * 100)
+      : 0;
+
+    $("progressBar").style.width = `${percent}%`;
+  }
+
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
   $("stopBtn").addEventListener("click", () => {
     stopped = true;
     $("status").textContent =
-      "Stop requested. The current SMTP request may still finish.";
+      "Stop requested. Waiting for the current email to finish.";
     $("stopBtn").disabled = true;
   });
 
@@ -184,7 +219,7 @@
     }
 
     if (recipients.length > 25) {
-      $("status").textContent = "Maximum 25 recipients per batch.";
+      $("status").textContent = "Maximum 25 recipients per run.";
       return;
     }
 
@@ -195,81 +230,135 @@
 
     busy = true;
     stopped = false;
+
     $("sendBtn").disabled = true;
     $("stopBtn").disabled = false;
     $("results").replaceChildren();
 
+    const total = recipients.length;
     let sent = 0;
     let failed = 0;
     let processed = 0;
+    let delaySeconds = 0;
 
-    $("total").textContent = recipients.length;
-    $("sent").textContent = "0";
-    $("failed").textContent = "0";
-    $("remaining").textContent = recipients.length;
-    $("progressBar").style.width = "0%";
-    $("status").textContent = "Sending…";
+    $("total").textContent = total;
+    updateProgress(total, sent, failed, processed);
+    $("status").textContent = "Starting email delivery…";
 
     try {
-      const turnstileInput =
-        document.querySelector('[name="cf-turnstile-response"]');
-      const turnstileToken = turnstileInput ? turnstileInput.value : "";
+      for (const recipient of recipients) {
+        if (stopped) break;
 
-      const response = await fetch("/send-batch", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-          recipients,
-          senderEmail,
-          appPassword,
-          senderName,
-          subject,
-          body,
-          htmlMode: mode === "html",
-          consentConfirmed: $("consent").checked,
-          turnstileToken
-        })
-      });
+        $("status").textContent =
+          `Sending email ${processed + 1} of ${total}…`;
 
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || "Sending request failed.");
+        const tokenInput =
+          document.querySelector('[name="cf-turnstile-response"]');
+
+        const turnstileToken = tokenInput ? tokenInput.value : "";
+
+        let response;
+        let data;
+
+        try {
+          response = await fetch("/send-batch", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              recipients: [recipient],
+              senderEmail,
+              appPassword,
+              senderName,
+              subject,
+              body,
+              htmlMode: mode === "html",
+              consentConfirmed: $("consent").checked,
+              turnstileToken
+            })
+          });
+
+          data = await response.json();
+
+        } catch (error) {
+          // Network failure: mark this recipient as failed and update the UI.
+          failed++;
+          processed++;
+
+          showResult({
+            email: recipient,
+            status: "failed",
+            detail: "Network error: " + error.message
+          });
+
+          updateProgress(total, sent, failed, processed);
+          $("status").textContent =
+            `Processed ${processed} of ${total}; network error occurred.`;
+
+          // Avoid continuing after a network failure because delivery
+          // status may be uncertain for the affected request.
+          break;
+        }
+
+        if (!response.ok) {
+          throw new Error(data.error || "Sending request failed.");
+        }
+
+        delaySeconds = Number(data.delaySeconds) || 0;
+
+        for (const item of data.results || []) {
+          showResult(item);
+
+          if (item.status === "sent") {
+            sent++;
+          } else {
+            failed++;
+          }
+
+          processed++;
+
+          // Update immediately after each recipient's result.
+          updateProgress(total, sent, failed, processed);
+
+          $("status").textContent =
+            `Processed ${processed} of ${total} — Sent: ${sent}, Failed: ${failed}`;
+        }
+
+        if (processed < total && !stopped && delaySeconds > 0) {
+          // Delay comes from the backend's MAIL_GAP_SECONDS environment setting.
+          await sleep(delaySeconds * 1000);
+        }
       }
 
-      for (const item of data.results || []) {
-        showResult(item);
-        if (item.status === "sent") sent++;
-        else failed++;
-
-        processed++;
-        $("sent").textContent = sent;
-        $("failed").textContent = failed;
-        $("remaining").textContent = recipients.length - processed;
-        $("progressBar").style.width =
-          `${Math.round(processed / recipients.length * 100)}%`;
+      if (stopped) {
+        $("status").textContent =
+          `Stopped. Sent: ${sent}, Failed: ${failed}, Remaining: ${total - processed}.`;
+      } else if (processed === total) {
+        $("status").textContent =
+          `Completed. Sent: ${sent}, Failed: ${failed}, Remaining: 0.`;
+      } else {
+        $("status").textContent =
+          `Paused after ${processed} of ${total}. Sent: ${sent}, Failed: ${failed}, Remaining: ${total - processed}.`;
       }
-
-      $("status").textContent =
-        `Finished. SMTP accepted: ${sent}; failed: ${failed}.`;
 
     } catch (error) {
       $("status").textContent = `Error: ${error.message}`;
 
     } finally {
+      busy = false;
+      $("sendBtn").disabled = false;
+      $("stopBtn").disabled = true;
+
       if (window.turnstile && document.querySelector(".cf-turnstile")) {
         try {
           window.turnstile.reset();
         } catch (_) {}
       }
-
-      busy = false;
-      $("sendBtn").disabled = false;
-      $("stopBtn").disabled = true;
-
-      // App Password ko sending ke baad clear nahi kiya jata.
     }
   });
 })();
 </script>
+
 </body>
 </html>
