@@ -5,6 +5,85 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Bulk Email Sender</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    .job-card {
+      margin-top: 14px;
+      padding: 16px;
+      border: 1px solid #d9e2ef;
+      border-radius: 10px;
+      background: #fff;
+    }
+    .job-title {
+      font-size: 13px;
+      font-weight: 800;
+      overflow-wrap: anywhere;
+    }
+    .job-stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 7px;
+      margin: 12px 0;
+    }
+    .job-stat {
+      padding: 10px 4px;
+      border: 1px solid #d9e2ef;
+      border-radius: 7px;
+      text-align: center;
+    }
+    .job-stat span {
+      display: block;
+      color: #71829e;
+      font-size: 9px;
+    }
+    .job-stat strong {
+      display: block;
+      margin-top: 5px;
+      font-size: 19px;
+    }
+    .job-progress {
+      height: 7px;
+      margin: 12px 0;
+      overflow: hidden;
+      background: #e2e8f0;
+      border-radius: 20px;
+    }
+    .job-progress > div {
+      height: 100%;
+      width: 0;
+      background: #09b781;
+      transition: width .2s ease;
+    }
+    .job-status {
+      font-size: 11px;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+    .job-stop {
+      margin-top: 10px;
+      padding: 8px 12px;
+      border: 0;
+      border-radius: 7px;
+      background: #ff777d;
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .job-stop:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+    }
+    .job-result {
+      padding: 7px 0;
+      border-bottom: 1px solid #e6ebf2;
+      font-size: 11px;
+      overflow-wrap: anywhere;
+    }
+    .job-result.sent { color: #087e58; }
+    .job-result.failed { color: #c72d38; }
+    @media (max-width: 430px) {
+      .job-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  </style>
 </head>
 <body>
 
@@ -15,7 +94,7 @@
 
 <main class="dashboard">
   <section class="card compose">
-    <h2>🖉 Compose Message</h2>
+    <h2>Compose Message</h2>
 
     <div class="two-col">
       <div>
@@ -24,15 +103,18 @@
       </div>
       <div>
         <label for="senderEmail">Your Gmail</label>
-        <input id="senderEmail" type="email" placeholder="your@gmail.com" required>
+        <input id="senderEmail" type="email"
+               placeholder="your@gmail.com" autocomplete="username" required>
       </div>
       <div>
         <label for="appPassword">App Password</label>
         <div class="password-wrap">
-          <input id="appPassword" type="password" placeholder="Google App Password" required>
-          <button type="button" id="togglePassword">◉</button>
+          <input id="appPassword" type="password"
+                 placeholder="Google App Password" autocomplete="off" required>
+          <button type="button" id="togglePassword"
+                  aria-label="Show or hide password">◉</button>
         </div>
-        <small>Use your Google App Password, not your normal account password.</small>
+        <small>Use a Google App Password, not your normal account password.</small>
       </div>
       <div>
         <label for="subject">Email Subject</label>
@@ -48,7 +130,8 @@
       </div>
     </div>
 
-    <textarea id="messageBody" class="message-body" placeholder="Write your email message..." required></textarea>
+    <textarea id="messageBody" class="message-body"
+              placeholder="Write your email message..." required></textarea>
 
     <div class="info-strip">
       <span class="shuffle">⤨</span>
@@ -58,45 +141,42 @@
       </div>
     </div>
 
-    <h3 class="security-heading">◈ Recipient Permission</h3>
+    <h3 class="security-heading">Recipient Permission</h3>
     <div class="consent-row">
       <input id="consent" type="checkbox">
-      <label for="consent">I confirm these recipients have agreed to receive this email.</label>
+      <label for="consent">
+        I confirm these recipients have agreed to receive this email.
+      </label>
     </div>
     <p class="help-text">Only send messages to recipients who have consented.</p>
-    <p class="help-text">Your App Password is not saved to browser storage.</p>
+    <p class="help-text">Changing the form will not change a job already started.</p>
   </section>
 
   <div class="right-column">
     <section class="card recipients-card">
       <div class="section-heading">
         <div>
-          <h2>♟ Recipients</h2>
-          <p>Paste emails (comma separated, new lines, or Excel copy)</p>
+          <h2>Recipients</h2>
+          <p>Paste emails separated by commas, new lines, or semicolons.</p>
         </div>
         <span id="foundBadge" class="badge">0 found</span>
       </div>
-      <textarea id="recipients" class="recipient-input" placeholder="person@example.com&#10;another@example.com"></textarea>
-      <small>Maximum 25 recipients per run; 5 per batch.</small>
+
+      <textarea id="recipients" class="recipient-input"
+                placeholder="person@example.com&#10;another@example.com"></textarea>
+      <small>Maximum 25 recipients per job; 5 recipients per batch.</small>
     </section>
 
     <section class="card progress-card">
-      <h2>◔ Progress Monitor</h2>
-      <div class="stats-grid">
-        <div class="stat"><span>TOTAL</span><strong id="total">0</strong></div>
-        <div class="stat"><span>SENT</span><strong class="green" id="sent">0</strong></div>
-        <div class="stat"><span>FAILED</span><strong class="red" id="failed">0</strong></div>
-        <div class="stat"><span>REMAINING</span><strong class="orange" id="remaining">0</strong></div>
-      </div>
-
-      <div class="progress-track"><div id="progressBar"></div></div>
-      <p id="status" class="status" role="status" aria-live="polite">Ready to send</p>
-
-      <div class="action-row">
-        <button id="sendBtn" class="send-btn" type="button">➤ Send All</button>
-        <button id="stopBtn" class="stop-btn" type="button" disabled>■ Stop Sending</button>
-      </div>
-      <div id="results" class="results" aria-live="polite"></div>
+      <h2>Independent Sending Jobs</h2>
+      <p class="help-text">
+        Each job keeps its own sender details and progress.
+      </p>
+      <button id="sendBtn" class="send-btn" type="button"
+              style="width:100%;min-height:42px;border:0;border-radius:8px;color:white;font-weight:700;cursor:pointer">
+        Start Sending Job
+      </button>
+      <div id="jobs" aria-live="polite"></div>
     </section>
   </div>
 </main>
@@ -105,8 +185,7 @@
 (() => {
   const $ = id => document.getElementById(id);
   let mode = "plain";
-  let busy = false;
-  let stopped = false;
+  let jobCounter = 0;
 
   $("togglePassword").addEventListener("click", () => {
     const field = $("appPassword");
@@ -124,8 +203,10 @@
 
   function getRecipients() {
     return [...new Set(
-      $("recipients").value.split(/[\n,;\t]+/)
-        .map(value => value.trim()).filter(Boolean)
+      $("recipients").value
+        .split(/[\n,;\t]+/)
+        .map(value => value.trim())
+        .filter(Boolean)
     )];
   }
 
@@ -133,34 +214,180 @@
     $("foundBadge").textContent = `${getRecipients().length} found`;
   });
 
-  function showResult(item) {
-    const row = document.createElement("div");
-    row.className = `result-row ${item.status}`;
-    row.textContent = `${item.status.toUpperCase()} — ${item.email}: ${item.detail}`;
-    $("results").prepend(row);
+  function makeJobCard(job) {
+    const card = document.createElement("div");
+    card.className = "job-card";
+
+    const title = document.createElement("div");
+    title.className = "job-title";
+    title.textContent = `Job #${job.id} — ${job.senderEmail}`;
+
+    const stats = document.createElement("div");
+    stats.className = "job-stats";
+
+    const statValues = {};
+    for (const [name, key] of [
+      ["TOTAL", "total"],
+      ["SENT", "sent"],
+      ["FAILED", "failed"],
+      ["REMAINING", "remaining"]
+    ]) {
+      const box = document.createElement("div");
+      box.className = "job-stat";
+
+      const label = document.createElement("span");
+      label.textContent = name;
+
+      const value = document.createElement("strong");
+      value.textContent = key === "total" || key === "remaining"
+        ? job.recipients.length : "0";
+
+      box.append(label, value);
+      stats.append(box);
+      statValues[key] = value;
+    }
+
+    const progress = document.createElement("div");
+    progress.className = "job-progress";
+
+    const bar = document.createElement("div");
+    progress.append(bar);
+
+    const status = document.createElement("p");
+    status.className = "job-status";
+    status.textContent = "Queued";
+
+    const stop = document.createElement("button");
+    stop.className = "job-stop";
+    stop.type = "button";
+    stop.textContent = "Stop this job";
+    stop.addEventListener("click", () => {
+      job.stopped = true;
+      stop.disabled = true;
+      status.textContent =
+        "Stop requested; the current request may finish first.";
+    });
+
+    const results = document.createElement("div");
+    results.className = "job-results";
+
+    card.append(title, stats, progress, status, stop, results);
+    $("jobs").prepend(card);
+
+    return { card, statValues, bar, status, stop, results };
   }
 
-  function updateProgress(total, sent, failed, processed) {
-    $("sent").textContent = sent;
-    $("failed").textContent = failed;
-    $("remaining").textContent = total - processed;
-    $("progressBar").style.width =
-      `${total ? Math.round(processed / total * 100) : 0}%`;
+  function updateJobUI(job, ui) {
+    ui.statValues.sent.textContent = job.sent;
+    ui.statValues.failed.textContent = job.failed;
+    ui.statValues.remaining.textContent =
+      Math.max(0, job.recipients.length - job.processed);
+
+    const percent = job.recipients.length
+      ? Math.round(job.processed / job.recipients.length * 100)
+      : 0;
+
+    ui.bar.style.width = `${percent}%`;
+  }
+
+  function addResult(ui, item) {
+    const row = document.createElement("div");
+    row.className = `job-result ${item.status}`;
+    row.textContent =
+      `${item.status.toUpperCase()} — ${item.email}: ${item.detail}`;
+    ui.results.prepend(row);
   }
 
   function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  $("stopBtn").addEventListener("click", () => {
-    stopped = true;
-    $("status").textContent = "Stop requested; current batch may finish first.";
-    $("stopBtn").disabled = true;
-  });
+  async function runJob(job, ui) {
+    let delaySeconds = 0;
 
-  $("sendBtn").addEventListener("click", async () => {
-    if (busy) return;
+    try {
+      ui.status.textContent = "Sending started.";
 
+      for (let start = 0; start < job.recipients.length; start += 5) {
+        if (job.stopped) break;
+
+        const batch = job.recipients.slice(start, start + 5);
+        ui.status.textContent =
+          `Sending batch ${Math.floor(start / 5) + 1}; ${job.processed}/${job.recipients.length} processed.`;
+
+        let response;
+        let data;
+
+        try {
+          response = await fetch("/send-batch", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+              recipients: batch,
+              senderEmail: job.senderEmail,
+              appPassword: job.appPassword,
+              senderName: job.senderName,
+              subject: job.subject,
+              body: job.body,
+              htmlMode: job.htmlMode,
+              consentConfirmed: job.consentConfirmed
+            })
+          });
+
+          data = await response.json();
+
+        } catch (error) {
+          ui.status.textContent =
+            `Network error. Delivery status for this batch may be uncertain: ${error.message}`;
+          break;
+        }
+
+        if (!response.ok) {
+          throw new Error(data.error || "Sending request failed.");
+        }
+
+        delaySeconds = Math.max(0, Number(data.delaySeconds) || 0);
+
+        for (const item of data.results || []) {
+          addResult(ui, item);
+
+          if (item.status === "sent") job.sent++;
+          else job.failed++;
+
+          job.processed++;
+          updateJobUI(job, ui);
+        }
+
+        ui.status.textContent =
+          `Processed ${job.processed}/${job.recipients.length} · Sent ${job.sent} · Failed ${job.failed}`;
+
+        if (job.processed < job.recipients.length &&
+            !job.stopped && delaySeconds > 0) {
+          await sleep(delaySeconds * 1000);
+        }
+      }
+
+      if (job.stopped) {
+        ui.status.textContent =
+          `Stopped · Sent ${job.sent} · Failed ${job.failed} · Remaining ${job.recipients.length - job.processed}`;
+      } else if (job.processed === job.recipients.length) {
+        ui.status.textContent =
+          `Completed · Sent ${job.sent} · Failed ${job.failed} · Remaining 0`;
+      } else {
+        ui.status.textContent =
+          `Paused or interrupted · Sent ${job.sent} · Failed ${job.failed} · Remaining ${job.recipients.length - job.processed}`;
+      }
+
+    } catch (error) {
+      ui.status.textContent = `Error: ${error.message}`;
+
+    } finally {
+      ui.stop.disabled = true;
+      job.appPassword = "";
+    }
+  }
+
+  $("sendBtn").addEventListener("click", () => {
     const recipients = getRecipients();
     const senderEmail = $("senderEmail").value.trim();
     const appPassword = $("appPassword").value.trim();
@@ -169,89 +396,42 @@
     const body = $("messageBody").value.trim();
 
     if (!senderEmail || !appPassword || !subject || !body || !recipients.length) {
-      $("status").textContent = "Fill in Gmail, App Password, recipients, subject, and message.";
+      alert("Please complete sender details, recipients, subject, and message.");
       return;
     }
 
     if (recipients.length > 25) {
-      $("status").textContent = "Maximum 25 recipients per run.";
+      alert("Maximum 25 recipients per job.");
       return;
     }
 
     if (!$("consent").checked) {
-      $("status").textContent = "Confirm recipient permission first.";
+      alert("Please confirm recipient permission.");
       return;
     }
 
-    busy = true;
-    stopped = false;
-    $("sendBtn").disabled = true;
-    $("stopBtn").disabled = false;
-    $("results").replaceChildren();
+    // Snapshot: future form edits cannot alter this job's details.
+    const job = {
+      id: ++jobCounter,
+      senderEmail,
+      appPassword,
+      senderName,
+      subject,
+      body,
+      htmlMode: mode === "html",
+      consentConfirmed: $("consent").checked,
+      recipients: [...recipients],
+      sent: 0,
+      failed: 0,
+      processed: 0,
+      stopped: false
+    };
 
-    const total = recipients.length;
-    let sent = 0, failed = 0, processed = 0;
-    let delaySeconds = 0;
+    const ui = makeJobCard(job);
+    updateJobUI(job, ui);
 
-    $("total").textContent = total;
-    updateProgress(total, sent, failed, processed);
-
-    try {
-      for (let start = 0; start < total; start += 5) {
-        if (stopped) break;
-
-        const batch = recipients.slice(start, start + 5);
-        $("status").textContent =
-          `Sending batch ${Math.floor(start / 5) + 1} — ${batch.length} emails…`;
-
-        const response = await fetch("/send-batch", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({
-            recipients: batch,
-            senderEmail,
-            appPassword,
-            senderName,
-            subject,
-            body,
-            htmlMode: mode === "html",
-            consentConfirmed: $("consent").checked
-          })
-        });
-
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "Sending request failed.");
-
-        delaySeconds = Math.max(0, Number(data.delaySeconds) || 0);
-
-        for (const item of data.results || []) {
-          showResult(item);
-          if (item.status === "sent") sent++;
-          else failed++;
-          processed++;
-          updateProgress(total, sent, failed, processed);
-        }
-
-        $("status").textContent =
-          `Processed ${processed}/${total} · Sent ${sent} · Failed ${failed}`;
-
-        if (processed < total && !stopped && delaySeconds > 0) {
-          await sleep(delaySeconds * 1000);
-        }
-      }
-
-      $("status").textContent = stopped
-        ? `Stopped · Sent ${sent} · Failed ${failed} · Remaining ${total - processed}`
-        : `Finished · Sent ${sent} · Failed ${failed} · Remaining ${total - processed}`;
-
-    } catch (error) {
-      $("status").textContent = `Error: ${error.message}`;
-
-    } finally {
-      busy = false;
-      $("sendBtn").disabled = false;
-      $("stopBtn").disabled = true;
-    }
+    // Do not await: the user can fill in and start another job immediately.
+    void runJob(job, ui);
   });
 })();
 </script>
