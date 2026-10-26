@@ -1,12 +1,11 @@
 import os
 import re
 import ssl
-import time
 import random
 import smtplib
+
 from email.message import EmailMessage
 from email.utils import formataddr
-
 from flask import (
     Flask, render_template, request, redirect,
     url_for, session, jsonify
@@ -24,7 +23,7 @@ SESSION_SECRET = os.environ.get("SESSION_SECRET", "").strip()
 LOGIN_PASSWORD = os.environ.get("LOGIN_PASSWORD", "")
 
 app.secret_key = SESSION_SECRET
-app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 1_000_000
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = bool(os.environ.get("VERCEL"))
@@ -32,9 +31,9 @@ app.config["SESSION_COOKIE_SECURE"] = bool(os.environ.get("VERCEL"))
 SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
 
 try:
-    SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+    SMTP_PORT = int(os.environ.get("SMTP_PORT", "465"))
 except ValueError:
-    SMTP_PORT = 587
+    SMTP_PORT = 465
 
 try:
     MAIL_GAP_SECONDS = max(
@@ -69,21 +68,18 @@ def send_smtp(
     app_password,
     html_mode=False,
 ):
-    subject = expand_spintax(subject)
-    body = expand_spintax(body)
-
     message = EmailMessage()
     message["From"] = formataddr((sender_name or sender_email, sender_email))
     message["To"] = to_email
-    message["Subject"] = subject
+    message["Subject"] = expand_spintax(subject)
+
+    content = expand_spintax(body)
 
     if html_mode:
-        message.set_content(
-            "This message contains HTML content. Please view it in an HTML-capable email client."
-        )
-        message.add_alternative(body, subtype="html")
+        message.set_content("Please view this message in an HTML-capable email client.")
+        message.add_alternative(content, subtype="html")
     else:
-        message.set_content(body)
+        message.set_content(content)
 
     context = ssl.create_default_context()
 
@@ -103,18 +99,18 @@ def send_smtp(
                 refused = server.send_message(message)
 
         if refused:
-            return False, "Recipient rejected by SMTP server"
+            return False, "Recipient rejected by SMTP server."
 
         return True, "SMTP accepted the message; inbox placement is not guaranteed."
 
     except smtplib.SMTPAuthenticationError:
-        return False, "Gmail login failed. Check the Gmail address and App Password."
+        return False, "Gmail authentication failed. Check the App Password."
     except smtplib.SMTPRecipientsRefused:
-        return False, "Recipient address rejected by SMTP server"
+        return False, "Recipient address was rejected by SMTP."
     except smtplib.SMTPDataError as exc:
-        return False, f"SMTP rejected message (code {exc.smtp_code})"
+        return False, f"SMTP rejected the message (code {exc.smtp_code})."
     except (smtplib.SMTPException, OSError, TimeoutError) as exc:
-        return False, f"SMTP connection failed: {str(exc)[:160]}"
+        return False, f"SMTP error: {str(exc)[:160]}"
 
 
 @app.get("/health")
@@ -130,7 +126,7 @@ def login():
         if not LOGIN_PASSWORD:
             error = "Set LOGIN_PASSWORD in Vercel Environment Variables."
         elif len(SESSION_SECRET) < 32:
-            error = "Set SESSION_SECRET to a random value of at least 32 characters."
+            error = "SESSION_SECRET must contain at least 32 characters."
         elif request.form.get("password", "") == LOGIN_PASSWORD:
             session.clear()
             session["logged_in"] = True
@@ -157,7 +153,7 @@ def index():
 @app.post("/send-batch")
 def send_batch():
     if not logged_in():
-        return jsonify({"error": "Please sign in again."}), 401
+        return jsonify({"error": "Your session expired. Please sign in again."}), 401
 
     if len(SESSION_SECRET) < 32:
         return jsonify({"error": "Configure a strong SESSION_SECRET."}), 500
@@ -179,60 +175,40 @@ def send_batch():
         return jsonify({"error": "Enter a valid sender email address."}), 400
 
     if not app_password:
-        return jsonify({"error": "Enter your Google App Password."}), 400
+        return jsonify({"error": "Enter the Gmail App Password."}), 400
 
-    if not isinstance(recipients, list):
-        return jsonify({"error": "Recipients must be a list."}), 400
+    if not isinstance(recipients, list) or len(recipients) != 1:
+        return jsonify({
+            "error": "Send one recipient per request for live progress."
+        }), 400
 
-    clean_recipients = []
-    seen = set()
-
-    for item in recipients:
-        if isinstance(item, str):
-            address = item.strip()
-            key = address.lower()
-            if EMAIL_RE.fullmatch(address) and key not in seen:
-                clean_recipients.append(address)
-                seen.add(key)
-
-    if not clean_recipients:
-        return jsonify({"error": "No valid recipients found."}), 400
-
-    if len(clean_recipients) > MAX_BATCH_SIZE:
-        return jsonify({"error": "Maximum 5 recipients per batch."}), 400
+    recipient = recipients[0]
+    if not isinstance(recipient, str) or not EMAIL_RE.fullmatch(recipient.strip()):
+        return jsonify({"error": "Enter a valid recipient email address."}), 400
 
     if not subject or not body:
         return jsonify({"error": "Subject and message are required."}), 400
 
-    results = []
+    ok, detail = send_smtp(
+        recipient.strip(),
+        subject,
+        body,
+        sender_name,
+        sender_email,
+        app_password,
+        html_mode,
+    )
 
-    # Each job sends its own batch independently.
-    for index, recipient in enumerate(clean_recipients):
-        ok, detail = send_smtp(
-            recipient,
-            subject,
-            body,
-            sender_name,
-            sender_email,
-            app_password,
-            html_mode,
-        )
-
-        results.append({
-            "email": recipient,
-            "status": "sent" if ok else "failed",
-            "detail": detail,
-        })
-
-        if index < len(clean_recipients) - 1 and MAIL_GAP_SECONDS > 0:
-            time.sleep(MAIL_GAP_SECONDS)
-
-    sent = sum(item["status"] == "sent" for item in results)
+    result = {
+        "email": recipient.strip(),
+        "status": "sent" if ok else "failed",
+        "detail": detail,
+    }
 
     return jsonify({
-        "total": len(results),
-        "sent": sent,
-        "failed": len(results) - sent,
-        "results": results,
+        "total": 1,
+        "sent": int(ok),
+        "failed": int(not ok),
+        "results": [result],
         "delaySeconds": MAIL_GAP_SECONDS,
     })
