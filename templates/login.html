@@ -1,32 +1,33 @@
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sign in · Bulk Email Sender</title>
+  <title>Login — Bulk Email Sender</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body class="login-page">
   <main class="login-card">
-    <div class="app-title">➤ Bulk Email Sender</div>
-    <p>Sign in to continue to your workspace.</p>
+    <h1>➤ Bulk Email Sender</h1>
+    <p>Sign in to access your dashboard.</p>
 
     {% if error %}
-      <div class="error">{{ error }}</div>
+      <div class="login-error" role="alert">{{ error }}</div>
     {% endif %}
 
     <form method="post" action="{{ url_for('login') }}">
-      <label for="password">Workspace Password</label>
+      <label for="password">Dashboard Password</label>
       <input
         id="password"
         name="password"
         type="password"
-        placeholder="Enter password"
         autocomplete="current-password"
         required
       >
-      <button class="primary-btn" type="submit">Sign in ›</button>
+      <button type="submit" class="send-btn">Sign In</button>
     </form>
   </main>
 </body>
 </html>
+```
