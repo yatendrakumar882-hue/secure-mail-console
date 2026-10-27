@@ -6,91 +6,161 @@
   <title>Bulk Email Sender</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <style>
-    .reply-preview { margin-top: 10px; padding-top: 8px; border-top: 1px solid #eceff1; }
-    .reply-preview a {
-      display: inline-block; margin: 7px 7px 0 0; padding: 7px 12px;
-      border: 1px solid #dadce0; border-radius: 6px; background: #fff;
-      color: #1a73e8; font: 400 14px Arial, sans-serif;
-      line-height: 1.35; text-decoration: none;
+    .password-wrap {
+      display: flex;
+      gap: 6px;
     }
-    .password-wrap { display: flex; gap: 6px; }
-    .password-wrap input { flex: 1; min-width: 0; }
-    .mode-switch { display: flex; gap: 6px; }
-    .mode.active { border: 1px solid #7c9edb; }
-    .recipient-input { min-height: 160px; }
-    .results { max-height: 240px; overflow: auto; }
-    .result-row { padding: 7px; border-bottom: 1px solid #eee; overflow-wrap: anywhere; }
+
+    .password-wrap input {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .mode-switch {
+      display: flex;
+      gap: 6px;
+    }
+
+    .mode.active {
+      border: 1px solid #7c9edb;
+    }
+
+    .recipient-input {
+      min-height: 160px;
+    }
+
+    .results {
+      max-height: 240px;
+      overflow: auto;
+    }
+
+    .result-row {
+      padding: 7px;
+      border-bottom: 1px solid #eee;
+      overflow-wrap: anywhere;
+    }
   </style>
 </head>
+
 <body>
 <header class="topbar">
-  <div class="app-title"><span class="plane">➤</span> Bulk Email Sender</div>
+  <div class="app-title">
+    <span class="plane">➤</span> Bulk Email Sender
+  </div>
   <a class="logout-btn" href="{{ url_for('logout') }}">Logout</a>
 </header>
 
 <main class="dashboard">
   <section class="card compose">
     <h2>Compose Message</h2>
+
     <div class="two-col">
-      <div><label for="senderName">Sender Name</label><input id="senderName" placeholder="Your name" maxlength="100"></div>
-      <div><label for="senderEmail">Your Gmail</label><input id="senderEmail" type="email" placeholder="your@gmail.com" required></div>
+      <div>
+        <label for="senderName">Sender Name</label>
+        <input id="senderName" placeholder="Your name" maxlength="100">
+      </div>
+
+      <div>
+        <label for="senderEmail">Your Gmail</label>
+        <input id="senderEmail" type="email"
+               placeholder="your@gmail.com" required>
+      </div>
+
       <div>
         <label for="appPassword">Google App Password</label>
-        <div class="password-wrap"><input id="appPassword" type="password" placeholder="Google App Password" required><button type="button" id="togglePassword">Show</button></div>
+        <div class="password-wrap">
+          <input id="appPassword" type="password"
+                 placeholder="Google App Password" required>
+          <button type="button" id="togglePassword">Show</button>
+        </div>
       </div>
-      <div><label for="subject">Email Subject</label><input id="subject" placeholder="Email subject" maxlength="200" required></div>
+
+      <div>
+        <label for="subject">Email Subject</label>
+        <input id="subject" placeholder="Email subject"
+               maxlength="200" required>
+      </div>
     </div>
 
     <div class="body-heading">
       <label for="messageBody">Message Body</label>
       <div class="mode-switch">
-        <button type="button" class="mode active" data-mode="plain">Plain Text</button>
-        <button type="button" class="mode" data-mode="html">HTML</button>
+        <button type="button" class="mode active"
+                data-mode="plain">Plain Text</button>
+        <button type="button" class="mode"
+                data-mode="html">HTML</button>
       </div>
     </div>
 
-    <textarea id="messageBody" class="message-body" placeholder="Write your email message..." required></textarea>
-
-    <div class="info-strip">
-      <div><strong>Smart Reply Preview</strong><small>Replies are selected from the email subject and message.</small></div>
-    </div>
-    <div class="reply-preview">
-      <a href="#" onclick="return false;">Please share the details</a>
-      <a href="#" onclick="return false;">I'm interested—what are the next steps?</a>
-      <a href="#" onclick="return false;">Please send the information</a>
-    </div>
+    <textarea id="messageBody" class="message-body"
+              placeholder="Write your email message..." required></textarea>
 
     <div class="consent-row">
       <input id="consent" type="checkbox">
-      <label for="consent">I confirm these recipients have agreed to receive this email.</label>
+      <label for="consent">
+        I confirm these recipients have agreed to receive this email.
+      </label>
     </div>
-    <p class="help-text">Only send messages to recipients who have consented.</p>
+
+    <p class="help-text">
+      Only send messages to recipients who have consented.
+    </p>
   </section>
 
   <div class="right-column">
     <section class="card recipients-card">
       <div class="section-heading">
-        <div><h2>Recipients</h2><p>Paste email addresses separated by commas or new lines.</p></div>
+        <div>
+          <h2>Recipients</h2>
+          <p>Paste email addresses separated by commas or new lines.</p>
+        </div>
         <span id="foundBadge" class="badge">0 found</span>
       </div>
-      <textarea id="recipients" class="recipient-input" placeholder="person@example.com&#10;another@example.com"></textarea>
+
+      <textarea id="recipients" class="recipient-input"
+        placeholder="person@example.com&#10;another@example.com"></textarea>
+
       <small>Maximum 25 recipients per batch.</small>
     </section>
 
     <section class="card progress-card">
       <h2>Progress Monitor</h2>
+
       <div class="stats-grid">
-        <div class="stat"><span>TOTAL</span><strong id="total">0</strong></div>
-        <div class="stat"><span>SENT</span><strong class="green" id="sent">0</strong></div>
-        <div class="stat"><span>FAILED</span><strong class="red" id="failed">0</strong></div>
-        <div class="stat"><span>REMAINING</span><strong class="orange" id="remaining">0</strong></div>
+        <div class="stat">
+          <span>TOTAL</span>
+          <strong id="total">0</strong>
+        </div>
+
+        <div class="stat">
+          <span>SENT</span>
+          <strong class="green" id="sent">0</strong>
+        </div>
+
+        <div class="stat">
+          <span>FAILED</span>
+          <strong class="red" id="failed">0</strong>
+        </div>
+
+        <div class="stat">
+          <span>REMAINING</span>
+          <strong class="orange" id="remaining">0</strong>
+        </div>
       </div>
-      <div class="progress-track"><div id="progressBar"></div></div>
+
+      <div class="progress-track">
+        <div id="progressBar"></div>
+      </div>
+
       <p id="status" class="status" role="status">Ready to send</p>
+
       <div class="action-row">
         <button id="sendBtn" class="send-btn" type="button">Send All</button>
-        <button id="stopBtn" class="stop-btn" type="button" disabled>Stop Sending</button>
+        <button id="stopBtn" class="stop-btn" type="button" disabled>
+          Stop Sending
+        </button>
       </div>
+
       <div id="results" class="results"></div>
     </section>
   </div>
@@ -99,19 +169,24 @@
 <script>
 (() => {
   const $ = id => document.getElementById(id);
+
   let mode = "plain";
   let busy = false;
   let stopped = false;
 
   $("togglePassword").addEventListener("click", () => {
     const input = $("appPassword");
+
     input.type = input.type === "password" ? "text" : "password";
-    $("togglePassword").textContent = input.type === "password" ? "Show" : "Hide";
+
+    $("togglePassword").textContent =
+      input.type === "password" ? "Show" : "Hide";
   });
 
   document.querySelectorAll(".mode").forEach(button => {
     button.addEventListener("click", () => {
       mode = button.dataset.mode;
+
       document.querySelectorAll(".mode").forEach(item => {
         item.classList.toggle("active", item === button);
       });
@@ -120,25 +195,36 @@
 
   function getRecipients() {
     return [...new Set(
-      $("recipients").value.split(/[\n,;\t ]+/).map(v => v.trim()).filter(Boolean)
+      $("recipients").value
+        .split(/[\n,;\t ]+/)
+        .map(value => value.trim())
+        .filter(Boolean)
     )];
   }
 
   function updateFound() {
-    $("foundBadge").textContent = `${getRecipients().length} found`;
+    $("foundBadge").textContent =
+      `${getRecipients().length} found`;
   }
+
   $("recipients").addEventListener("input", updateFound);
 
   function showResult(item) {
     const row = document.createElement("div");
+
     row.className = `result-row ${item.status}`;
-    row.textContent = `${item.status.toUpperCase()} — ${item.email}: ${item.detail}`;
+    row.textContent =
+      `${item.status.toUpperCase()} — ${item.email}: ${item.detail}`;
+
     $("results").prepend(row);
   }
 
   $("stopBtn").addEventListener("click", () => {
     stopped = true;
-    $("status").textContent = "Stop requested. The current server request may still finish.";
+
+    $("status").textContent =
+      "Stop requested. The current server request may still finish.";
+
     $("stopBtn").disabled = true;
   });
 
@@ -152,30 +238,43 @@
     const subject = $("subject").value.trim();
     const body = $("messageBody").value.trim();
 
-    if (!senderEmail || !appPassword || !subject || !body || !recipients.length) {
+    if (
+      !senderEmail || !appPassword || !subject ||
+      !body || !recipients.length
+    ) {
       $("status").textContent = "Fill in all required fields.";
       return;
     }
+
     if (!senderEmail.toLowerCase().endsWith("@gmail.com")) {
-      $("status").textContent = "Please use a valid @gmail.com address.";
+      $("status").textContent =
+        "Please use a valid @gmail.com address.";
       return;
     }
+
     if (recipients.length > 25) {
-      $("status").textContent = "Maximum 25 recipients per batch.";
+      $("status").textContent =
+        "Maximum 25 recipients per batch.";
       return;
     }
+
     if (!$("consent").checked) {
-      $("status").textContent = "Confirm recipient permission before sending.";
+      $("status").textContent =
+        "Confirm recipient permission before sending.";
       return;
     }
 
     busy = true;
     stopped = false;
+
     $("sendBtn").disabled = true;
     $("stopBtn").disabled = false;
     $("results").replaceChildren();
 
-    let sent = 0, failed = 0, processed = 0;
+    let sent = 0;
+    let failed = 0;
+    let processed = 0;
+
     $("total").textContent = recipients.length;
     $("sent").textContent = "0";
     $("failed").textContent = "0";
@@ -189,30 +288,49 @@
 
         const response = await fetch("/send-batch", {
           method: "POST",
-          headers: {"Content-Type": "application/json"},
+          headers: {
+            "Content-Type": "application/json"
+          },
           body: JSON.stringify({
             recipients: recipients.slice(start, start + 5),
-            senderEmail, appPassword, senderName, subject, body,
+            senderEmail,
+            appPassword,
+            senderName,
+            subject,
+            body,
             htmlMode: mode === "html",
             consentConfirmed: $("consent").checked
           })
         });
 
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "Sending failed.");
+
+        if (!response.ok) {
+          throw new Error(data.error || "Sending failed.");
+        }
 
         for (const item of data.results || []) {
           showResult(item);
-          if (item.status === "sent") sent++;
-          else failed++;
+
+          if (item.status === "sent") {
+            sent++;
+          } else {
+            failed++;
+          }
+
           processed++;
         }
 
         $("sent").textContent = sent;
         $("failed").textContent = failed;
-        $("remaining").textContent = recipients.length - processed;
-        $("progressBar").style.width = `${Math.round(processed / recipients.length * 100)}%`;
-        $("status").textContent = `Processed ${processed} of ${recipients.length}`;
+        $("remaining").textContent =
+          recipients.length - processed;
+
+        $("progressBar").style.width =
+          `${Math.round(processed / recipients.length * 100)}%`;
+
+        $("status").textContent =
+          `Processed ${processed} of ${recipients.length}`;
       }
 
       $("status").textContent = stopped
@@ -221,6 +339,7 @@
 
     } catch (error) {
       $("status").textContent = `Error: ${error.message}`;
+
     } finally {
       busy = false;
       $("sendBtn").disabled = false;
