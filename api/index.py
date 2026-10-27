@@ -9,13 +9,8 @@ from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid
 
 from flask import (
-    Flask,
-    render_template,
-    request,
-    redirect,
-    url_for,
-    session,
-    jsonify,
+    Flask, render_template, request,
+    redirect, url_for, session, jsonify
 )
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -79,13 +74,11 @@ def html_to_plain_text(source):
 
 
 def plain_body(body, html_mode):
-    if html_mode:
-        return html_to_plain_text(body)
-    return str(body or "").strip()
+    return html_to_plain_text(body) if html_mode else str(body or "").strip()
 
 
 def choose_smart_replies(subject, body, html_mode):
-    """Suggest three short replies related to the message template."""
+    """Return three suggestions related to the email template."""
     text = (
         safe_header(subject, 200) + " " +
         plain_body(body, html_mode)
@@ -146,10 +139,8 @@ def choose_smart_replies(subject, body, html_mode):
 
 def build_html_email(body, sender_name, sender_email, subject, html_mode):
     """
-    Important:
-    Smart-reply buttons are deliberately NOT embedded in the email.
-    They should be displayed by templates/index.html in the web app.
-    This prevents those buttons from appearing in quoted email replies.
+    Smart replies are deliberately excluded from the email body.
+    Display them in the web-app UI instead.
     """
     if html_mode:
         return str(body or "")
@@ -166,13 +157,8 @@ def build_html_email(body, sender_name, sender_email, subject, html_mode):
 
 
 def send_one(
-    to_email,
-    subject,
-    body,
-    sender_name,
-    sender_email,
-    app_password,
-    html_mode,
+    to_email, subject, body, sender_name,
+    sender_email, app_password, html_mode
 ):
     msg = EmailMessage()
 
@@ -186,15 +172,10 @@ def send_one(
     msg["Date"] = formatdate(localtime=True)
     msg["Message-ID"] = make_msgid()
 
-    # Both plain-text and HTML versions are included.
     msg.set_content(plain_body(body, html_mode))
     msg.add_alternative(
         build_html_email(
-            body,
-            sender_name,
-            sender_email,
-            subject,
-            html_mode,
+            body, sender_name, sender_email, subject, html_mode
         ),
         subtype="html",
     )
@@ -204,10 +185,8 @@ def send_one(
     try:
         if SMTP_PORT == 465:
             with smtplib.SMTP_SSL(
-                SMTP_HOST,
-                SMTP_PORT,
-                timeout=25,
-                context=context,
+                SMTP_HOST, SMTP_PORT,
+                timeout=25, context=context
             ) as server:
                 server.ehlo()
                 server.login(sender_email, app_password)
@@ -215,9 +194,7 @@ def send_one(
 
         elif SMTP_PORT == 587:
             with smtplib.SMTP(
-                SMTP_HOST,
-                SMTP_PORT,
-                timeout=25,
+                SMTP_HOST, SMTP_PORT, timeout=25
             ) as server:
                 server.ehlo()
                 server.starttls(context=context)
@@ -286,7 +263,7 @@ def index():
 
 @app.post("/smart-replies")
 def smart_replies():
-    """Return suggestions for the web-app preview only."""
+    """Return suggestions for the app preview, not the email body."""
     if not logged_in():
         return jsonify({"error": "Please sign in again."}), 401
 
@@ -379,13 +356,8 @@ def send_batch():
 
     for index, recipient in enumerate(cleaned):
         ok, detail = send_one(
-            recipient,
-            subject,
-            body,
-            sender_name,
-            sender_email,
-            app_password,
-            html_mode,
+            recipient, subject, body, sender_name,
+            sender_email, app_password, html_mode
         )
 
         results.append({
@@ -397,10 +369,7 @@ def send_batch():
         if index < len(cleaned) - 1 and MAIL_GAP_SECONDS > 0:
             time.sleep(MAIL_GAP_SECONDS)
 
-    sent = sum(
-        item["status"] == "sent"
-        for item in results
-    )
+    sent = sum(item["status"] == "sent" for item in results)
 
     return jsonify({
         "total": len(results),
