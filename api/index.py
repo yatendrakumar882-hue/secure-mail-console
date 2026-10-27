@@ -10,8 +10,8 @@ from email.utils import formataddr, formatdate
 from urllib.parse import quote
 
 from flask import (
-    Flask, render_template, request, redirect,
-    url_for, session, jsonify
+    Flask, render_template, request,
+    redirect, url_for, session, jsonify
 )
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -23,9 +23,7 @@ app = Flask(
 )
 handler = app
 
-app.secret_key = os.environ.get(
-    "SESSION_SECRET", "change-this-secret-in-vercel"
-)
+app.secret_key = os.environ.get("SESSION_SECRET", "")
 app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
@@ -35,23 +33,25 @@ LOGIN_PASSWORD = os.environ.get("LOGIN_PASSWORD", "")
 SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
 
 try:
-    SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
-except (TypeError, ValueError):
-    SMTP_PORT = 587
+    SMTP_PORT = int(os.environ.get("SMTP_PORT", "465"))
+except (ValueError, TypeError):
+    SMTP_PORT = 465
 
 try:
     MAIL_GAP_SECONDS = max(
         0.0,
         min(float(os.environ.get("MAIL_GAP_SECONDS", "1")), 10.0)
     )
-except (TypeError, ValueError):
+except (ValueError, TypeError):
     MAIL_GAP_SECONDS = 1.0
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+# Customize these three replies for the website/SEO service.
 SMART_REPLIES = [
-    "Yes please do",
-    "I am interested",
-    "Sure please send",
+    "Yes, please send the screenshot",
+    "I'm interested—please share details",
+    "Sure, please send the information",
 ]
 
 
@@ -81,196 +81,134 @@ def html_to_plain_text(source):
     return html.unescape(source).strip()
 
 
-def get_plain_body(body, html_mode):
-    if html_mode:
-        return html_to_plain_text(body)
-    return str(body or "").strip()
+def plain_body(body, html_mode):
+    return html_to_plain_text(body) if html_mode else str(body or "").strip()
 
 
-def original_message_details(
-    sender_name, sender_email, recipient, subject, body, html_mode
-):
-    """
-    Build a Gmail-style quoted message with the sender's identity,
-    date, and full original message body.
-    """
+def quoted_original(sender_name, sender_email, subject, body, html_mode):
     name = safe_header(sender_name, 100) or sender_email
-    original_text = get_plain_body(body, html_mode)
-
+    original = plain_body(body, html_mode)
     now = datetime.now().astimezone()
     hour = now.strftime("%I").lstrip("0") or "12"
-    sent_time = (
-        now.strftime("%a, %b %d, %Y at ")
-        + hour
-        + now.strftime(":%M %p")
-    )
+    date_text = now.strftime("%a, %b %d, %Y at ") + hour + now.strftime(":%M %p")
 
-    quoted_body = "\n".join(
-        "> " + line for line in original_text.splitlines()
-    )
+    quoted_lines = "\n".join("> " + line for line in original.splitlines())
 
     return (
-        f"On {sent_time} {name} <{sender_email}> wrote:\n"
-        f"{quoted_body}"
+        f"On {date_text} {name} <{sender_email}> wrote:\n"
+        f"{quoted_lines}"
     )
 
 
-def make_reply_mailto(
-    sender_email, subject, reply_text, quoted_details
-):
+def make_reply_link(sender_email, subject, reply_text, quoted_text):
     reply_subject = (
-        subject
-        if subject.lower().startswith("re:")
+        subject if subject.lower().startswith("re:")
         else f"Re: {subject}"
     )
-
-    draft_body = f"{reply_text}\n\n{quoted_details}"
+    body = f"{reply_text}\n\n{quoted_text}"
 
     return (
         f"mailto:{quote(sender_email, safe='@')}"
         f"?subject={quote(reply_subject, safe='')}"
-        f"&body={quote(draft_body, safe='')}"
+        f"&body={quote(body, safe='')}"
     )
 
 
-def add_reply_buttons(
-    body, sender_name, sender_email, recipient,
-    subject, html_mode
-):
+def build_html_email(body, sender_name, sender_email, subject, html_mode):
     if html_mode:
-        content_html = str(body or "")
+        content = str(body or "")
     else:
-        content_html = (
-            '<div style="white-space:pre-wrap;'
-            'font-family:Arial,sans-serif;'
-            'font-size:14px;font-weight:400;'
-            'line-height:1.55;color:#333;">'
+        content = (
+            '<div style="white-space:pre-wrap;font-family:Arial,sans-serif;'
+            'font-size:14px;font-weight:400;line-height:1.55;color:#333;">'
             + html.escape(str(body or "")).replace("\n", "<br>")
             + "</div>"
         )
 
-    quoted_details = original_message_details(
-        sender_name, sender_email, recipient,
-        subject, body, html_mode
+    quoted = quoted_original(
+        sender_name, sender_email, subject, body, html_mode
     )
 
     buttons = []
-
     for label in SMART_REPLIES:
-        url = html.escape(
-            make_reply_mailto(
-                sender_email, subject, label, quoted_details
-            ),
+        link = html.escape(
+            make_reply_link(sender_email, subject, label, quoted),
             quote=True
         )
-
         buttons.append(
-            '<a href="' + url + '" '
-            'style="display:inline-block;'
-            'margin:5px 6px 5px 0;'
-            'padding:8px 12px;'
-            'border:1px solid #d8deea;'
-            'border-radius:6px;'
-            'background:#fafbfe;'
-            'color:#315b9b;'
-            'text-decoration:none;'
-            'font-family:Arial,sans-serif;'
-            'font-size:14px;'
-            'font-weight:400;line-height:1.3;">'
-            + html.escape(label)
-            + "</a>"
+            '<a href="' + link + '" '
+            'style="display:inline-block;margin:5px 6px 5px 0;'
+            'padding:8px 12px;border:1px solid #d8deea;'
+            'border-radius:6px;background:#fafbfe;color:#315b9b;'
+            'text-decoration:none;font-family:Arial,sans-serif;'
+            'font-size:14px;font-weight:400;line-height:1.3;">'
+            + html.escape(label) + '</a>'
         )
 
-    # Only the three buttons. No Quick reply heading or instruction.
+    # No Quick reply heading or instruction text.
     return (
-        '<div style="font-family:Arial,sans-serif;'
-        'font-weight:400;">'
-        + content_html
-        + '<div style="margin-top:18px;'
-          'padding-top:10px;'
+        '<div style="font-family:Arial,sans-serif;font-weight:400;">'
+        + content
+        + '<div style="margin-top:18px;padding-top:10px;'
           'border-top:1px solid #e9ebef;">'
         + "".join(buttons)
-        + "</div></div>"
+        + '</div></div>'
     )
 
 
-def send_smtp(
-    to_email, subject, body, sender_name,
-    sender_email, app_password, html_mode=False
-):
-    subject = safe_header(subject, 200)
-    sender_name = safe_header(sender_name, 100) or sender_email
+def send_one(to_email, subject, body, sender_name, sender_email,
+             app_password, html_mode):
+    msg = EmailMessage()
+    msg["From"] = formataddr((
+        safe_header(sender_name, 100) or sender_email,
+        sender_email
+    ))
+    msg["To"] = to_email
+    msg["Reply-To"] = sender_email
+    msg["Subject"] = safe_header(subject, 200)
+    msg["Date"] = formatdate(localtime=True)
 
-    message = EmailMessage()
-    message["From"] = formataddr((sender_name, sender_email))
-    message["To"] = to_email
-    message["Reply-To"] = sender_email
-    message["Subject"] = subject
-    message["Date"] = formatdate(localtime=True)
-
-    plain_text = get_plain_body(body, html_mode)
-    message.set_content(plain_text)
-
-    message.add_alternative(
-        add_reply_buttons(
-            body, sender_name, sender_email,
-            to_email, subject, html_mode
+    msg.set_content(plain_body(body, html_mode))
+    msg.add_alternative(
+        build_html_email(
+            body, sender_name, sender_email, subject, html_mode
         ),
-        subtype="html",
+        subtype="html"
     )
 
     context = ssl.create_default_context()
 
-    for attempt in range(2):
-        try:
-            if SMTP_PORT == 465:
-                with smtplib.SMTP_SSL(
-                    SMTP_HOST, SMTP_PORT,
-                    timeout=20, context=context
-                ) as server:
-                    server.ehlo()
-                    server.login(sender_email, app_password)
-                    refused = server.send_message(message)
-            else:
-                with smtplib.SMTP(
-                    SMTP_HOST, SMTP_PORT, timeout=20
-                ) as server:
-                    server.ehlo()
-                    server.starttls(context=context)
-                    server.ehlo()
-                    server.login(sender_email, app_password)
-                    refused = server.send_message(message)
+    try:
+        if SMTP_PORT == 465:
+            with smtplib.SMTP_SSL(
+                SMTP_HOST, SMTP_PORT, timeout=25, context=context
+            ) as server:
+                server.ehlo()
+                server.login(sender_email, app_password)
+                refused = server.send_message(msg)
+        else:
+            with smtplib.SMTP(
+                SMTP_HOST, SMTP_PORT, timeout=25
+            ) as server:
+                server.ehlo()
+                server.starttls(context=context)
+                server.ehlo()
+                server.login(sender_email, app_password)
+                refused = server.send_message(msg)
 
-            if refused:
-                return False, "Recipient rejected by SMTP server"
+        if refused:
+            return False, "Recipient rejected by SMTP server"
 
-            return True, (
-                "SMTP accepted the message; Inbox placement "
-                "is not guaranteed."
-            )
+        return True, "SMTP accepted the message; Inbox placement is not guaranteed."
 
-        except smtplib.SMTPAuthenticationError:
-            return False, (
-                "Gmail authentication failed. Check Gmail "
-                "address and App Password."
-            )
-        except smtplib.SMTPRecipientsRefused:
-            return False, "Recipient address rejected by SMTP server"
-        except smtplib.SMTPDataError as exc:
-            return False, (
-                f"SMTP rejected message (code {exc.smtp_code})"
-            )
-        except (
-            smtplib.SMTPException, OSError, TimeoutError
-        ) as exc:
-            if attempt == 0:
-                time.sleep(1)
-            else:
-                return False, (
-                    f"SMTP connection failed: {str(exc)[:160]}"
-                )
-
-    return False, "SMTP failed"
+    except smtplib.SMTPAuthenticationError:
+        return False, "Gmail authentication failed. Check Gmail address and App Password."
+    except smtplib.SMTPRecipientsRefused:
+        return False, "Recipient address rejected by SMTP server."
+    except smtplib.SMTPException as exc:
+        return False, f"SMTP error: {str(exc)[:160]}"
+    except (OSError, TimeoutError) as exc:
+        return False, f"Connection error: {str(exc)[:160]}"
 
 
 @app.get("/health")
@@ -284,9 +222,7 @@ def login():
 
     if request.method == "POST":
         if not LOGIN_PASSWORD:
-            error = (
-                "Set LOGIN_PASSWORD in Vercel Environment Variables first."
-            )
+            error = "Set LOGIN_PASSWORD in Vercel Environment Variables."
         elif request.form.get("password", "") == LOGIN_PASSWORD:
             session.clear()
             session["logged_in"] = True
@@ -317,98 +253,63 @@ def send_batch():
         return jsonify({"error": "Please sign in again."}), 401
 
     data = request.get_json(silent=True)
-
     if not isinstance(data, dict):
         return jsonify({"error": "Invalid JSON request."}), 400
 
     recipients = data.get("recipients", [])
-    sender_email = str(
-        data.get("senderEmail", "")
-    ).strip().lower()
-
-    app_password = re.sub(
-        r"\s+", "", str(data.get("appPassword", ""))
-    )
+    sender_email = str(data.get("senderEmail", "")).strip().lower()
+    app_password = re.sub(r"\s+", "", str(data.get("appPassword", "")))
     sender_name = safe_header(data.get("senderName", ""), 100)
     subject = safe_header(data.get("subject", ""), 200)
     body = str(data.get("body", "")).strip()
     html_mode = data.get("htmlMode") is True
 
     if data.get("consentConfirmed") is not True:
-        return jsonify({
-            "error": "Confirm recipient permission first."
-        }), 400
-
-    if (
-        not EMAIL_RE.fullmatch(sender_email)
-        or not sender_email.endswith("@gmail.com")
-    ):
-        return jsonify({
-            "error": "Enter a valid @gmail.com sender address."
-        }), 400
-
+        return jsonify({"error": "Confirm recipient permission first."}), 400
+    if not EMAIL_RE.fullmatch(sender_email) or not sender_email.endswith("@gmail.com"):
+        return jsonify({"error": "Enter a valid @gmail.com sender address."}), 400
     if not app_password:
-        return jsonify({
-            "error": "Enter your Google App Password."
-        }), 400
-
+        return jsonify({"error": "Enter your Google App Password."}), 400
     if not isinstance(recipients, list):
-        return jsonify({
-            "error": "Recipients must be a list."
-        }), 400
-
+        return jsonify({"error": "Recipients must be a list."}), 400
     if len(recipients) > 25:
-        return jsonify({
-            "error": "Maximum 25 recipients per batch."
-        }), 400
-
+        return jsonify({"error": "Maximum 25 recipients per batch."}), 400
     if not subject or not body:
-        return jsonify({
-            "error": "Subject and message are required."
-        }), 400
+        return jsonify({"error": "Subject and message are required."}), 400
 
     cleaned = []
     seen = set()
-
     for item in recipients:
         if not isinstance(item, str):
             continue
-
         address = item.strip().lower()
-
         if EMAIL_RE.fullmatch(address) and address not in seen:
             cleaned.append(address)
             seen.add(address)
 
     if not cleaned:
-        return jsonify({
-            "error": "No valid recipient addresses found."
-        }), 400
+        return jsonify({"error": "No valid recipient addresses found."}), 400
 
     results = []
-
     for index, recipient in enumerate(cleaned):
-        ok, detail = send_smtp(
+        ok, detail = send_one(
             recipient, subject, body, sender_name,
             sender_email, app_password, html_mode
         )
-
         results.append({
             "email": recipient,
             "status": "sent" if ok else "failed",
-            "detail": detail,
+            "detail": detail
         })
 
         if index < len(cleaned) - 1 and MAIL_GAP_SECONDS > 0:
             time.sleep(MAIL_GAP_SECONDS)
 
-    sent = sum(
-        item["status"] == "sent" for item in results
-    )
+    sent = sum(item["status"] == "sent" for item in results)
 
     return jsonify({
         "total": len(results),
         "sent": sent,
         "failed": len(results) - sent,
-        "results": results,
+        "results": results
     })
