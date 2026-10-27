@@ -283,7 +283,7 @@
     $("status").textContent = "Sending…";
 
     try {
-      for (let start = 0; start < recipients.length; start += 5) {
+      for (let start = 0; start < recipients.length; start += 8) {
         if (stopped) break;
 
         const response = await fetch("/send-batch", {
@@ -292,7 +292,7 @@
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            recipients: recipients.slice(start, start + 5),
+            recipients: recipients.slice(start, start + 8),
             senderEmail,
             appPassword,
             senderName,
