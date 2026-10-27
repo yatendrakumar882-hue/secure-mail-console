@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -22,11 +21,14 @@
         <label for="senderName">Sender Name</label>
         <input id="senderName" placeholder="Your name" maxlength="100">
       </div>
+
       <div>
         <label for="senderEmail">Your Gmail</label>
-        <input id="senderEmail" type="email" placeholder="your@gmail.com"
+        <input id="senderEmail" type="email"
+               placeholder="your@gmail@gmail.com"
                autocomplete="username" required>
       </div>
+
       <div>
         <label for="appPassword">App Password</label>
         <div class="password-wrap">
@@ -38,38 +40,55 @@
         </div>
         <small>Use your Google App Password, not your normal account password.</small>
       </div>
+
       <div>
         <label for="subject">Email Subject</label>
-        <input id="subject" placeholder="Email subject" maxlength="200" required>
+        <input id="subject" placeholder="Email subject"
+               maxlength="200" required>
       </div>
     </div>
 
     <div class="body-heading">
       <label for="messageBody">Message Body</label>
       <div class="mode-switch">
-        <button type="button" class="mode active" data-mode="plain">Plain Text</button>
-        <button type="button" class="mode" data-mode="html">HTML</button>
+        <button type="button" class="mode active" data-mode="plain">
+          Plain Text
+        </button>
+        <button type="button" class="mode" data-mode="html">
+          HTML
+        </button>
       </div>
     </div>
 
     <textarea id="messageBody" class="message-body"
-              placeholder="Write your email message..." required></textarea>
+              placeholder="Write your email message..."
+              required></textarea>
 
     <div class="info-strip">
-      <span class="shuffle">⤨</span>
+      <span class="shuffle">↩</span>
       <div>
-        <strong>Spintax Enabled</strong>
-        <small>Supports {Hello|Hi|Hey} variations.</small>
+        <strong>Smart Reply Buttons</strong>
+        <small>
+          Emails include “Yes please do”, “I am interested”,
+          and “Sure please send”. Recipients can click an option
+          to open a reply draft.
+        </small>
       </div>
     </div>
 
-    <h3 class="security-heading">◈ Spam Protection</h3>
     <div class="consent-row">
       <input id="consent" type="checkbox">
-      <label for="consent">I confirm these recipients have agreed to receive this email.</label>
+      <label for="consent">
+        I confirm these recipients have agreed to receive this email.
+      </label>
     </div>
-    <p class="help-text">Only send messages to recipients who have consented.</p>
-    <p class="help-text">The App Password remains in this form after sending. It is not saved to browser storage.</p>
+
+    <p class="help-text">
+      Only send messages to recipients who have consented.
+    </p>
+    <p class="help-text">
+      Your App Password stays in this form and is not saved to browser storage.
+    </p>
   </section>
 
   <div class="right-column">
@@ -81,6 +100,7 @@
         </div>
         <span id="foundBadge" class="badge">0 found</span>
       </div>
+
       <textarea id="recipients" class="recipient-input"
                 placeholder="person@example.com&#10;another@example.com"></textarea>
       <small>Maximum 25 recipients per batch.</small>
@@ -88,20 +108,39 @@
 
     <section class="card progress-card">
       <h2>◔ Progress Monitor</h2>
+
       <div class="stats-grid">
-        <div class="stat"><span>TOTAL</span><strong id="total">0</strong></div>
-        <div class="stat"><span>SENT</span><strong class="green" id="sent">0</strong></div>
-        <div class="stat"><span>FAILED</span><strong class="red" id="failed">0</strong></div>
-        <div class="stat"><span>REMAINING</span><strong class="orange" id="remaining">0</strong></div>
+        <div class="stat">
+          <span>TOTAL</span>
+          <strong id="total">0</strong>
+        </div>
+        <div class="stat">
+          <span>SENT</span>
+          <strong class="green" id="sent">0</strong>
+        </div>
+        <div class="stat">
+          <span>FAILED</span>
+          <strong class="red" id="failed">0</strong>
+        </div>
+        <div class="stat">
+          <span>REMAINING</span>
+          <strong class="orange" id="remaining">0</strong>
+        </div>
       </div>
 
-      <div class="progress-track"><div id="progressBar"></div></div>
+      <div class="progress-track">
+        <div id="progressBar"></div>
+      </div>
+
       <p id="status" class="status" role="status">Ready to send</p>
 
       <div class="action-row">
         <button id="sendBtn" class="send-btn" type="button">➤ Send All</button>
-        <button id="stopBtn" class="stop-btn" type="button" disabled>■ Stop Sending</button>
+        <button id="stopBtn" class="stop-btn" type="button" disabled>
+          ■ Stop Sending
+        </button>
       </div>
+
       <div id="results" class="results"></div>
     </section>
   </div>
@@ -110,18 +149,22 @@
 <script>
 (() => {
   const $ = id => document.getElementById(id);
+
   let mode = "plain";
   let busy = false;
   let stopped = false;
 
   $("togglePassword").addEventListener("click", () => {
     const field = $("appPassword");
-    field.type = field.type === "password" ? "text" : "password";
+    const show = field.type === "password";
+    field.type = show ? "text" : "password";
+    $("togglePassword").textContent = show ? "Hide" : "◉";
   });
 
   document.querySelectorAll(".mode").forEach(button => {
     button.addEventListener("click", () => {
       mode = button.dataset.mode;
+
       document.querySelectorAll(".mode").forEach(item => {
         item.classList.toggle("active", item === button);
       });
@@ -131,7 +174,7 @@
   function getRecipients() {
     return [...new Set(
       $("recipients").value
-        .split(/[\n,;\t]+/)
+        .split(/[\n,;\t ]+/)
         .map(value => value.trim())
         .filter(Boolean)
     )];
@@ -154,7 +197,7 @@
   $("stopBtn").addEventListener("click", () => {
     stopped = true;
     $("status").textContent =
-      "Stop requested. The current SMTP request may still finish.";
+      "Stop requested. The current server request may still finish.";
     $("stopBtn").disabled = true;
   });
 
@@ -168,9 +211,17 @@
     const subject = $("subject").value.trim();
     const body = $("messageBody").value.trim();
 
-    if (!senderEmail || !appPassword || !subject || !body || !recipients.length) {
+    if (
+      !senderEmail || !appPassword || !subject ||
+      !body || !recipients.length
+    ) {
       $("status").textContent =
         "Fill in Gmail, App Password, recipients, subject, and message.";
+      return;
+    }
+
+    if (!senderEmail.toLowerCase().endsWith("@gmail.com")) {
+      $("status").textContent = "Please use a valid @gmail.com address.";
       return;
     }
 
@@ -180,7 +231,8 @@
     }
 
     if (!$("consent").checked) {
-      $("status").textContent = "Confirm recipient permission first.";
+      $("status").textContent =
+        "Confirm recipient permission before sending.";
       return;
     }
 
@@ -202,10 +254,11 @@
     $("status").textContent = "Sending…";
 
     try {
-      for (let start = 0; start < recipients.length; start += 8) {
+      // Send in small batches so progress can refresh between requests.
+      for (let start = 0; start < recipients.length; start += 5) {
         if (stopped) break;
 
-        const batch = recipients.slice(start, start + 8);
+        const batch = recipients.slice(start, start + 5);
 
         const response = await fetch("/send-batch", {
           method: "POST",
@@ -222,7 +275,12 @@
           })
         });
 
-        const data = await response.json();
+        let data;
+        try {
+          data = await response.json();
+        } catch {
+          throw new Error("Server returned an unreadable response.");
+        }
 
         if (!response.ok) {
           throw new Error(data.error || "Sending request failed.");
@@ -230,16 +288,23 @@
 
         for (const item of data.results || []) {
           showResult(item);
-          if (item.status === "sent") sent++;
-          else failed++;
+
+          if (item.status === "sent") {
+            sent++;
+          } else {
+            failed++;
+          }
+
           processed++;
         }
 
         $("sent").textContent = sent;
         $("failed").textContent = failed;
         $("remaining").textContent = recipients.length - processed;
+
         $("progressBar").style.width =
           `${Math.round(processed / recipients.length * 100)}%`;
+
         $("status").textContent =
           `Processed ${processed} of ${recipients.length}`;
       }
@@ -256,8 +321,7 @@
       $("sendBtn").disabled = false;
       $("stopBtn").disabled = true;
 
-      // FIX: App Password ko clear nahi karna.
-      // Isliye sending ke baad field ki value bani rahegi.
+      // Keep the form fields populated after sending.
     }
   });
 })();
