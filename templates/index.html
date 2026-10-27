@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -15,6 +16,7 @@
 <main class="dashboard">
   <section class="card compose">
     <h2>🖉 Compose Message</h2>
+
     <div class="two-col">
       <div>
         <label for="senderName">Sender Name</label>
@@ -22,13 +24,17 @@
       </div>
       <div>
         <label for="senderEmail">Your Gmail</label>
-        <input id="senderEmail" type="email" placeholder="your@gmail.com" autocomplete="username" required>
+        <input id="senderEmail" type="email" placeholder="your@gmail.com"
+               autocomplete="username" required>
       </div>
       <div>
         <label for="appPassword">App Password</label>
         <div class="password-wrap">
-          <input id="appPassword" type="password" placeholder="Google App Password" autocomplete="off" required>
-          <button type="button" id="togglePassword" aria-label="Show or hide password">◉</button>
+          <input id="appPassword" type="password"
+                 placeholder="Google App Password"
+                 autocomplete="current-password" required>
+          <button type="button" id="togglePassword"
+                  aria-label="Show or hide password">◉</button>
         </div>
         <small>Use your Google App Password, not your normal account password.</small>
       </div>
@@ -46,7 +52,8 @@
       </div>
     </div>
 
-    <textarea id="messageBody" class="message-body" placeholder="Write your email message..." required></textarea>
+    <textarea id="messageBody" class="message-body"
+              placeholder="Write your email message..." required></textarea>
 
     <div class="info-strip">
       <span class="shuffle">⤨</span>
@@ -56,13 +63,12 @@
       </div>
     </div>
 
-    <h3 class="security-heading">◈ Recipient Permission</h3>
     <div class="consent-row">
       <input id="consent" type="checkbox">
       <label for="consent">I confirm these recipients have agreed to receive this email.</label>
     </div>
     <p class="help-text">Only send messages to recipients who have consented.</p>
-    <p class="help-text">Form details stay in place after sending; the App Password is not saved to browser storage.</p>
+    <p class="help-text">The App Password remains in this form after sending. It is not saved to browser storage.</p>
   </section>
 
   <div class="right-column">
@@ -74,37 +80,38 @@
         </div>
         <span id="foundBadge" class="badge">0 found</span>
       </div>
-      <textarea id="recipients" class="recipient-input" placeholder="person@example.com&#10;another@example.com"></textarea>
-      <small>Maximum 25 recipients per job.</small>
+      <textarea id="recipients" class="recipient-input"
+                placeholder="person@example.com&#10;another@example.com"></textarea>
+      <small>Maximum 25 recipients per batch.</small>
     </section>
 
     <section class="card progress-card">
       <h2>◔ Progress Monitor</h2>
-      <p id="activeSender" class="status">Ready to send</p>
       <div class="stats-grid">
         <div class="stat"><span>TOTAL</span><strong id="total">0</strong></div>
         <div class="stat"><span>SENT</span><strong class="green" id="sent">0</strong></div>
         <div class="stat"><span>FAILED</span><strong class="red" id="failed">0</strong></div>
         <div class="stat"><span>REMAINING</span><strong class="orange" id="remaining">0</strong></div>
       </div>
+
       <div class="progress-track"><div id="progressBar"></div></div>
-      <p id="status" class="status" role="status" aria-live="polite">Ready to send</p>
+      <p id="status" class="status" role="status">Ready to send</p>
+
       <div class="action-row">
         <button id="sendBtn" class="send-btn" type="button">➤ Send All</button>
         <button id="stopBtn" class="stop-btn" type="button" disabled>■ Stop Sending</button>
       </div>
-      <div id="results" class="results" aria-live="polite"></div>
+      <div id="results" class="results"></div>
     </section>
   </div>
 </main>
 
 <script>
 (() => {
-  "use strict";
   const $ = id => document.getElementById(id);
   let mode = "plain";
   let busy = false;
-  let abortController = null;
+  let stopped = false;
 
   $("togglePassword").addEventListener("click", () => {
     const field = $("appPassword");
@@ -114,51 +121,40 @@
   document.querySelectorAll(".mode").forEach(button => {
     button.addEventListener("click", () => {
       mode = button.dataset.mode;
-      document.querySelectorAll(".mode").forEach(item =>
-        item.classList.toggle("active", item === button)
-      );
+      document.querySelectorAll(".mode").forEach(item => {
+        item.classList.toggle("active", item === button);
+      });
     });
   });
 
   function getRecipients() {
-    return [...new Set($("recipients").value
-      .split(/[\n,;\t]+/)
-      .map(value => value.trim())
-      .filter(Boolean))];
+    return [...new Set(
+      $("recipients").value
+        .split(/[\n,;\t]+/)
+        .map(value => value.trim())
+        .filter(Boolean)
+    )];
   }
 
   function updateFound() {
     $("foundBadge").textContent = `${getRecipients().length} found`;
   }
+
   $("recipients").addEventListener("input", updateFound);
 
-  function updateStats(data) {
-    $("total").textContent = data.total ?? 0;
-    $("sent").textContent = data.sent ?? 0;
-    $("failed").textContent = data.failed ?? 0;
-    $("remaining").textContent = data.remaining ?? 0;
-    const total = Number(data.total || 0);
-    const processed = Number(data.processed || 0);
-    $("progressBar").style.width = `${total ? Math.round(processed / total * 100) : 0}%`;
-  }
-
-  function addResult(item) {
+  function showResult(item) {
     const row = document.createElement("div");
-    row.className = `result-row ${item.status || "failed"}`;
-    const title = document.createElement("strong");
-    title.textContent = `${String(item.status || "failed").toUpperCase()} — ${item.email || ""}`;
-    const detail = document.createElement("small");
-    detail.textContent = item.detail || "";
-    row.append(title, detail);
+    row.className = `result-row ${item.status}`;
+    row.textContent =
+      `${item.status.toUpperCase()} — ${item.email}: ${item.detail}`;
     $("results").prepend(row);
   }
 
   $("stopBtn").addEventListener("click", () => {
-    if (abortController) {
-      abortController.abort();
-      $("status").textContent = "Stop requested. The current server request may already have sent some emails.";
-      $("stopBtn").disabled = true;
-    }
+    stopped = true;
+    $("status").textContent =
+      "Stop requested. The current SMTP request may still finish.";
+    $("stopBtn").disabled = true;
   });
 
   $("sendBtn").addEventListener("click", async () => {
@@ -172,122 +168,95 @@
     const body = $("messageBody").value.trim();
 
     if (!senderEmail || !appPassword || !subject || !body || !recipients.length) {
-      $("status").textContent = "Fill in Gmail, App Password, recipients, subject, and message.";
+      $("status").textContent =
+        "Fill in Gmail, App Password, recipients, subject, and message.";
       return;
     }
+
     if (recipients.length > 25) {
-      $("status").textContent = "Maximum 25 recipients per job.";
+      $("status").textContent = "Maximum 25 recipients per batch.";
       return;
     }
+
     if (!$("consent").checked) {
       $("status").textContent = "Confirm recipient permission first.";
       return;
     }
 
     busy = true;
-    abortController = new AbortController();
+    stopped = false;
     $("sendBtn").disabled = true;
     $("stopBtn").disabled = false;
     $("results").replaceChildren();
-    updateStats({total: recipients.length, sent: 0, failed: 0, processed: 0, remaining: recipients.length});
-    $("activeSender").textContent = `Sending from: ${senderEmail}`;
-    $("status").textContent = "Connecting to Gmail…";
 
-    let gotDone = false;
+    let sent = 0;
+    let failed = 0;
+    let processed = 0;
+
+    $("total").textContent = recipients.length;
+    $("sent").textContent = "0";
+    $("failed").textContent = "0";
+    $("remaining").textContent = recipients.length;
+    $("progressBar").style.width = "0%";
+    $("status").textContent = "Sending…";
 
     try {
-      const response = await fetch("/send-batch", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        signal: abortController.signal,
-        body: JSON.stringify({
-          recipients,
-          senderEmail,
-          appPassword,
-          senderName,
-          subject,
-          body,
-          htmlMode: mode === "html",
-          consentConfirmed: $("consent").checked
-        })
-      });
+      for (let start = 0; start < recipients.length; start += 8) {
+        if (stopped) break;
 
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || `Server returned HTTP ${response.status}.`);
-      }
-      if (!response.body) {
-        throw new Error("Streaming response is not supported by this connection.");
-      }
+        const batch = recipients.slice(start, start + 8);
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
+        const response = await fetch("/send-batch", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            recipients: batch,
+            senderEmail,
+            appPassword,
+            senderName,
+            subject,
+            body,
+            htmlMode: mode === "html",
+            consentConfirmed: $("consent").checked
+          })
+        });
 
-      while (true) {
-        const {value, done} = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, {stream: true});
+        const data = await response.json();
 
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          let event;
-          try {
-            event = JSON.parse(line);
-          } catch (_) {
-            continue;
-          }
-
-          if (event.type === "start") {
-            updateStats(event);
-            $("status").textContent = `Connected · ${event.total} recipients · ${event.delayMs} ms gap`;
-          } else if (event.type === "result") {
-            updateStats(event);
-            addResult(event);
-            $("status").textContent =
-              `Processed ${event.processed}/${event.total} · Sent ${event.sent} · Failed ${event.failed}`;
-          } else if (event.type === "fatal") {
-            $("status").textContent = `Error: ${event.error}`;
-          } else if (event.type === "done") {
-            gotDone = true;
-            updateStats(event);
-            $("status").textContent =
-              `Finished · SMTP accepted ${event.sent} · Failed ${event.failed} · Remaining ${event.remaining}`;
-          }
+        if (!response.ok) {
+          throw new Error(data.error || "Sending request failed.");
         }
+
+        for (const item of data.results || []) {
+          showResult(item);
+          if (item.status === "sent") sent++;
+          else failed++;
+          processed++;
+        }
+
+        $("sent").textContent = sent;
+        $("failed").textContent = failed;
+        $("remaining").textContent = recipients.length - processed;
+        $("progressBar").style.width =
+          `${Math.round(processed / recipients.length * 100)}%`;
+        $("status").textContent =
+          `Processed ${processed} of ${recipients.length}`;
       }
 
-      if (buffer.trim()) {
-        try {
-          const event = JSON.parse(buffer);
-          if (event.type === "done") {
-            gotDone = true;
-            updateStats(event);
-          } else if (event.type === "result") {
-            updateStats(event);
-            addResult(event);
-          } else if (event.type === "fatal") {
-            $("status").textContent = `Error: ${event.error}`;
-          }
-        } catch (_) {}
-      }
+      $("status").textContent = stopped
+        ? `Stopped. SMTP accepted: ${sent}; failed: ${failed}.`
+        : `Finished. SMTP accepted: ${sent}; failed: ${failed}.`;
 
-      if (!gotDone && !abortController.signal.aborted) {
-        $("status").textContent = "Connection ended before completion status. Check Runtime Logs before retrying.";
-      }
     } catch (error) {
-      $("status").textContent = error.name === "AbortError"
-        ? "Stopped in browser. Some messages may already have been sent; check results before retrying."
-        : `Error: ${error.message}`;
+      $("status").textContent = `Error: ${error.message}`;
+
     } finally {
       busy = false;
-      abortController = null;
       $("sendBtn").disabled = false;
       $("stopBtn").disabled = true;
-      // Keep all user-entered fields, including App Password, in the current page.
+
+      // FIX: App Password ko clear nahi karna.
+      // Isliye sending ke baad field ki value bani rahegi.
     }
   });
 })();
