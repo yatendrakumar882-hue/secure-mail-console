@@ -5,20 +5,13 @@ import time
 import smtplib
 import html
 
-from datetime import datetime
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid
-from urllib.parse import quote
-
 from flask import (
-    Flask,
-    render_template,
-    request,
-    redirect,
-    url_for,
-    session,
-    jsonify,
+    Flask, render_template, request,
+    redirect, url_for, session, jsonify
 )
+from urllib.parse import quote
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -43,7 +36,6 @@ try:
 except (ValueError, TypeError):
     SMTP_PORT = 465
 
-# Delay between individual recipients; configure in Vercel.
 try:
     MAIL_GAP_SECONDS = max(
         0.0,
@@ -82,11 +74,12 @@ def html_to_plain_text(source):
 
 
 def plain_body(body, html_mode):
-    return html_to_plain_text(body) if html_mode else str(body or "").strip()
+    if html_mode:
+        return html_to_plain_text(body)
+    return str(body or "").strip()
 
 
 def choose_smart_replies(subject, body, html_mode):
-    """Choose three reply suggestions based on the message template."""
     text = (
         safe_header(subject, 200) + " " +
         plain_body(body, html_mode)
@@ -145,21 +138,18 @@ def choose_smart_replies(subject, body, html_mode):
     ]
 
 
-def quoted_original(sender_name, sender_email, body, html_mode, sent_at=None):
+def quoted_original(sender_name, sender_email, body, html_mode):
     name = safe_header(sender_name, 100) or sender_email
     email_address = safe_header(sender_email, 200)
-
-    if sent_at is None:
-        sent_at = datetime.now().astimezone()
-
-    date_text = sent_at.strftime("%a, %b %d, %Y at %I:%M %p")
+    sent_time = formatdate(localtime=True)
     original_text = plain_body(body, html_mode)
+
     quoted_lines = "\n".join(
         "> " + line for line in original_text.splitlines()
     )
 
     return (
-        f"On {date_text} {name} <{email_address}> wrote:\n"
+        f"On {sent_time}, {name} <{email_address}> wrote:\n"
         f"{quoted_lines}"
     )
 
@@ -196,7 +186,6 @@ def build_html_email(body, sender_name, sender_email, subject, html_mode):
     )
 
     buttons = []
-
     for reply in replies:
         href = html.escape(
             make_reply_link(
@@ -204,18 +193,15 @@ def build_html_email(body, sender_name, sender_email, subject, html_mode):
             ),
             quote=True,
         )
-
         buttons.append(
             '<a href="' + href + '" '
-            'style="display:inline-block;vertical-align:middle;'
-            'margin:8px 7px 0 0;padding:7px 12px;'
-            'border:1px solid #dadce0;border-radius:6px;'
-            'background:#fff;color:#1a73e8;'
+            'style="display:inline-block;margin:8px 7px 0 0;'
+            'padding:7px 12px;border:1px solid #dadce0;'
+            'border-radius:6px;background:#fff;color:#1a73e8;'
             'font-family:Arial,sans-serif;font-size:14px;'
             'font-weight:400;line-height:1.35;'
             'text-decoration:none;">'
-            + html.escape(reply)
-            + "</a>"
+            + html.escape(reply) + "</a>"
         )
 
     return (
@@ -229,17 +215,11 @@ def build_html_email(body, sender_name, sender_email, subject, html_mode):
 
 
 def send_one(
-    to_email,
-    subject,
-    body,
-    sender_name,
-    sender_email,
-    app_password,
-    html_mode,
+    to_email, subject, body, sender_name,
+    sender_email, app_password, html_mode
 ):
     msg = EmailMessage()
 
-    # Use the authenticated Gmail account as the sender.
     msg["From"] = formataddr((
         safe_header(sender_name, 100) or sender_email,
         sender_email,
@@ -250,15 +230,10 @@ def send_one(
     msg["Date"] = formatdate(localtime=True)
     msg["Message-ID"] = make_msgid()
 
-    # Provide both text and HTML versions.
     msg.set_content(plain_body(body, html_mode))
     msg.add_alternative(
         build_html_email(
-            body,
-            sender_name,
-            sender_email,
-            subject,
-            html_mode,
+            body, sender_name, sender_email, subject, html_mode
         ),
         subtype="html",
     )
@@ -268,10 +243,7 @@ def send_one(
     try:
         if SMTP_PORT == 465:
             with smtplib.SMTP_SSL(
-                SMTP_HOST,
-                SMTP_PORT,
-                timeout=25,
-                context=context,
+                SMTP_HOST, SMTP_PORT, timeout=25, context=context
             ) as server:
                 server.ehlo()
                 server.login(sender_email, app_password)
@@ -279,9 +251,7 @@ def send_one(
 
         elif SMTP_PORT == 587:
             with smtplib.SMTP(
-                SMTP_HOST,
-                SMTP_PORT,
-                timeout=25,
+                SMTP_HOST, SMTP_PORT, timeout=25
             ) as server:
                 server.ehlo()
                 server.starttls(context=context)
@@ -290,7 +260,7 @@ def send_one(
                 refused = server.send_message(msg)
 
         else:
-            return False, "Use SMTP_PORT 465 or 587."
+            return False, "SMTP_PORT must be 465 or 587."
 
         if refused:
             return False, "Recipient rejected by SMTP server."
@@ -301,8 +271,7 @@ def send_one(
 
     except smtplib.SMTPAuthenticationError:
         return False, (
-            "Gmail authentication failed. Check the Gmail address "
-            "and Google App Password."
+            "Gmail login failed. Check the sender address and App Password."
         )
     except smtplib.SMTPRecipientsRefused:
         return False, "Recipient address rejected by SMTP server."
@@ -323,7 +292,7 @@ def login():
 
     if request.method == "POST":
         if not LOGIN_PASSWORD:
-            error = "Set LOGIN_PASSWORD in Vercel Environment Variables."
+            error = "LOGIN_PASSWORD is not configured."
         elif request.form.get("password", "") == LOGIN_PASSWORD:
             session.clear()
             session["logged_in"] = True
@@ -406,7 +375,6 @@ def send_batch():
     for item in recipients:
         if not isinstance(item, str):
             continue
-
         address = item.strip().lower()
         if EMAIL_RE.fullmatch(address) and address not in seen:
             cleaned.append(address)
@@ -418,18 +386,11 @@ def send_batch():
         }), 400
 
     results = []
-
     for index, recipient in enumerate(cleaned):
         ok, detail = send_one(
-            recipient,
-            subject,
-            body,
-            sender_name,
-            sender_email,
-            app_password,
-            html_mode,
+            recipient, subject, body, sender_name,
+            sender_email, app_password, html_mode
         )
-
         results.append({
             "email": recipient,
             "status": "sent" if ok else "failed",
@@ -439,10 +400,7 @@ def send_batch():
         if index < len(cleaned) - 1 and MAIL_GAP_SECONDS > 0:
             time.sleep(MAIL_GAP_SECONDS)
 
-    sent = sum(
-        item["status"] == "sent"
-        for item in results
-    )
+    sent = sum(item["status"] == "sent" for item in results)
 
     return jsonify({
         "total": len(results),
