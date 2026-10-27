@@ -6,224 +6,94 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Bulk Email Sender</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-
-  <style>
-    .monitor-results {
-      margin-top: 14px;
-      max-height: 260px;
-      overflow-y: auto;
-    }
-
-    .monitor-result {
-      padding: 9px 2px;
-      border-bottom: 1px solid #e5eaf2;
-      font-size: 11px;
-      line-height: 1.5;
-      overflow-wrap: anywhere;
-    }
-
-    .monitor-result.sent { color: #087e58; }
-    .monitor-result.failed { color: #c72d38; }
-
-    .monitor-result small {
-      display: block;
-      margin-top: 3px;
-      color: #71829e;
-    }
-
-    #activeSender {
-      margin: 8px 0 14px;
-      font-size: 12px;
-      color: #536783;
-      overflow-wrap: anywhere;
-    }
-
-    #sendBtn:disabled {
-      opacity: .65;
-      cursor: wait;
-    }
-
-    #status {
-      overflow-wrap: anywhere;
-    }
-  </style>
 </head>
-
 <body>
 <header class="topbar">
-  <div class="app-title">
-    <span class="plane">➤</span> Bulk Email Sender
-  </div>
-  <a class="logout-btn" href="{{ url_for('logout') }}">↪ Logout</a>
+  <div class="brand">➤ Bulk Email Sender</div>
+  <a class="logout" href="{{ url_for('logout') }}">↪ Logout</a>
 </header>
 
 <main class="dashboard">
-
-  <!-- COMPOSE MESSAGE -->
   <section class="card compose">
     <h2>✎ Compose Message</h2>
 
-    <div class="two-col">
+    <div class="form-grid">
       <div>
         <label for="senderName">Sender Name</label>
         <input id="senderName" placeholder="Your name" maxlength="100">
       </div>
-
       <div>
         <label for="senderEmail">Your Gmail</label>
-        <input
-          id="senderEmail"
-          type="email"
-          placeholder="your@gmail.com"
-          autocomplete="username"
-          required
-        >
+        <input id="senderEmail" type="email" placeholder="your@gmail.com" autocomplete="username">
       </div>
-
       <div>
         <label for="appPassword">App Password</label>
-        <div class="password-wrap">
-          <input
-            id="appPassword"
-            type="password"
-            placeholder="Google App Password"
-            autocomplete="off"
-            required
-          >
-          <button
-            type="button"
-            id="togglePassword"
-            aria-label="Show or hide password"
-          >◉</button>
-        </div>
-        <small>Use your Google App Password, not your normal account password.</small>
+        <input id="appPassword" type="password" placeholder="Google App Password" autocomplete="off">
+        <small>Use your Google App Password, not your regular account password.</small>
       </div>
-
       <div>
         <label for="subject">Email Subject</label>
-        <input
-          id="subject"
-          placeholder="Email subject"
-          maxlength="200"
-          required
-        >
+        <input id="subject" maxlength="200" placeholder="Email subject">
       </div>
     </div>
 
     <div class="body-heading">
       <label for="messageBody">Message Body</label>
-      <div class="mode-switch">
-        <button type="button" class="mode active" data-mode="plain">
-          Plain Text
-        </button>
-        <button type="button" class="mode" data-mode="html">
-          HTML
-        </button>
+      <div class="mode-buttons">
+        <button type="button" class="mode active" data-mode="plain">Plain Text</button>
+        <button type="button" class="mode" data-mode="html">HTML</button>
       </div>
     </div>
 
-    <textarea
-      id="messageBody"
-      class="message-body"
-      placeholder="Write your email message..."
-      required
-    ></textarea>
+    <textarea id="messageBody" class="message-body" placeholder="Write your email message..."></textarea>
 
     <div class="info-strip">
-      <span class="shuffle">⤨</span>
-      <div>
-        <strong>Spintax Enabled</strong>
-        <small>Supports {Hello|Hi|Hey} variations.</small>
-      </div>
+      <strong>⤨ Spintax Enabled</strong>
+      <small>Supports {Hello|Hi|Hey} variations.</small>
     </div>
 
-    <h3 class="security-heading">◈ Recipient Permission</h3>
-
-    <div class="consent-row">
-      <input id="consent" type="checkbox">
-      <label for="consent">
-        I confirm these recipients have agreed to receive this email.
-      </label>
-    </div>
-
-    <p class="help-text">
-      Only send messages to recipients who have consented.
-    </p>
-
-    <p class="help-text">
-      Form details remain unchanged after sending.
-    </p>
+    <h3>◈ Recipient Permission</h3>
+    <label class="consent">
+      <input type="checkbox" id="consent">
+      I confirm these recipients have agreed to receive this email.
+    </label>
+    <p class="help">Only send messages to recipients who have consented.</p>
+    <p class="help">Sending a job will not automatically clear your form details.</p>
   </section>
 
   <div class="right-column">
-
-    <!-- RECIPIENTS -->
-    <section class="card recipients-card">
-      <div class="section-heading">
+    <section class="card">
+      <div class="section-title">
         <div>
           <h2>♟ Recipients</h2>
-          <p>Paste emails (comma separated, new lines, or Excel copy)</p>
+          <small>Paste emails (comma separated, new lines, or Excel copy)</small>
         </div>
-        <span id="foundBadge" class="badge">0 found</span>
+        <span class="badge" id="foundBadge">0 found</span>
       </div>
-
-      <textarea
-        id="recipients"
-        class="recipient-input"
-        placeholder="person@example.com&#10;another@example.com"
-      ></textarea>
-
+      <textarea id="recipients" class="recipient-input" placeholder="person@example.com&#10;another@example.com"></textarea>
       <small>Maximum 25 recipients per job; batches of 5.</small>
     </section>
 
-    <!-- ONE PROGRESS MONITOR -->
     <section class="card progress-card">
       <h2>◔ Progress Monitor</h2>
-
-      <p id="activeSender">No sending job selected</p>
+      <p id="activeSender" class="active-sender">No sending job selected</p>
 
       <div class="stats-grid">
-        <div class="stat">
-          <span>TOTAL</span>
-          <strong id="total">0</strong>
-        </div>
-
-        <div class="stat">
-          <span>SENT</span>
-          <strong class="green" id="sent">0</strong>
-        </div>
-
-        <div class="stat">
-          <span>FAILED</span>
-          <strong class="red" id="failed">0</strong>
-        </div>
-
-        <div class="stat">
-          <span>REMAINING</span>
-          <strong class="orange" id="remaining">0</strong>
-        </div>
+        <div class="stat"><span>TOTAL</span><strong id="total">0</strong></div>
+        <div class="stat"><span>SENT</span><strong class="green" id="sent">0</strong></div>
+        <div class="stat"><span>FAILED</span><strong class="red" id="failed">0</strong></div>
+        <div class="stat"><span>REMAINING</span><strong class="orange" id="remaining">0</strong></div>
       </div>
 
-      <div class="progress-track">
-        <div id="progressBar"></div>
+      <div class="progress-track"><div id="progressBar"></div></div>
+      <p id="status" class="status" role="status" aria-live="polite">Ready to send</p>
+
+      <div class="actions">
+        <button id="sendBtn" class="send-btn" type="button">➤ Send All</button>
+        <button id="stopBtn" class="stop-btn" type="button" disabled>■ Stop Sending</button>
       </div>
 
-      <p id="status" class="status" role="status" aria-live="polite">
-        Ready to send
-      </p>
-
-      <div class="action-row">
-        <button id="sendBtn" class="send-btn" type="button">
-          ➤ Send All
-        </button>
-
-        <button id="stopBtn" class="stop-btn" type="button" disabled>
-          ■ Stop Sending
-        </button>
-      </div>
-
-      <!-- All email results stay in this one monitor. -->
-      <div id="results" class="monitor-results" aria-live="polite"></div>
+      <div id="results" class="results" aria-live="polite"></div>
     </section>
   </div>
 </main>
@@ -231,194 +101,128 @@
 <script>
 (() => {
   const $ = id => document.getElementById(id);
-
   let mode = "plain";
   let activeJob = null;
-  let nextJobId = 0;
-
-  $("togglePassword").addEventListener("click", () => {
-    const field = $("appPassword");
-    field.type = field.type === "password" ? "text" : "password";
-  });
 
   document.querySelectorAll(".mode").forEach(button => {
     button.addEventListener("click", () => {
       mode = button.dataset.mode;
-
-      document.querySelectorAll(".mode").forEach(item => {
-        item.classList.toggle("active", item === button);
-      });
+      document.querySelectorAll(".mode").forEach(item =>
+        item.classList.toggle("active", item === button)
+      );
     });
   });
 
-  function getRecipients() {
+  function parseRecipients() {
     return [...new Set(
-      $("recipients").value
-        .split(/[\n,;\t]+/)
-        .map(value => value.trim())
-        .filter(Boolean)
+      $("recipients").value.split(/[\n,;\t]+/)
+        .map(v => v.trim()).filter(Boolean)
     )];
   }
 
   $("recipients").addEventListener("input", () => {
-    $("foundBadge").textContent = `${getRecipients().length} found`;
+    $("foundBadge").textContent = `${parseRecipients().length} found`;
   });
+
+  function update(job) {
+    $("activeSender").textContent = `Sending from: ${job.senderEmail}`;
+    $("total").textContent = job.total;
+    $("sent").textContent = job.sent;
+    $("failed").textContent = job.failed;
+    $("remaining").textContent = job.total - job.processed;
+    $("progressBar").style.width = (
+      job.total ? (job.processed / job.total * 100) : 0
+    ) + "%";
+  }
+
+  function showResult(item) {
+    const row = document.createElement("div");
+    row.className = `result ${item.status}`;
+
+    const heading = document.createElement("strong");
+    heading.textContent = `${item.status.toUpperCase()} — ${item.email}`;
+
+    const detail = document.createElement("small");
+    detail.textContent = item.detail || "";
+
+    row.append(heading, detail);
+    $("results").prepend(row);
+  }
 
   function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  function updateMonitor(job) {
-    $("activeSender").textContent =
-      `Sending from: ${job.senderEmail}`;
-
-    $("total").textContent = job.total;
-    $("sent").textContent = job.sent;
-    $("failed").textContent = job.failed;
-
-    $("remaining").textContent =
-      Math.max(0, job.total - job.processed);
-
-    const percentage = job.total
-      ? Math.round(job.processed / job.total * 100)
-      : 0;
-
-    $("progressBar").style.width = `${percentage}%`;
-  }
-
-  function addResult(item) {
-    const row = document.createElement("div");
-    row.className = `monitor-result ${item.status}`;
-
-    const title = document.createElement("strong");
-    title.textContent =
-      `${item.status.toUpperCase()} — ${item.email}`;
-
-    const detail = document.createElement("small");
-    detail.textContent = item.detail || "";
-
-    row.append(title, detail);
-    $("results").prepend(row);
-  }
-
   async function runJob(job) {
     try {
-      $("status").textContent = "Sending started…";
-
-      // Display progress as each recipient's result comes back.
-      // The backend processes one recipient per request.
-      for (
-        let batchStart = 0;
-        batchStart < job.recipients.length;
-        batchStart += 5
-      ) {
+      for (let i = 0; i < job.recipients.length; i++) {
         if (job.stopped) break;
 
-        const batch = job.recipients.slice(
-          batchStart,
-          batchStart + 5
-        );
+        const recipient = job.recipients[i];
+        $("status").textContent = `Processing ${job.processed + 1} of ${job.total}…`;
 
-        $("status").textContent =
-          `Batch ${Math.floor(batchStart / 5) + 1} · ` +
-          `${job.processed}/${job.total} processed`;
+        try {
+          const response = await fetch("/send-batch", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              recipients: [recipient],
+              senderEmail: job.senderEmail,
+              appPassword: job.appPassword,
+              senderName: job.senderName,
+              subject: job.subject,
+              body: job.body,
+              htmlMode: job.htmlMode,
+              consentConfirmed: true
+            })
+          });
 
-        for (const recipient of batch) {
-          if (job.stopped) break;
+          const data = await response.json();
 
-          try {
-            const response = await fetch("/send-batch", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json"
-              },
-              body: JSON.stringify({
-                recipients: [recipient],
-                senderEmail: job.senderEmail,
-                appPassword: job.appPassword,
-                senderName: job.senderName,
-                subject: job.subject,
-                body: job.body,
-                htmlMode: job.htmlMode,
-                consentConfirmed: job.consentConfirmed
-              })
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-              throw new Error(
-                data.error || `Request failed (${response.status})`
-              );
-            }
-
-            const item = data.results && data.results[0];
-
-            if (!item) {
-              throw new Error("No recipient result returned.");
-            }
-
-            // Milliseconds, not seconds.
-            job.delayMs = Math.max(
-              0,
-              Number(data.delayMs) || 0
-            );
-
-            if (item.status === "sent") {
-              job.sent++;
-            } else {
-              job.failed++;
-            }
-
-            job.processed++;
-
-            addResult(item);
-            updateMonitor(job);
-
-            $("status").textContent =
-              `${job.processed}/${job.total} processed · ` +
-              `Sent ${job.sent} · Failed ${job.failed}`;
-
-            if (
-              job.processed < job.total &&
-              !job.stopped &&
-              job.delayMs > 0
-            ) {
-              await sleep(job.delayMs);
-            }
-
-          } catch (error) {
-            job.stopped = true;
-
-            addResult({
-              email: recipient,
-              status: "failed",
-              detail:
-                `Request error: ${error.message}. ` +
-                "Delivery may be uncertain; check SMTP logs before retrying."
-            });
-
-            $("status").textContent =
-              `Sending interrupted: ${error.message}`;
-
-            break;
+          if (!response.ok) {
+            throw new Error(data.error || `HTTP ${response.status}`);
           }
+
+          const item = data.results && data.results[0];
+          if (!item) throw new Error("Server returned no recipient result.");
+
+          job.delayMs = Math.max(0, Number(data.delayMs) || 0);
+
+          if (item.status === "sent") job.sent++;
+          else job.failed++;
+
+          job.processed++;
+          showResult(item);
+          update(job);
+
+          $("status").textContent =
+            `${job.processed}/${job.total} processed · Sent ${job.sent} · Failed ${job.failed}`;
+
+          if (i < job.recipients.length - 1 && !job.stopped && job.delayMs) {
+            await sleep(job.delayMs);
+          }
+        } catch (error) {
+          job.stopped = true;
+          showResult({
+            email: recipient,
+            status: "failed",
+            detail: `Request error: ${error.message}. Check server logs before retrying.`
+          });
+          $("status").textContent = `Sending interrupted: ${error.message}`;
         }
       }
 
       const remaining = job.total - job.processed;
-
-      $("status").textContent = job.stopped
-        ? `Stopped · Sent ${job.sent} · Failed ${job.failed} · Remaining ${remaining}`
-        : `Completed · Sent ${job.sent} · Failed ${job.failed} · Remaining ${remaining}`;
-
+      if (job.stopped) {
+        $("status").textContent =
+          `Stopped · Sent ${job.sent} · Failed ${job.failed} · Remaining ${remaining}`;
+      } else {
+        $("status").textContent =
+          `Completed · Sent ${job.sent} · Failed ${job.failed} · Remaining ${remaining}`;
+      }
     } finally {
       job.finished = true;
-
-      // Keep all visible form fields unchanged.
-      // Clear the in-memory password snapshot when the job ends.
       job.appPassword = "";
-
       $("sendBtn").disabled = false;
       $("stopBtn").disabled = true;
     }
@@ -426,61 +230,43 @@
 
   $("stopBtn").addEventListener("click", () => {
     if (!activeJob || activeJob.finished) return;
-
     activeJob.stopped = true;
     $("stopBtn").disabled = true;
-
-    $("status").textContent =
-      "Stop requested. The current SMTP request may finish first.";
+    $("status").textContent = "Stopping after the current request…";
   });
 
   $("sendBtn").addEventListener("click", () => {
     if (activeJob && !activeJob.finished) {
-      $("status").textContent =
-        "The current Gmail ID is still sending. Wait for it to finish.";
+      $("status").textContent = "Current job is still running. Please wait.";
       return;
     }
 
+    const recipients = parseRecipients();
     const senderEmail = $("senderEmail").value.trim();
     const appPassword = $("appPassword").value.trim();
     const subject = $("subject").value.trim();
     const body = $("messageBody").value.trim();
-    const recipients = getRecipients();
 
-    if (
-      !senderEmail ||
-      !appPassword ||
-      !subject ||
-      !body ||
-      recipients.length === 0
-    ) {
-      $("status").textContent =
-        "Complete Gmail, App Password, recipients, subject and message.";
+    if (!senderEmail || !appPassword || !subject || !body || !recipients.length) {
+      $("status").textContent = "Complete all fields before sending.";
       return;
     }
-
     if (recipients.length > 25) {
-      $("status").textContent =
-        "Maximum 25 recipients per job.";
+      $("status").textContent = "Maximum 25 recipients per job.";
       return;
     }
-
     if (!$("consent").checked) {
-      $("status").textContent =
-        "Confirm recipient permission before sending.";
+      $("status").textContent = "Confirm recipient permission first.";
       return;
     }
 
-    // Capture a snapshot so edits made later cannot alter this job.
     const job = {
-      id: ++nextJobId,
       senderEmail,
       appPassword,
       senderName: $("senderName").value.trim(),
       subject,
       body,
       htmlMode: mode === "html",
-      consentConfirmed: true,
       recipients: [...recipients],
       total: recipients.length,
       sent: 0,
@@ -491,19 +277,12 @@
       finished: false
     };
 
-    // Only the current Gmail ID is shown in this single monitor.
     activeJob = job;
-
-    // Remove previous job results; no extra job cards are created.
     $("results").replaceChildren();
-
     $("sendBtn").disabled = true;
     $("stopBtn").disabled = false;
-    $("status").textContent = "Preparing to send…";
-
-    updateMonitor(job);
-
-    // Keep the form values intact after sending.
+    $("status").textContent = "Starting…";
+    update(job);
     void runJob(job);
   });
 })();
