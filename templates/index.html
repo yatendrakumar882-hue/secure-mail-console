@@ -14,21 +14,18 @@
 
 <main class="dashboard">
   <section class="card compose">
-    <h2>🖉 Compose Message</h2>
+    <h2>Compose Message</h2>
 
     <div class="two-col">
       <div>
         <label for="senderName">Sender Name</label>
         <input id="senderName" placeholder="Your name" maxlength="100">
       </div>
-
       <div>
         <label for="senderEmail">Your Gmail</label>
         <input id="senderEmail" type="email"
-               placeholder="your@gmail@gmail.com"
-               autocomplete="username" required>
+               placeholder="your@gmail.com" autocomplete="username" required>
       </div>
-
       <div>
         <label for="appPassword">App Password</label>
         <div class="password-wrap">
@@ -40,39 +37,28 @@
         </div>
         <small>Use your Google App Password, not your normal account password.</small>
       </div>
-
       <div>
         <label for="subject">Email Subject</label>
-        <input id="subject" placeholder="Email subject"
-               maxlength="200" required>
+        <input id="subject" placeholder="Email subject" maxlength="200" required>
       </div>
     </div>
 
     <div class="body-heading">
       <label for="messageBody">Message Body</label>
       <div class="mode-switch">
-        <button type="button" class="mode active" data-mode="plain">
-          Plain Text
-        </button>
-        <button type="button" class="mode" data-mode="html">
-          HTML
-        </button>
+        <button type="button" class="mode active" data-mode="plain">Plain Text</button>
+        <button type="button" class="mode" data-mode="html">HTML</button>
       </div>
     </div>
 
     <textarea id="messageBody" class="message-body"
-              placeholder="Write your email message..."
-              required></textarea>
+              placeholder="Write your email message..." required></textarea>
 
     <div class="info-strip">
       <span class="shuffle">↩</span>
       <div>
         <strong>Smart Reply Buttons</strong>
-        <small>
-          Emails include “Yes please do”, “I am interested”,
-          and “Sure please send”. Recipients can click an option
-          to open a reply draft.
-        </small>
+        <small>Three simple reply links appear below the email message.</small>
       </div>
     </div>
 
@@ -82,20 +68,15 @@
         I confirm these recipients have agreed to receive this email.
       </label>
     </div>
-
-    <p class="help-text">
-      Only send messages to recipients who have consented.
-    </p>
-    <p class="help-text">
-      Your App Password stays in this form and is not saved to browser storage.
-    </p>
+    <p class="help-text">Only send messages to recipients who have consented.</p>
+    <p class="help-text">Your App Password stays in this form and is not saved to browser storage.</p>
   </section>
 
   <div class="right-column">
     <section class="card recipients-card">
       <div class="section-heading">
         <div>
-          <h2>♟ Recipients</h2>
+          <h2>Recipients</h2>
           <p>Paste emails (comma separated, new lines, or Excel copy)</p>
         </div>
         <span id="foundBadge" class="badge">0 found</span>
@@ -107,38 +88,21 @@
     </section>
 
     <section class="card progress-card">
-      <h2>◔ Progress Monitor</h2>
+      <h2>Progress Monitor</h2>
 
       <div class="stats-grid">
-        <div class="stat">
-          <span>TOTAL</span>
-          <strong id="total">0</strong>
-        </div>
-        <div class="stat">
-          <span>SENT</span>
-          <strong class="green" id="sent">0</strong>
-        </div>
-        <div class="stat">
-          <span>FAILED</span>
-          <strong class="red" id="failed">0</strong>
-        </div>
-        <div class="stat">
-          <span>REMAINING</span>
-          <strong class="orange" id="remaining">0</strong>
-        </div>
+        <div class="stat"><span>TOTAL</span><strong id="total">0</strong></div>
+        <div class="stat"><span>SENT</span><strong class="green" id="sent">0</strong></div>
+        <div class="stat"><span>FAILED</span><strong class="red" id="failed">0</strong></div>
+        <div class="stat"><span>REMAINING</span><strong class="orange" id="remaining">0</strong></div>
       </div>
 
-      <div class="progress-track">
-        <div id="progressBar"></div>
-      </div>
-
+      <div class="progress-track"><div id="progressBar"></div></div>
       <p id="status" class="status" role="status">Ready to send</p>
 
       <div class="action-row">
         <button id="sendBtn" class="send-btn" type="button">➤ Send All</button>
-        <button id="stopBtn" class="stop-btn" type="button" disabled>
-          ■ Stop Sending
-        </button>
+        <button id="stopBtn" class="stop-btn" type="button" disabled>Stop Sending</button>
       </div>
 
       <div id="results" class="results"></div>
@@ -149,7 +113,6 @@
 <script>
 (() => {
   const $ = id => document.getElementById(id);
-
   let mode = "plain";
   let busy = false;
   let stopped = false;
@@ -164,7 +127,6 @@
   document.querySelectorAll(".mode").forEach(button => {
     button.addEventListener("click", () => {
       mode = button.dataset.mode;
-
       document.querySelectorAll(".mode").forEach(item => {
         item.classList.toggle("active", item === button);
       });
@@ -183,7 +145,6 @@
   function updateFound() {
     $("foundBadge").textContent = `${getRecipients().length} found`;
   }
-
   $("recipients").addEventListener("input", updateFound);
 
   function showResult(item) {
@@ -211,10 +172,8 @@
     const subject = $("subject").value.trim();
     const body = $("messageBody").value.trim();
 
-    if (
-      !senderEmail || !appPassword || !subject ||
-      !body || !recipients.length
-    ) {
+    if (!senderEmail || !appPassword || !subject ||
+        !body || !recipients.length) {
       $("status").textContent =
         "Fill in Gmail, App Password, recipients, subject, and message.";
       return;
@@ -254,12 +213,10 @@
     $("status").textContent = "Sending…";
 
     try {
-      // Send in small batches so progress can refresh between requests.
       for (let start = 0; start < recipients.length; start += 5) {
         if (stopped) break;
 
         const batch = recipients.slice(start, start + 5);
-
         const response = await fetch("/send-batch", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
@@ -288,23 +245,16 @@
 
         for (const item of data.results || []) {
           showResult(item);
-
-          if (item.status === "sent") {
-            sent++;
-          } else {
-            failed++;
-          }
-
+          if (item.status === "sent") sent++;
+          else failed++;
           processed++;
         }
 
         $("sent").textContent = sent;
         $("failed").textContent = failed;
         $("remaining").textContent = recipients.length - processed;
-
         $("progressBar").style.width =
           `${Math.round(processed / recipients.length * 100)}%`;
-
         $("status").textContent =
           `Processed ${processed} of ${recipients.length}`;
       }
@@ -315,13 +265,10 @@
 
     } catch (error) {
       $("status").textContent = `Error: ${error.message}`;
-
     } finally {
       busy = false;
       $("sendBtn").disabled = false;
       $("stopBtn").disabled = true;
-
-      // Keep the form fields populated after sending.
     }
   });
 })();
