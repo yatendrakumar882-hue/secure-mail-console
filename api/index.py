@@ -20,7 +20,6 @@ app = Flask(
     static_folder=os.path.join(BASE_DIR, "static")
 )
 handler = app
-
 app.secret_key = os.environ.get(
     "SESSION_SECRET", "change-this-secret-in-vercel"
 )
@@ -32,19 +31,13 @@ SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 
 try:
     MAIL_GAP_SECONDS = max(
-        0.0,
-        min(float(os.environ.get("MAIL_GAP_SECONDS", "1")), 10.0)
+        0.0, min(float(os.environ.get("MAIL_GAP_SECONDS", "1")), 10.0)
     )
 except (ValueError, TypeError):
     MAIL_GAP_SECONDS = 1.0
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
-SMART_REPLIES = [
-    "Yes please do",
-    "I am interested",
-    "Sure please send",
-]
+SMART_REPLIES = ["Yes please do", "I am interested", "Sure please send"]
 
 
 def logged_in():
@@ -52,7 +45,6 @@ def logged_in():
 
 
 def safe_header(value, limit=998):
-    """Prevent newlines in email headers."""
     return str(value or "").replace("\r", " ").replace(
         "\n", " "
     ).strip()[:limit]
@@ -60,35 +52,39 @@ def safe_header(value, limit=998):
 
 def html_to_plain_text(source):
     source = str(source or "")
-    source = re.sub(
-        r"(?is)<(script|style).*?>.*?</\1>", "", source
-    )
+    source = re.sub(r"(?is)<(script|style).*?>.*?</\1>", "", source)
     source = re.sub(r"(?i)<br\s*/?>", "\n", source)
     source = re.sub(r"(?i)</(p|div|li|tr)\s*>", "\n", source)
     source = re.sub(r"<[^>]+>", "", source)
     return html.unescape(source).strip()
 
 
-def reply_mailto(sender_email, subject, reply_text):
+def make_reply_mailto(sender_email, subject, reply_text, original_body, html_mode):
     reply_subject = (
-        subject if subject.lower().startswith("re:")
-        else f"Re: {subject}"
+        subject if subject.lower().startswith("re:") else f"Re: {subject}"
     )
+    original_text = (
+        html_to_plain_text(original_body) if html_mode
+        else str(original_body or "")
+    ).strip()
+    quoted = "\n\n---------- Original message ----------\n" + original_text
+    draft_body = reply_text + quoted
+
     return (
         f"mailto:{quote(sender_email, safe='@')}"
         f"?subject={quote(reply_subject, safe='')}"
-        f"&body={quote(reply_text, safe='')}"
+        f"&body={quote(draft_body, safe='')}"
     )
 
 
-def add_smart_reply_section(body, sender_email, subject, html_mode):
+def add_smart_reply_buttons(body, sender_email, subject, html_mode):
     if html_mode:
         message_body = str(body or "")
     else:
         message_body = (
             '<div style="white-space:pre-wrap;'
-            'font-family:Arial,sans-serif;font-size:15px;'
-            'line-height:1.6;color:#222;">'
+            'font-family:Arial,sans-serif;font-size:14px;'
+            'line-height:1.55;color:#222;">'
             + html.escape(str(body or "")).replace("\n", "<br>")
             + "</div>"
         )
@@ -96,49 +92,35 @@ def add_smart_reply_section(body, sender_email, subject, html_mode):
     buttons = []
     for reply_text in SMART_REPLIES:
         link = html.escape(
-            reply_mailto(sender_email, subject, reply_text),
+            make_reply_mailto(
+                sender_email, subject, reply_text, body, html_mode
+            ),
             quote=True
         )
         buttons.append(
             '<a href="' + link + '" '
             'style="display:inline-block;margin:5px 6px 5px 0;'
-            'padding:10px 14px;border:1px solid #b8c9e8;'
-            'border-radius:8px;background:#f3f7ff;'
-            'color:#174ea6;text-decoration:none;'
-            'font:600 14px Arial,sans-serif;">'
+            'padding:9px 13px;border:1px solid #d8deea;'
+            'border-radius:7px;background:#fafbfe;color:#315b9b;'
+            'text-decoration:none;font:400 14px Arial,sans-serif;">'
             + html.escape(reply_text)
-            + "</a>"
+            + '</a>'
         )
 
-    smart_reply_html = (
-        '<div style="margin-top:24px;padding-top:16px;'
-        'border-top:1px solid #dddddd;'
-        'font-family:Arial,sans-serif;">'
-        '<p style="margin:0 0 8px;font-size:14px;'
-        'font-weight:bold;color:#333;">Quick reply</p>'
-        '<p style="margin:0 0 8px;font-size:13px;color:#555;">'
-        'Choose a reply to open a draft in your email app. '
-        'Review it and press Send.</p>'
-        + "".join(buttons)
-        + "</div>"
-    )
-
+    # Only the three reply buttons: no extra heading or explanation.
     return (
         '<div style="font-family:Arial,sans-serif;">'
         + message_body
-        + smart_reply_html
-        + "</div>"
+        + '<div style="margin-top:20px;padding-top:12px;'
+          'border-top:1px solid #e9ebef;">'
+        + "".join(buttons)
+        + '</div></div>'
     )
 
 
 def send_smtp(
-    to_email,
-    subject,
-    body,
-    sender_name,
-    sender_email,
-    app_password,
-    html_mode=False
+    to_email, subject, body, sender_name,
+    sender_email, app_password, html_mode=False
 ):
     subject = safe_header(subject, 200)
     sender_name = safe_header(sender_name, 100) or sender_email
@@ -152,24 +134,17 @@ def send_smtp(
     plain_body = (
         html_to_plain_text(body) if html_mode else str(body or "")
     )
+    plain_body += "\n\nReply options:\n"
 
-    reply_subject = (
-        subject if subject.lower().startswith("re:")
-        else f"Re: {subject}"
-    )
-
-    plain_body += "\n\nQuick reply options:\n"
     for reply_text in SMART_REPLIES:
-        plain_body += (
-            f"{reply_text}: "
-            f"{reply_mailto(sender_email, subject, reply_text)}\n"
+        draft = make_reply_mailto(
+            sender_email, subject, reply_text, body, html_mode
         )
+        plain_body += f"{reply_text}: {draft}\n"
 
     message.set_content(plain_body)
-
-    # HTML version includes three clickable mailto links.
     message.add_alternative(
-        add_smart_reply_section(
+        add_smart_reply_buttons(
             body, sender_email, subject, html_mode
         ),
         subtype="html"
@@ -181,10 +156,7 @@ def send_smtp(
         try:
             if SMTP_PORT == 465:
                 with smtplib.SMTP_SSL(
-                    SMTP_HOST,
-                    SMTP_PORT,
-                    timeout=20,
-                    context=context
+                    SMTP_HOST, SMTP_PORT, timeout=20, context=context
                 ) as server:
                     server.ehlo()
                     server.login(sender_email, app_password)
@@ -236,9 +208,7 @@ def login():
 
     if request.method == "POST":
         if not LOGIN_PASSWORD:
-            error = (
-                "Set LOGIN_PASSWORD in Vercel Environment Variables first."
-            )
+            error = "Set LOGIN_PASSWORD in Vercel Environment Variables first."
         elif request.form.get("password", "") == LOGIN_PASSWORD:
             session.clear()
             session["logged_in"] = True
@@ -301,18 +271,16 @@ def send_batch():
         }), 400
 
     if not isinstance(recipients, list):
+        return jsonify({"error": "Recipients must be a list."}), 400
+
+    if len(recipients) > 25:
         return jsonify({
-            "error": "Recipients must be a list."
+            "error": "Maximum 25 recipients per batch."
         }), 400
 
     if not subject or not body:
         return jsonify({
             "error": "Subject and message are required."
-        }), 400
-
-    if len(recipients) > 25:
-        return jsonify({
-            "error": "Maximum 25 recipients per batch."
         }), 400
 
     cleaned = []
@@ -321,7 +289,6 @@ def send_batch():
     for item in recipients:
         if not isinstance(item, str):
             continue
-
         address = item.strip().lower()
         if EMAIL_RE.fullmatch(address) and address not in seen:
             cleaned.append(address)
@@ -333,18 +300,11 @@ def send_batch():
         }), 400
 
     results = []
-
     for index, recipient in enumerate(cleaned):
         ok, detail = send_smtp(
-            recipient,
-            subject,
-            body,
-            sender_name,
-            sender_email,
-            app_password,
-            html_mode
+            recipient, subject, body, sender_name,
+            sender_email, app_password, html_mode
         )
-
         results.append({
             "email": recipient,
             "status": "sent" if ok else "failed",
@@ -355,7 +315,6 @@ def send_batch():
             time.sleep(MAIL_GAP_SECONDS)
 
     sent = sum(item["status"] == "sent" for item in results)
-
     return jsonify({
         "total": len(results),
         "sent": sent,
