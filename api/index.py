@@ -11,8 +11,13 @@ from email.utils import formataddr, formatdate, make_msgid
 from urllib.parse import quote
 
 from flask import (
-    Flask, render_template, request,
-    redirect, url_for, session, jsonify
+    Flask,
+    render_template,
+    request,
+    redirect,
+    url_for,
+    session,
+    jsonify,
 )
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -38,6 +43,7 @@ try:
 except (ValueError, TypeError):
     SMTP_PORT = 465
 
+# Delay between individual recipients; configure in Vercel.
 try:
     MAIL_GAP_SECONDS = max(
         0.0,
@@ -76,13 +82,11 @@ def html_to_plain_text(source):
 
 
 def plain_body(body, html_mode):
-    if html_mode:
-        return html_to_plain_text(body)
-    return str(body or "").strip()
+    return html_to_plain_text(body) if html_mode else str(body or "").strip()
 
 
 def choose_smart_replies(subject, body, html_mode):
-    """Choose three short replies related to the message template."""
+    """Choose three reply suggestions based on the message template."""
     text = (
         safe_header(subject, 200) + " " +
         plain_body(body, html_mode)
@@ -142,7 +146,6 @@ def choose_smart_replies(subject, body, html_mode):
 
 
 def quoted_original(sender_name, sender_email, body, html_mode, sent_at=None):
-    """Build a quoted copy of this email for the reply draft."""
     name = safe_header(sender_name, 100) or sender_email
     email_address = safe_header(sender_email, 200)
 
@@ -215,7 +218,6 @@ def build_html_email(body, sender_name, sender_email, subject, html_mode):
             + "</a>"
         )
 
-    # No extra "Quick Reply" heading or instruction text.
     return (
         '<div style="font-family:Arial,sans-serif;font-weight:400;">'
         + content
@@ -227,11 +229,17 @@ def build_html_email(body, sender_name, sender_email, subject, html_mode):
 
 
 def send_one(
-    to_email, subject, body, sender_name,
-    sender_email, app_password, html_mode
+    to_email,
+    subject,
+    body,
+    sender_name,
+    sender_email,
+    app_password,
+    html_mode,
 ):
     msg = EmailMessage()
 
+    # Use the authenticated Gmail account as the sender.
     msg["From"] = formataddr((
         safe_header(sender_name, 100) or sender_email,
         sender_email,
@@ -242,10 +250,15 @@ def send_one(
     msg["Date"] = formatdate(localtime=True)
     msg["Message-ID"] = make_msgid()
 
+    # Provide both text and HTML versions.
     msg.set_content(plain_body(body, html_mode))
     msg.add_alternative(
         build_html_email(
-            body, sender_name, sender_email, subject, html_mode
+            body,
+            sender_name,
+            sender_email,
+            subject,
+            html_mode,
         ),
         subtype="html",
     )
@@ -255,8 +268,10 @@ def send_one(
     try:
         if SMTP_PORT == 465:
             with smtplib.SMTP_SSL(
-                SMTP_HOST, SMTP_PORT,
-                timeout=25, context=context
+                SMTP_HOST,
+                SMTP_PORT,
+                timeout=25,
+                context=context,
             ) as server:
                 server.ehlo()
                 server.login(sender_email, app_password)
@@ -264,7 +279,9 @@ def send_one(
 
         elif SMTP_PORT == 587:
             with smtplib.SMTP(
-                SMTP_HOST, SMTP_PORT, timeout=25
+                SMTP_HOST,
+                SMTP_PORT,
+                timeout=25,
             ) as server:
                 server.ehlo()
                 server.starttls(context=context)
@@ -279,7 +296,7 @@ def send_one(
             return False, "Recipient rejected by SMTP server."
 
         return True, (
-            "SMTP accepted the message. Inbox placement is not guaranteed."
+            "SMTP accepted the message; Inbox placement is not guaranteed."
         )
 
     except smtplib.SMTPAuthenticationError:
@@ -341,9 +358,7 @@ def send_batch():
         return jsonify({"error": "Invalid JSON request."}), 400
 
     recipients = data.get("recipients", [])
-    sender_email = str(
-        data.get("senderEmail", "")
-    ).strip().lower()
+    sender_email = str(data.get("senderEmail", "")).strip().lower()
     app_password = re.sub(
         r"\s+", "", str(data.get("appPassword", ""))
     )
@@ -406,8 +421,13 @@ def send_batch():
 
     for index, recipient in enumerate(cleaned):
         ok, detail = send_one(
-            recipient, subject, body, sender_name,
-            sender_email, app_password, html_mode
+            recipient,
+            subject,
+            body,
+            sender_name,
+            sender_email,
+            app_password,
+            html_mode,
         )
 
         results.append({
@@ -420,7 +440,8 @@ def send_batch():
             time.sleep(MAIL_GAP_SECONDS)
 
     sent = sum(
-        item["status"] == "sent" for item in results
+        item["status"] == "sent"
+        for item in results
     )
 
     return jsonify({
