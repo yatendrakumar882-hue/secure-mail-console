@@ -6,12 +6,23 @@
   <title>Bulk Email Sender</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <style>
-    .reply-preview { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e9ebef; }
+    .reply-preview {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid #eceff1;
+    }
     .reply-preview a {
-      display: inline-block; margin: 5px 6px 5px 0; padding: 8px 12px;
-      border: 1px solid #d8deea; border-radius: 6px; background: #fafbfe;
-      color: #315b9b; text-decoration: none;
+      display: inline-block;
+      vertical-align: middle;
+      margin: 7px 7px 0 0;
+      padding: 7px 12px;
+      border: 1px solid #dadce0;
+      border-radius: 6px;
+      background: #fff;
+      color: #1a73e8;
       font: 400 14px Arial, sans-serif;
+      line-height: 1.35;
+      text-decoration: none;
     }
     .password-wrap { display: flex; gap: 6px; }
     .password-wrap input { flex: 1; min-width: 0; }
@@ -19,7 +30,11 @@
     .mode.active { border: 1px solid #7c9edb; }
     .recipient-input { min-height: 160px; }
     .results { max-height: 240px; overflow: auto; }
-    .result-row { padding: 7px; border-bottom: 1px solid #eee; overflow-wrap: anywhere; }
+    .result-row {
+      padding: 7px;
+      border-bottom: 1px solid #eee;
+      overflow-wrap: anywhere;
+    }
   </style>
 </head>
 <body>
@@ -44,7 +59,8 @@
       <div>
         <label for="appPassword">Google App Password</label>
         <div class="password-wrap">
-          <input id="appPassword" type="password" placeholder="Google App Password" required>
+          <input id="appPassword" type="password"
+                 placeholder="Google App Password" required>
           <button type="button" id="togglePassword">Show</button>
         </div>
       </div>
@@ -63,12 +79,12 @@
     </div>
 
     <textarea id="messageBody" class="message-body"
-      placeholder="Write your website/SEO service message..." required></textarea>
+      placeholder="Write your email message..." required></textarea>
 
     <div class="info-strip">
       <div>
-        <strong>Smart Replies</strong>
-        <small>Three service-related reply options appear below the email.</small>
+        <strong>Smart Reply Preview</strong>
+        <small>Each email gets reply suggestions selected from its subject and message.</small>
       </div>
     </div>
 
@@ -80,7 +96,9 @@
 
     <div class="consent-row">
       <input id="consent" type="checkbox">
-      <label for="consent">I confirm these recipients have agreed to receive this email.</label>
+      <label for="consent">
+        I confirm these recipients have agreed to receive this email.
+      </label>
     </div>
     <p class="help-text">Only send messages to recipients who have consented.</p>
   </section>
@@ -130,10 +148,10 @@
   let stopped = false;
 
   $("togglePassword").addEventListener("click", () => {
-    const field = $("appPassword");
-    field.type = field.type === "password" ? "text" : "password";
+    const input = $("appPassword");
+    input.type = input.type === "password" ? "text" : "password";
     $("togglePassword").textContent =
-      field.type === "password" ? "Show" : "Hide";
+      input.type === "password" ? "Show" : "Hide";
   });
 
   document.querySelectorAll(".mode").forEach(button => {
