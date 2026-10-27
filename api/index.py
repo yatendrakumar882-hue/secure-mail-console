@@ -43,7 +43,7 @@ try:
 except ValueError:
     MAIL_GAP_MS = 1.0
 
-MAX_BATCH_SIZE = 10
+MAX_BATCH_SIZE = 5
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
