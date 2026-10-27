@@ -24,7 +24,7 @@ app = Flask(
 handler = app
 
 app.secret_key = os.environ.get("SESSION_SECRET", "")
-app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 1_000_000
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("VERCEL") == "1"
@@ -34,7 +34,7 @@ SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
 
 try:
     SMTP_PORT = int(os.environ.get("SMTP_PORT", "465"))
-except (ValueError, TypeError):
+except (TypeError, ValueError):
     SMTP_PORT = 465
 
 try:
@@ -42,17 +42,10 @@ try:
         0.0,
         min(float(os.environ.get("MAIL_GAP_SECONDS", "1")), 10.0)
     )
-except (ValueError, TypeError):
+except (TypeError, ValueError):
     MAIL_GAP_SECONDS = 1.0
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
-# Customize these three replies for the website/SEO service.
-SMART_REPLIES = [
-    "Yes, please send the screenshot",
-    "I'm interested—please share details",
-    "Sure, please send the information",
-]
 
 
 def logged_in():
@@ -82,22 +75,80 @@ def html_to_plain_text(source):
 
 
 def plain_body(body, html_mode):
-    return html_to_plain_text(body) if html_mode else str(body or "").strip()
+    if html_mode:
+        return html_to_plain_text(body)
+    return str(body or "").strip()
 
 
-def quoted_original(sender_name, sender_email, subject, body, html_mode):
-    name = safe_header(sender_name, 100) or sender_email
-    original = plain_body(body, html_mode)
-    now = datetime.now().astimezone()
-    hour = now.strftime("%I").lstrip("0") or "12"
-    date_text = now.strftime("%a, %b %d, %Y at ") + hour + now.strftime(":%M %p")
+def choose_smart_replies(subject, body, html_mode):
+    """Choose three replies based on the email subject and message."""
+    text = (
+        safe_header(subject, 200) + " " +
+        plain_body(body, html_mode)
+    ).lower()
 
-    quoted_lines = "\n".join("> " + line for line in original.splitlines())
+    # Website errors and screenshots
+    if any(word in text for word in (
+        "screenshot", "screen-shot", "glitch", "error",
+        "not showing on google", "not appearing on google",
+        "first page", "website issue", "site issue"
+    )):
+        return [
+            "Please send the screenshot",
+            "I'll check the website issue",
+            "Please share the error details",
+        ]
 
-    return (
-        f"On {date_text} {name} <{sender_email}> wrote:\n"
-        f"{quoted_lines}"
-    )
+    # Quotes, estimates and pricing
+    if any(word in text for word in (
+        "quote", "quotation", "estimate", "pricing",
+        "price", "cost"
+    )):
+        return [
+            "Please resend the quote",
+            "Please share the pricing details",
+            "I'll review the estimate",
+        ]
+
+    # SEO and website services
+    if any(word in text for word in (
+        "seo", "google", "ranking", "website",
+        "search result", "backlink", "keyword",
+        "traffic", "audit", "optimization"
+    )):
+        return [
+            "Please share the SEO details",
+            "I'm interested—what are the next steps?",
+            "Please explain the website issue",
+        ]
+
+    # Meetings and appointments
+    if any(word in text for word in (
+        "meeting", "call", "schedule",
+        "appointment", "availability"
+    )):
+        return [
+            "Please share a suitable time",
+            "Yes, that time works for me",
+            "Please send the meeting details",
+        ]
+
+    # Documents and reports
+    if any(word in text for word in (
+        "document", "file", "attachment",
+        "report", "pdf"
+    )):
+        return [
+            "Please send the document",
+            "I'll review the report",
+            "Please share the file details",
+        ]
+
+    return [
+        "Please share more details",
+        "I'll review this and get back to you",
+        "What are the next steps?",
+    ]
 
 
 def make_reply_link(sender_email, subject, reply_text, quoted_text):
@@ -105,60 +156,94 @@ def make_reply_link(sender_email, subject, reply_text, quoted_text):
         subject if subject.lower().startswith("re:")
         else f"Re: {subject}"
     )
-    body = f"{reply_text}\n\n{quoted_text}"
+
+    draft_body = f"{reply_text}\n\n{quoted_text}"
 
     return (
         f"mailto:{quote(sender_email, safe='@')}"
         f"?subject={quote(reply_subject, safe='')}"
-        f"&body={quote(body, safe='')}"
+        f"&body={quote(draft_body, safe='')}"
     )
 
 
-def build_html_email(body, sender_name, sender_email, subject, html_mode):
+def quoted_original(sender_name, sender_email, body, html_mode):
+    name = safe_header(sender_name, 100) or sender_email
+    original_text = plain_body(body, html_mode)
+
+    now = datetime.now().astimezone()
+    hour = now.strftime("%I").lstrip("0") or "12"
+    date_text = (
+        now.strftime("%a, %b %d, %Y at ")
+        + hour + now.strftime(":%M %p")
+    )
+
+    quoted_lines = "\n".join(
+        "> " + line for line in original_text.splitlines()
+    )
+
+    return (
+        f"On {date_text} {name} <{sender_email}> wrote:\n"
+        f"{quoted_lines}"
+    )
+
+
+def build_html_email(body, sender_name, sender_email,
+                     subject, html_mode):
     if html_mode:
         content = str(body or "")
     else:
         content = (
-            '<div style="white-space:pre-wrap;font-family:Arial,sans-serif;'
-            'font-size:14px;font-weight:400;line-height:1.55;color:#333;">'
+            '<div style="white-space:pre-wrap;'
+            'font-family:Arial,sans-serif;'
+            'font-size:14px;font-weight:400;'
+            'line-height:1.55;color:#303030;">'
             + html.escape(str(body or "")).replace("\n", "<br>")
             + "</div>"
         )
 
-    quoted = quoted_original(
-        sender_name, sender_email, subject, body, html_mode
+    replies = choose_smart_replies(subject, body, html_mode)
+    quoted_text = quoted_original(
+        sender_name, sender_email, body, html_mode
     )
 
     buttons = []
-    for label in SMART_REPLIES:
-        link = html.escape(
-            make_reply_link(sender_email, subject, label, quoted),
+
+    for reply in replies:
+        href = html.escape(
+            make_reply_link(
+                sender_email, subject, reply, quoted_text
+            ),
             quote=True
         )
+
         buttons.append(
-            '<a href="' + link + '" '
-            'style="display:inline-block;margin:5px 6px 5px 0;'
-            'padding:8px 12px;border:1px solid #d8deea;'
-            'border-radius:6px;background:#fafbfe;color:#315b9b;'
-            'text-decoration:none;font-family:Arial,sans-serif;'
-            'font-size:14px;font-weight:400;line-height:1.3;">'
-            + html.escape(label) + '</a>'
+            '<a href="' + href + '" '
+            'style="display:inline-block;vertical-align:middle;'
+            'margin:7px 7px 0 0;padding:7px 12px;'
+            'border:1px solid #dadce0;border-radius:6px;'
+            'background:#fff;color:#1a73e8;'
+            'font-family:Arial,sans-serif;font-size:14px;'
+            'font-weight:400;line-height:1.35;'
+            'text-decoration:none;">'
+            + html.escape(reply) + '</a>'
         )
 
-    # No Quick reply heading or instruction text.
+    # No extra "Quick reply" heading or instruction.
     return (
-        '<div style="font-family:Arial,sans-serif;font-weight:400;">'
+        '<div style="font-family:Arial,sans-serif;'
+        'font-weight:400;">'
         + content
-        + '<div style="margin-top:18px;padding-top:10px;'
-          'border-top:1px solid #e9ebef;">'
+        + '<div style="margin-top:15px;padding-top:8px;'
+          'border-top:1px solid #eceff1;">'
         + "".join(buttons)
         + '</div></div>'
     )
 
 
-def send_one(to_email, subject, body, sender_name, sender_email,
-             app_password, html_mode):
+def send_one(to_email, subject, body, sender_name,
+             sender_email, app_password, html_mode):
     msg = EmailMessage()
+
     msg["From"] = formataddr((
         safe_header(sender_name, 100) or sender_email,
         sender_email
@@ -169,9 +254,11 @@ def send_one(to_email, subject, body, sender_name, sender_email,
     msg["Date"] = formatdate(localtime=True)
 
     msg.set_content(plain_body(body, html_mode))
+
     msg.add_alternative(
         build_html_email(
-            body, sender_name, sender_email, subject, html_mode
+            body, sender_name, sender_email,
+            subject, html_mode
         ),
         subtype="html"
     )
@@ -181,7 +268,8 @@ def send_one(to_email, subject, body, sender_name, sender_email,
     try:
         if SMTP_PORT == 465:
             with smtplib.SMTP_SSL(
-                SMTP_HOST, SMTP_PORT, timeout=25, context=context
+                SMTP_HOST, SMTP_PORT,
+                timeout=25, context=context
             ) as server:
                 server.ehlo()
                 server.login(sender_email, app_password)
@@ -199,10 +287,16 @@ def send_one(to_email, subject, body, sender_name, sender_email,
         if refused:
             return False, "Recipient rejected by SMTP server"
 
-        return True, "SMTP accepted the message; Inbox placement is not guaranteed."
+        return True, (
+            "SMTP accepted the message; inbox placement "
+            "is not guaranteed."
+        )
 
     except smtplib.SMTPAuthenticationError:
-        return False, "Gmail authentication failed. Check Gmail address and App Password."
+        return False, (
+            "Gmail authentication failed. Check your Gmail "
+            "address and App Password."
+        )
     except smtplib.SMTPRecipientsRefused:
         return False, "Recipient address rejected by SMTP server."
     except smtplib.SMTPException as exc:
@@ -253,63 +347,97 @@ def send_batch():
         return jsonify({"error": "Please sign in again."}), 401
 
     data = request.get_json(silent=True)
+
     if not isinstance(data, dict):
         return jsonify({"error": "Invalid JSON request."}), 400
 
     recipients = data.get("recipients", [])
-    sender_email = str(data.get("senderEmail", "")).strip().lower()
-    app_password = re.sub(r"\s+", "", str(data.get("appPassword", "")))
+    sender_email = str(
+        data.get("senderEmail", "")
+    ).strip().lower()
+    app_password = re.sub(
+        r"\s+", "", str(data.get("appPassword", ""))
+    )
     sender_name = safe_header(data.get("senderName", ""), 100)
     subject = safe_header(data.get("subject", ""), 200)
     body = str(data.get("body", "")).strip()
     html_mode = data.get("htmlMode") is True
 
     if data.get("consentConfirmed") is not True:
-        return jsonify({"error": "Confirm recipient permission first."}), 400
-    if not EMAIL_RE.fullmatch(sender_email) or not sender_email.endswith("@gmail.com"):
-        return jsonify({"error": "Enter a valid @gmail.com sender address."}), 400
+        return jsonify({
+            "error": "Confirm recipient permission first."
+        }), 400
+
+    if (
+        not EMAIL_RE.fullmatch(sender_email)
+        or not sender_email.endswith("@gmail.com")
+    ):
+        return jsonify({
+            "error": "Enter a valid @gmail.com sender address."
+        }), 400
+
     if not app_password:
-        return jsonify({"error": "Enter your Google App Password."}), 400
+        return jsonify({
+            "error": "Enter your Google App Password."
+        }), 400
+
     if not isinstance(recipients, list):
-        return jsonify({"error": "Recipients must be a list."}), 400
+        return jsonify({
+            "error": "Recipients must be a list."
+        }), 400
+
     if len(recipients) > 25:
-        return jsonify({"error": "Maximum 25 recipients per batch."}), 400
+        return jsonify({
+            "error": "Maximum 25 recipients per batch."
+        }), 400
+
     if not subject or not body:
-        return jsonify({"error": "Subject and message are required."}), 400
+        return jsonify({
+            "error": "Subject and message are required."
+        }), 400
 
     cleaned = []
     seen = set()
+
     for item in recipients:
         if not isinstance(item, str):
             continue
+
         address = item.strip().lower()
+
         if EMAIL_RE.fullmatch(address) and address not in seen:
             cleaned.append(address)
             seen.add(address)
 
     if not cleaned:
-        return jsonify({"error": "No valid recipient addresses found."}), 400
+        return jsonify({
+            "error": "No valid recipient addresses found."
+        }), 400
 
     results = []
+
     for index, recipient in enumerate(cleaned):
         ok, detail = send_one(
             recipient, subject, body, sender_name,
             sender_email, app_password, html_mode
         )
+
         results.append({
             "email": recipient,
             "status": "sent" if ok else "failed",
-            "detail": detail
+            "detail": detail,
         })
 
         if index < len(cleaned) - 1 and MAIL_GAP_SECONDS > 0:
             time.sleep(MAIL_GAP_SECONDS)
 
-    sent = sum(item["status"] == "sent" for item in results)
+    sent = sum(
+        item["status"] == "sent" for item in results
+    )
 
     return jsonify({
         "total": len(results),
         "sent": sent,
         "failed": len(results) - sent,
-        "results": results
+        "results": results,
     })
