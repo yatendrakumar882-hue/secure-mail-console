@@ -5,6 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Bulk Email Sender</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    .reply-preview { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e9ebef; }
+    .reply-preview a {
+      display: inline-block; margin: 5px 6px 5px 0; padding: 8px 12px;
+      border: 1px solid #d8deea; border-radius: 6px; background: #fafbfe;
+      color: #315b9b; text-decoration: none;
+      font: 400 14px Arial, sans-serif;
+    }
+    .password-wrap { display: flex; gap: 6px; }
+    .password-wrap input { flex: 1; min-width: 0; }
+    .mode-switch { display: flex; gap: 6px; }
+    .mode.active { border: 1px solid #7c9edb; }
+    .recipient-input { min-height: 160px; }
+    .results { max-height: 240px; overflow: auto; }
+    .result-row { padding: 7px; border-bottom: 1px solid #eee; overflow-wrap: anywhere; }
+  </style>
 </head>
 <body>
 <header class="topbar">
@@ -26,10 +42,9 @@
         <input id="senderEmail" type="email" placeholder="your@gmail.com" required>
       </div>
       <div>
-        <label for="appPassword">App Password</label>
+        <label for="appPassword">Google App Password</label>
         <div class="password-wrap">
-          <input id="appPassword" type="password"
-                 placeholder="Google App Password" required>
+          <input id="appPassword" type="password" placeholder="Google App Password" required>
           <button type="button" id="togglePassword">Show</button>
         </div>
       </div>
@@ -48,13 +63,19 @@
     </div>
 
     <textarea id="messageBody" class="message-body"
-              placeholder="Write your email message..." required></textarea>
+      placeholder="Write your website/SEO service message..." required></textarea>
 
     <div class="info-strip">
       <div>
-        <strong>Reply Options</strong>
-        <small>Three simple reply buttons are added below the email.</small>
+        <strong>Smart Replies</strong>
+        <small>Three service-related reply options appear below the email.</small>
       </div>
+    </div>
+
+    <div class="reply-preview">
+      <a href="#" onclick="return false;">Yes, please send the screenshot</a>
+      <a href="#" onclick="return false;">I'm interested—please share details</a>
+      <a href="#" onclick="return false;">Sure, please send the information</a>
     </div>
 
     <div class="consent-row">
@@ -69,25 +90,29 @@
       <div class="section-heading">
         <div>
           <h2>Recipients</h2>
-          <p>Paste emails separated by commas or new lines.</p>
+          <p>Paste email addresses separated by commas or new lines.</p>
         </div>
         <span id="foundBadge" class="badge">0 found</span>
       </div>
+
       <textarea id="recipients" class="recipient-input"
-                placeholder="person@example.com&#10;another@example.com"></textarea>
+        placeholder="person@example.com&#10;another@example.com"></textarea>
       <small>Maximum 25 recipients per batch.</small>
     </section>
 
     <section class="card progress-card">
       <h2>Progress Monitor</h2>
+
       <div class="stats-grid">
         <div class="stat"><span>TOTAL</span><strong id="total">0</strong></div>
         <div class="stat"><span>SENT</span><strong class="green" id="sent">0</strong></div>
         <div class="stat"><span>FAILED</span><strong class="red" id="failed">0</strong></div>
         <div class="stat"><span>REMAINING</span><strong class="orange" id="remaining">0</strong></div>
       </div>
+
       <div class="progress-track"><div id="progressBar"></div></div>
       <p id="status" class="status" role="status">Ready to send</p>
+
       <div class="action-row">
         <button id="sendBtn" class="send-btn" type="button">Send All</button>
         <button id="stopBtn" class="stop-btn" type="button" disabled>Stop Sending</button>
@@ -199,14 +224,20 @@
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             recipients: recipients.slice(start, start + 5),
-            senderEmail, appPassword, senderName, subject, body,
+            senderEmail,
+            appPassword,
+            senderName,
+            subject,
+            body,
             htmlMode: mode === "html",
             consentConfirmed: $("consent").checked
           })
         });
 
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "Sending failed.");
+        if (!response.ok) {
+          throw new Error(data.error || "Sending failed.");
+        }
 
         for (const item of data.results || []) {
           showResult(item);
@@ -220,12 +251,14 @@
         $("remaining").textContent = recipients.length - processed;
         $("progressBar").style.width =
           `${Math.round(processed / recipients.length * 100)}%`;
-        $("status").textContent = `Processed ${processed} of ${recipients.length}`;
+        $("status").textContent =
+          `Processed ${processed} of ${recipients.length}`;
       }
 
       $("status").textContent = stopped
-        ? `Stopped. Accepted: ${sent}; failed: ${failed}.`
-        : `Finished. Accepted: ${sent}; failed: ${failed}.`;
+        ? `Stopped. SMTP accepted: ${sent}; failed: ${failed}.`
+        : `Finished. SMTP accepted: ${sent}; failed: ${failed}.`;
+
     } catch (error) {
       $("status").textContent = `Error: ${error.message}`;
     } finally {
