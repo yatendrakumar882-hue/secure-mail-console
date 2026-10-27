@@ -202,10 +202,10 @@
     $("status").textContent = "Sending…";
 
     try {
-      for (let start = 0; start < recipients.length; start += 13) {
+      for (let start = 0; start < recipients.length; start += 8) {
         if (stopped) break;
 
-        const batch = recipients.slice(start, start + 13);
+        const batch = recipients.slice(start, start + 8);
 
         const response = await fetch("/send-batch", {
           method: "POST",
