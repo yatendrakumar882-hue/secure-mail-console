@@ -2,320 +2,196 @@ import os
 import re
 import ssl
 import time
-import logging
+import secrets
 import smtplib
-from email.message import EmailMessage
-from email.utils import formataddr
+from pathlib import Path
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.utils import formataddr, formatdate, make_msgid
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session
 
-from flask import (
-    Flask, render_template, request, redirect, url_for,
-    session, jsonify, Response, stream_with_context
-)
-
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-app = Flask(
-    __name__,
-    template_folder=os.path.join(BASE_DIR, "templates"),
-    static_folder=os.path.join(BASE_DIR, "static"),
-)
-application = app
-
-logging.basicConfig(level=logging.INFO)
+BASE_DIR = Path(__file__).resolve().parent.parent
+app = Flask(__name__, template_folder=str(BASE_DIR / "templates"), static_folder=str(BASE_DIR / "static"), static_url_path="/static")
+handler = app
 
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "").strip()
-LOGIN_PASSWORD = os.environ.get("LOGIN_PASSWORD", "")
-SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
+LOGIN_PASSWORD = os.environ.get("LOGIN_PASSWORD", "").strip()
+if len(SESSION_SECRET) < 32:
+    raise RuntimeError("Set SESSION_SECRET in Vercel to a random value at least 32 characters long.")
+if not LOGIN_PASSWORD:
+    raise RuntimeError("Set LOGIN_PASSWORD in Vercel.")
+app.secret_key = SESSION_SECRET
+app.config.update(SESSION_COOKIE_SECURE=True, SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax", PERMANENT_SESSION_LIFETIME=3600, MAX_CONTENT_LENGTH=1_000_000)
 
-try:
-    SMTP_PORT = int(os.environ.get("SMTP_PORT", "465"))
-except (TypeError, ValueError):
-    SMTP_PORT = 465
-
-# Speed is controlled only in Vercel Environment Variables.
-# MAIL_GAP_MS=250 means a 250 millisecond pause between recipients.
-try:
-    MAIL_GAP_MS = max(0, min(int(os.environ.get("MAIL_GAP_MS", "500")), 60000))
-except (TypeError, ValueError):
-    MAIL_GAP_MS = 500
-
-SMTP_TIMEOUT = 20
 MAX_RECIPIENTS = 25
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
-app.secret_key = SESSION_SECRET or None
-app.config.update(
-    MAX_CONTENT_LENGTH=1_000_000,
-    SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=bool(os.environ.get("VERCEL")),
-    PERMANENT_SESSION_LIFETIME=3600,
-)
-
-
-def logged_in():
-    return session.get("logged_in") is True
+SMTP_HOST = "smtp.gmail.com"
+SMTP_PORT = 465
+SMTP_TIMEOUT = 25
+# Set MAIL_GAP_MS in Vercel, e.g. 1800 = 1.8 seconds between recipients.
+try:
+    MAIL_GAP_MS = max(250, min(60000, int(os.environ.get("MAIL_GAP_MS", "1800"))))
+except ValueError:
+    MAIL_GAP_MS = 1800
+EMAIL_RE = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$")
 
 
-def expand_spintax(value):
-    pattern = r"\{([^{}|]+(?:\|[^{}|]+)+)\}"
-    return re.sub(
-        pattern,
-        lambda match: __import__("random").choice(match.group(1).split("|")),
-        value,
-    )
+def clean_header(value, limit=998):
+    return str(value or "").replace("\r", " ").replace("\n", " ").strip()[:limit]
 
 
-def make_message(recipient, subject, body, sender_name, sender_email, html_mode):
-    message = EmailMessage()
-    message["From"] = formataddr((sender_name or sender_email, sender_email))
-    message["To"] = recipient
-    message["Subject"] = expand_spintax(subject)
-
-    content = expand_spintax(body)
-    if html_mode:
-        message.set_content("Please view this message in an HTML-capable email client.")
-        message.add_alternative(content, subtype="html")
-    else:
-        message.set_content(content)
-    return message
+def valid_email(value):
+    value = str(value or "").strip()
+    return len(value) <= 254 and bool(EMAIL_RE.fullmatch(value))
 
 
-def open_smtp(sender_email, app_password):
-    context = ssl.create_default_context()
-    if SMTP_PORT == 465:
-        server = smtplib.SMTP_SSL(
-            SMTP_HOST, SMTP_PORT, timeout=SMTP_TIMEOUT, context=context
-        )
-    elif SMTP_PORT == 587:
-        server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=SMTP_TIMEOUT)
-        server.ehlo()
-        server.starttls(context=context)
-        server.ehlo()
-    else:
-        raise ValueError("SMTP_PORT must be 465 (SSL) or 587 (STARTTLS).")
-
-    try:
-        server.login(sender_email, app_password)
-        return server
-    except Exception:
-        try:
-            server.quit()
-        except Exception:
-            pass
-        raise
+def authenticated():
+    return session.get("authenticated") is True
 
 
-@app.get("/health")
-def health():
-    return jsonify({"status": "ok"})
+def html_to_plain_text(html):
+    text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", "", str(html or ""))
+    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+    text = re.sub(r"(?i)</p\s*>", "\n\n", text)
+    text = re.sub(r"(?i)</div\s*>", "\n", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    for old, new in (("&nbsp;", " "), ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"), ("&quot;", '"'), ("&#39;", "'")):
+        text = text.replace(old, new)
+    return text.strip()
+
+
+def expand_spintax(text):
+    # Supports simple, non-nested forms such as {Hello|Hi|Hey}.
+    pattern = re.compile(r"\{([^{}|]+\|[^{}]+)\}")
+    import random
+    return pattern.sub(lambda m: random.choice(m.group(1).split("|")), str(text or ""))
+
+
+def normalize_recipient(item):
+    if isinstance(item, str):
+        return {"email": item.strip()}
+    if isinstance(item, dict):
+        return {str(k): str(v or "").strip() for k, v in item.items()}
+    return {"email": ""}
+
+
+def personalize(text, recipient):
+    values = {"{{hi}}": recipient.get("hi", ""), "{{hello}}": recipient.get("hello", ""), "{{thanks}}": recipient.get("thanks", ""), "{{name}}": recipient.get("name", ""), "{{email}}": recipient.get("email", ""), "{{ref_code}}": recipient.get("ref_code", "")}
+    for token, value in values.items():
+        text = text.replace(token, value)
+    return expand_spintax(text)
+
+
+def build_message(gmail, sender_name, subject, body, is_html, recipient):
+    gmail = gmail.strip().lower()
+    sender_name = clean_header(sender_name, 200)
+    subject = clean_header(subject, 200)
+    body = str(body or "").replace("\x00", "")
+    msg = MIMEMultipart("alternative") if is_html else MIMEText(body, "plain", "utf-8")
+    if is_html:
+        msg.attach(MIMEText(html_to_plain_text(body), "plain", "utf-8"))
+        msg.attach(MIMEText(body, "html", "utf-8"))
+    msg["Subject"] = subject
+    msg["From"] = formataddr((sender_name, gmail)) if sender_name else gmail
+    msg["To"] = recipient
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid()
+    return msg
 
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    error = None
-    if not LOGIN_PASSWORD:
-        error = "LOGIN_PASSWORD is missing from Vercel Environment Variables."
-    elif len(SESSION_SECRET) < 32:
-        error = "SESSION_SECRET must be at least 32 characters long."
-
-    if request.method == "POST" and error is None:
-        if request.form.get("password", "") == LOGIN_PASSWORD:
-            session.clear()
-            session.permanent = True
-            session["logged_in"] = True
-            return redirect(url_for("index"))
-        error = "Incorrect password."
-
-    return render_template("login.html", error=error)
+    if authenticated():
+        return redirect(url_for("home"))
+    if request.method == "GET":
+        return render_template("login.html", error=None, turnstile_site_key="")
+    password = str(request.form.get("password", ""))
+    if not secrets.compare_digest(password, LOGIN_PASSWORD):
+        return render_template("login.html", error="Incorrect password.", turnstile_site_key=""), 401
+    session.clear()
+    session.permanent = True
+    session["authenticated"] = True
+    return redirect(url_for("home"))
 
 
-@app.get("/logout")
+@app.route("/logout", methods=["GET", "POST"])
 def logout():
     session.clear()
     return redirect(url_for("login"))
 
 
-@app.get("/")
-def index():
-    if not LOGIN_PASSWORD or len(SESSION_SECRET) < 32:
-        return (
-            "Configuration error: set LOGIN_PASSWORD and a SESSION_SECRET "
-            "of at least 32 characters in Vercel.",
-            500,
-        )
-    if not logged_in():
+@app.route("/")
+def home():
+    if not authenticated():
         return redirect(url_for("login"))
-    return render_template("index.html")
+    return render_template("index.html", turnstile_site_key="")
 
 
-@app.post("/send-batch")
+@app.route("/send-batch", methods=["POST"])
 def send_batch():
-    if not logged_in():
-        return jsonify({"error": "Please sign in again."}), 401
-
+    if not authenticated():
+        return jsonify({"error": "Authentication required. Please log in again."}), 401
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({"error": "Invalid JSON request."}), 400
-
-    if data.get("consentConfirmed") is not True:
-        return jsonify({"error": "Confirm that recipients consented to receive email."}), 400
-
-    sender_email = str(data.get("senderEmail", "")).strip()
-    app_password = str(data.get("appPassword", "")).replace(" ", "")
-    sender_name = str(data.get("senderName", "")).strip()[:100]
-    subject = str(data.get("subject", "")).strip()
-    body = str(data.get("body", "")).strip()
+    sender_email = clean_header(data.get("senderEmail", ""), 254).lower()
+    app_password = re.sub(r"\s+", "", str(data.get("appPassword", "")))
+    sender_name = clean_header(data.get("senderName", ""), 100)
+    subject = clean_header(data.get("subject", ""), 200)
+    body = str(data.get("body", ""))
     html_mode = data.get("htmlMode") is True
-    raw_recipients = data.get("recipients")
-
-    if not EMAIL_RE.fullmatch(sender_email) or not sender_email.lower().endswith("@gmail.com"):
+    consent = data.get("consentConfirmed") is True
+    recipients = data.get("recipients", [])
+    if not valid_email(sender_email) or not sender_email.endswith("@gmail.com"):
         return jsonify({"error": "Enter a valid @gmail.com sender address."}), 400
     if not app_password:
-        return jsonify({"error": "Enter your Google App Password."}), 400
-    if not isinstance(raw_recipients, list):
-        return jsonify({"error": "Recipients must be a list."}), 400
-    if any(not isinstance(item, str) or not EMAIL_RE.fullmatch(item.strip()) for item in raw_recipients):
-        return jsonify({"error": "One or more recipient addresses are invalid."}), 400
-
-    recipients = list(dict.fromkeys(item.strip() for item in raw_recipients))
-    if not recipients:
-        return jsonify({"error": "Add at least one recipient."}), 400
-    if len(recipients) > MAX_RECIPIENTS:
-        return jsonify({"error": f"Maximum {MAX_RECIPIENTS} recipients per job."}), 400
-    if not subject or not body:
+        return jsonify({"error": "Google App Password is required."}), 400
+    if not subject or not body.strip():
         return jsonify({"error": "Subject and message body are required."}), 400
-    if len(subject) > 200 or len(body) > 500000:
-        return jsonify({"error": "Subject or message body is too long."}), 413
-
-    # Stream one NDJSON event per recipient so the monitor updates live,
-    # while reusing one authenticated SMTP connection for the entire job.
-    def generate():
-        sent = 0
-        failed = 0
-        processed = 0
-        server = None
-
-        def event(payload):
-            return json_dumps(payload) + "\n"
-
-        yield event({
-            "type": "start",
-            "total": len(recipients),
-            "sent": 0,
-            "failed": 0,
-            "processed": 0,
-            "remaining": len(recipients),
-            "delayMs": MAIL_GAP_MS,
-        })
-
-        try:
-            server = open_smtp(sender_email, app_password)
-
-            for index, recipient in enumerate(recipients):
+    if not consent:
+        return jsonify({"error": "Confirm that recipients agreed to receive this email."}), 400
+    if not isinstance(recipients, list) or not recipients or len(recipients) > MAX_RECIPIENTS:
+        return jsonify({"error": f"Provide 1 to {MAX_RECIPIENTS} recipients per request."}), 400
+    clean = []
+    seen = set()
+    for item in recipients:
+        r = normalize_recipient(item)
+        email = r.get("email", "").strip().lower()
+        if valid_email(email) and email not in seen:
+            r["email"] = email
+            seen.add(email)
+            clean.append(r)
+    if not clean:
+        return jsonify({"error": "No valid recipient addresses found."}), 400
+    results = []
+    context = ssl.create_default_context()
+    try:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context, timeout=SMTP_TIMEOUT) as server:
+            server.ehlo()
+            server.login(sender_email, app_password)
+            for index, recipient in enumerate(clean):
+                email = recipient["email"]
                 try:
-                    message = make_message(
-                        recipient, subject, body, sender_name,
-                        sender_email, html_mode
-                    )
-                    refused = server.send_message(message)
-
+                    personalized_subject = personalize(subject, recipient)
+                    personalized_body = personalize(body, recipient)
+                    message = build_message(sender_email, sender_name, personalized_subject, personalized_body, html_mode, email)
+                    refused = server.sendmail(sender_email, [email], message.as_string())
                     if refused:
-                        failed += 1
-                        status = "failed"
-                        detail = "SMTP refused this recipient."
+                        results.append({"email": email, "status": "failed", "detail": "SMTP refused this recipient."})
                     else:
-                        sent += 1
-                        status = "sent"
-                        detail = "SMTP accepted the message; inbox placement is not guaranteed."
-
-                except smtplib.SMTPAuthenticationError:
-                    failed += 1
-                    status = "failed"
-                    detail = "Gmail authentication failed. Check the App Password."
-                    processed += 1
-                    yield event({
-                        "type": "result", "email": recipient,
-                        "status": status, "detail": detail,
-                        "total": len(recipients), "sent": sent,
-                        "failed": failed, "processed": processed,
-                        "remaining": len(recipients) - processed,
-                    })
-                    break
-                except (smtplib.SMTPException, OSError, TimeoutError) as exc:
-                    failed += 1
-                    status = "failed"
-                    detail = f"SMTP error ({type(exc).__name__})."
-                    logging.warning("SMTP error for recipient %s: %s", recipient, type(exc).__name__)
-                    # Connection errors can leave delivery status uncertain;
-                    # stop instead of retrying and risking duplicate sends.
-                    processed += 1
-                    yield event({
-                        "type": "result", "email": recipient,
-                        "status": status, "detail": detail,
-                        "total": len(recipients), "sent": sent,
-                        "failed": failed, "processed": processed,
-                        "remaining": len(recipients) - processed,
-                    })
-                    break
-
-                processed += 1
-                yield event({
-                    "type": "result", "email": recipient,
-                    "status": status, "detail": detail,
-                    "total": len(recipients), "sent": sent,
-                    "failed": failed, "processed": processed,
-                    "remaining": len(recipients) - processed,
-                })
-
-                if index < len(recipients) - 1 and MAIL_GAP_MS > 0:
+                        results.append({"email": email, "status": "sent", "detail": "Accepted by Gmail SMTP; inbox placement is not guaranteed."})
+                except smtplib.SMTPRecipientsRefused:
+                    results.append({"email": email, "status": "failed", "detail": "SMTP refused this recipient."})
+                except (smtplib.SMTPException, TimeoutError, OSError) as exc:
+                    results.append({"email": email, "status": "failed", "detail": str(exc)[:250]})
+                if index < len(clean) - 1:
                     time.sleep(MAIL_GAP_MS / 1000.0)
-
-        except smtplib.SMTPAuthenticationError:
-            logging.warning("Gmail SMTP authentication failed.")
-            yield event({
-                "type": "fatal",
-                "error": "Gmail authentication failed. Check the Gmail address and App Password.",
-            })
-        except (smtplib.SMTPException, OSError, TimeoutError, ValueError) as exc:
-            logging.warning("SMTP setup error: %s", type(exc).__name__)
-            yield event({
-                "type": "fatal",
-                "error": f"Could not establish SMTP session ({type(exc).__name__}).",
-            })
-        except Exception:
-            logging.exception("Unexpected error while streaming send job.")
-            yield event({"type": "fatal", "error": "Unexpected server error. Check Vercel Runtime Logs."})
-        finally:
-            if server is not None:
-                try:
-                    server.quit()
-                except Exception:
-                    pass
-
-        yield event({
-            "type": "done",
-            "total": len(recipients),
-            "sent": sent,
-            "failed": failed,
-            "processed": processed,
-            "remaining": len(recipients) - processed,
-            "delayMs": MAIL_GAP_MS,
-        })
-
-    return Response(
-        stream_with_context(generate()),
-        mimetype="application/x-ndjson",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    except smtplib.SMTPAuthenticationError:
+        return jsonify({"error": "Gmail login failed. Check the Gmail address and App Password; use an App Password, not your normal password."}), 401
+    except (smtplib.SMTPException, TimeoutError, OSError) as exc:
+        return jsonify({"error": f"SMTP connection failed: {str(exc)[:250]}"}), 502
+    return jsonify({"success": True, "results": results, "sent": sum(x["status"] == "sent" for x in results), "failed": sum(x["status"] == "failed" for x in results)})
 
 
-def json_dumps(payload):
-    import json
-    return json.dumps(payload, ensure_ascii=False)
-
-
-application = app
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok", "mailer": "Gmail SMTP SSL", "max_recipients": MAX_RECIPIENTS, "mail_gap_ms": MAIL_GAP_MS})
