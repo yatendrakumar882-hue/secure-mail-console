@@ -7,37 +7,35 @@
 <title>Bulk Email Sender</title>
 <style>
 *{box-sizing:border-box}
-body{margin:0;background:#f5f7fb;color:#202938;font-family:Arial,sans-serif}
-header{background:#fff;padding:18px 5%;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e4e8ef}
+body{margin:0;background:#f4f6fa;color:#202938;font-family:Arial,sans-serif}
+header{background:white;padding:18px 5%;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e1e6ee}
 header strong{font-size:21px}
 a{color:#1769d2;text-decoration:none}
-main{max-width:1250px;margin:28px auto;padding:0 18px;display:grid;grid-template-columns:1.1fr .9fr;gap:22px}
-.card{background:#fff;border:1px solid #e2e6ed;border-radius:13px;padding:23px;margin-bottom:20px;box-shadow:0 3px 12px #172b4d08}
+main{max-width:1250px;margin:26px auto;padding:0 18px;display:grid;grid-template-columns:1.1fr .9fr;gap:22px}
+.card{background:#fff;border:1px solid #e0e5ed;border-radius:12px;padding:22px;margin-bottom:20px}
 h2{font-size:19px;margin:0 0 18px}
-h3{font-size:16px;margin:24px 0 10px}
-label{display:block;font-size:13px;font-weight:600;margin:0 0 7px}
-input:not([type=checkbox]),textarea{width:100%;padding:12px;border:1px solid #cfd6e0;border-radius:7px;font:14px Arial;background:#fff}
-input:focus,textarea:focus{outline:2px solid #c8ddff;border-color:#4385ef}
-textarea{resize:vertical;min-height:130px;line-height:1.5}
+label{display:block;font-size:13px;font-weight:600;margin-bottom:7px}
 .field{margin-bottom:16px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+input:not([type=checkbox]),textarea{width:100%;padding:12px;border:1px solid #ccd4df;border-radius:7px;font:14px Arial}
+textarea{min-height:130px;resize:vertical;line-height:1.5}
 small,.muted{font-size:12px;color:#687386;line-height:1.5}
-.modebar{display:flex;gap:8px;margin:0 0 10px}
+.modebar{display:flex;gap:8px;margin-bottom:10px}
 button{font-family:Arial;cursor:pointer}
-.mode,.secondary{border:1px solid #d5dce6;background:#fff;padding:8px 12px;border-radius:7px}
+.mode,.secondary{border:1px solid #d3dbe6;background:white;padding:8px 12px;border-radius:7px}
 .mode.active{background:#eaf2ff;border-color:#8bb7ff;color:#1458b4}
 .reply-preview{border:1px solid #dfe4ec;border-radius:9px;padding:15px;margin-top:18px}
 .preview-message{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;font-size:14px}
-.reply-buttons{display:flex;flex-wrap:wrap;gap:7px;margin-top:14px}
+.reply-buttons{display:flex;flex-wrap:wrap;gap:7px;margin-top:13px}
 .reply-buttons button{padding:9px 12px;border:1px solid #d4d9e1;border-radius:7px;background:white;color:#1769d2;font-size:13px}
 .reply-buttons button:hover{background:#f1f6ff}
 .consent{display:flex;gap:9px;align-items:flex-start;margin-top:18px}
 .consent label{font-weight:400;line-height:1.5}
 .recipient-area{min-height:180px}
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}
-.stat{background:#f7f9fc;padding:13px 9px;border-radius:8px}
+.stat{background:#f7f9fc;padding:12px 8px;border-radius:8px}
 .stat span{display:block;color:#6b7483;font-size:10px;margin-bottom:8px}
-.stat strong{font-size:23px}
+.stat strong{font-size:22px}
 .green{color:#16834b}.red{color:#cf3434}.orange{color:#c77c12}
 .track{height:8px;background:#e9edf3;border-radius:20px;overflow:hidden;margin:20px 0 12px}
 #progress{height:100%;width:0;background:#3478e5;transition:width .2s}
@@ -47,7 +45,7 @@ button{font-family:Arial;cursor:pointer}
 .danger{background:#fff0f0;color:#b42318;border:1px solid #f0c5c5}
 button:disabled{opacity:.55;cursor:not-allowed}
 #status{font-size:13px;color:#566174;line-height:1.5}
-.results{margin-top:15px;max-height:270px;overflow:auto}
+.results{margin-top:15px;max-height:280px;overflow:auto}
 .result{font-size:12px;line-height:1.5;padding:9px;border-bottom:1px solid #edf0f4;overflow-wrap:anywhere}
 .result.sent{color:#167344}.result.failed{color:#b42318}
 @media(max-width:800px){main{grid-template-columns:1fr}.grid{grid-template-columns:1fr}}
@@ -55,254 +53,270 @@ button:disabled{opacity:.55;cursor:not-allowed}
 </head>
 <body>
 <header>
-<strong>✉ Bulk Email Sender</strong>
-<a href="/logout">Logout</a>
+  <strong>✉ Bulk Email Sender</strong>
+  <a href="/logout">Logout</a>
 </header>
 
 <main>
 <section>
-<div class="card">
-<h2>Compose Email</h2>
-<div class="grid">
-<div class="field">
-<label for="senderName">Sender name</label>
-<input id="senderName" placeholder="Your name">
-</div>
-<div class="field">
-<label for="senderEmail">Gmail address</label>
-<input id="senderEmail" type="email" placeholder="you@gmail.com">
-</div>
-</div>
+  <div class="card">
+    <h2>Compose Email</h2>
 
-<div class="field">
-<label for="appPassword">Google App Password</label>
-<input id="appPassword" type="password" placeholder="Enter App Password">
-<small>Use a Google App Password, not your normal account password.</small>
-</div>
+    <div class="grid">
+      <div class="field">
+        <label for="senderName">Sender name</label>
+        <input id="senderName" placeholder="Your name" maxlength="100">
+      </div>
+      <div class="field">
+        <label for="senderEmail">Gmail address</label>
+        <input id="senderEmail" type="email" placeholder="you@gmail.com">
+      </div>
+    </div>
 
-<div class="field">
-<label for="subject">Email subject</label>
-<input id="subject" maxlength="200" placeholder="e.g. Quote for your website">
-</div>
+    <div class="field">
+      <label for="appPassword">Google App Password</label>
+      <input id="appPassword" type="password" placeholder="Google App Password">
+      <small>Use your Google App Password, not your normal Gmail password.</small>
+    </div>
 
-<div class="field">
-<label for="body">Message body</label>
-<div class="modebar">
-<button class="mode active" data-mode="plain" type="button">Plain text</button>
-<button class="mode" data-mode="html" type="button">HTML</button>
-</div>
-<textarea id="body" placeholder="Write your email message..."></textarea>
-<small>HTML mode accepts HTML markup. Only use links and content that are accurate and expected by recipients.</small>
-</div>
+    <div class="field">
+      <label for="subject">Email subject</label>
+      <input id="subject" maxlength="200" placeholder="A clear, accurate subject">
+    </div>
 
-<div class="reply-preview">
-<strong>Email preview</strong>
-<p class="muted">Example of the message and suggested replies.</p>
-<div id="previewMessage" class="preview-message"></div>
-<div id="replyButtons" class="reply-buttons"></div>
-</div>
+    <div class="field">
+      <label for="body">Message body</label>
+      <div class="modebar">
+        <button type="button" class="mode active" data-mode="plain">Plain text</button>
+        <button type="button" class="mode" data-mode="html">HTML</button>
+      </div>
+      <textarea id="body" placeholder="Write your email message..."></textarea>
+      <small>Keep the message relevant to the recipient and avoid unnecessary links.</small>
+    </div>
 
-<div class="consent">
-<input type="checkbox" id="consent">
-<label for="consent">I confirm that these recipients agreed to receive these emails.</label>
-</div>
-</div>
+    <div class="reply-preview">
+      <strong>Smart Reply Preview</strong>
+      <p class="muted">Suggestions are for your app preview; Gmail generates its own Smart Replies.</p>
+      <div id="previewMessage" class="preview-message"></div>
+      <div id="replyButtons" class="reply-buttons"></div>
+    </div>
+
+    <div class="consent">
+      <input type="checkbox" id="consent">
+      <label for="consent">I confirm these recipients agreed to receive these emails.</label>
+    </div>
+  </div>
 </section>
 
 <section>
-<div class="card">
-<h2>Recipients</h2>
-<label for="recipients">Email addresses</label>
-<textarea id="recipients" class="recipient-area" placeholder="person@example.com&#10;another@example.com"></textarea>
-<p class="muted"><span id="count">0</span> unique addresses · maximum 25 per batch</p>
-</div>
+  <div class="card">
+    <h2>Recipients</h2>
+    <label for="recipients">Email addresses</label>
+    <textarea id="recipients" class="recipient-area"
+      placeholder="person@example.com&#10;another@example.com"></textarea>
+    <p class="muted"><span id="count">0</span> unique addresses · maximum 25 per request</p>
+  </div>
 
-<div class="card">
-<h2>Progress Monitor</h2>
-<div class="stats">
-<div class="stat"><span>TOTAL</span><strong id="total">0</strong></div>
-<div class="stat"><span>SENT</span><strong id="sent" class="green">0</strong></div>
-<div class="stat"><span>FAILED</span><strong id="failed" class="red">0</strong></div>
-<div class="stat"><span>REMAINING</span><strong id="remaining" class="orange">0</strong></div>
-</div>
-<div class="track"><div id="progress"></div></div>
-<p id="status" role="status">Ready to send.</p>
-<div class="actions">
-<button class="primary" id="send" type="button">Send emails</button>
-<button class="danger" id="stop" type="button" disabled>Stop</button>
-</div>
-<div id="results" class="results"></div>
-</div>
+  <div class="card">
+    <h2>Progress Monitor</h2>
+    <div class="stats">
+      <div class="stat"><span>TOTAL</span><strong id="total">0</strong></div>
+      <div class="stat"><span>SENT</span><strong id="sent" class="green">0</strong></div>
+      <div class="stat"><span>FAILED</span><strong id="failed" class="red">0</strong></div>
+      <div class="stat"><span>REMAINING</span><strong id="remaining" class="orange">0</strong></div>
+    </div>
+    <div class="track"><div id="progress"></div></div>
+    <p id="status" role="status">Ready to send.</p>
+    <div class="actions">
+      <button class="primary" id="send" type="button">Send emails</button>
+      <button class="danger" id="stop" type="button" disabled>Stop</button>
+    </div>
+    <div id="results" class="results"></div>
+  </div>
 </section>
 </main>
 
 <script>
 (() => {
-const $ = id => document.getElementById(id);
-let mode = "plain";
-let running = false;
-let stopRequested = false;
-let previewTimer;
+  const $ = id => document.getElementById(id);
+  let mode = "plain";
+  let running = false;
+  let stopRequested = false;
+  let previewTimer;
 
-function getRecipients() {
-  return [...new Set($("recipients").value
-    .split(/[\s,;]+/)
-    .map(x => x.trim().toLowerCase())
-    .filter(Boolean))];
-}
+  function getRecipients() {
+    return [...new Set(
+      $("recipients").value.split(/[\s,;]+/)
+        .map(value => value.trim().toLowerCase())
+        .filter(Boolean)
+    )];
+  }
 
-function updateCount() {
-  $("count").textContent = getRecipients().length;
-}
-$("recipients").addEventListener("input", updateCount);
-
-document.querySelectorAll(".mode").forEach(button => {
-  button.addEventListener("click", () => {
-    mode = button.dataset.mode;
-    document.querySelectorAll(".mode").forEach(b =>
-      b.classList.toggle("active", b === button)
-    );
-    refreshPreview();
+  $("recipients").addEventListener("input", () => {
+    $("count").textContent = getRecipients().length;
   });
-});
 
-async function refreshPreview() {
-  const subject = $("subject").value.trim();
-  const body = $("body").value.trim();
-  $("previewMessage").textContent = body;
-  $("replyButtons").replaceChildren();
-  if (!subject || !body) return;
-
-  try {
-    const response = await fetch("/smart-replies", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({
-        subject,
-        body,
-        htmlMode: mode === "html"
-      })
+  document.querySelectorAll(".mode").forEach(button => {
+    button.addEventListener("click", () => {
+      mode = button.dataset.mode;
+      document.querySelectorAll(".mode").forEach(item =>
+        item.classList.toggle("active", item === button)
+      );
+      refreshPreview();
     });
-    if (!response.ok) return;
-    const data = await response.json();
+  });
 
-    (data.replies || []).forEach(reply => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = reply;
-      button.title = "Add this suggestion to the message";
-      button.addEventListener("click", () => {
-        $("body").value +=
-          ($("body").value ? "\n\n" : "") + reply;
-        $("previewMessage").textContent = $("body").value;
-      });
-      $("replyButtons").append(button);
-    });
-  } catch (_) {}
-}
+  async function refreshPreview() {
+    const subject = $("subject").value.trim();
+    const body = $("body").value.trim();
 
-function schedulePreview() {
-  clearTimeout(previewTimer);
-  previewTimer = setTimeout(refreshPreview, 300);
-}
-$("subject").addEventListener("input", schedulePreview);
-$("body").addEventListener("input", schedulePreview);
+    $("previewMessage").textContent = body;
+    $("replyButtons").replaceChildren();
+    if (!subject || !body) return;
 
-$("stop").addEventListener("click", () => {
-  stopRequested = true;
-  $("status").textContent =
-    "Stop requested. The current batch may finish first.";
-  $("stop").disabled = true;
-});
-
-function addResult(item) {
-  const div = document.createElement("div");
-  div.className = "result " + item.status;
-  div.textContent =
-    `${item.status.toUpperCase()} — ${item.email}: ${item.detail || ""}`;
-  $("results").append(div);
-}
-
-$("send").addEventListener("click", async () => {
-  if (running) return;
-
-  const recipients = getRecipients();
-  const senderEmail = $("senderEmail").value.trim();
-  const appPassword = $("appPassword").value.trim();
-  const senderName = $("senderName").value.trim();
-  const subject = $("subject").value.trim();
-  const body = $("body").value.trim();
-
-  if (!recipients.length || !senderEmail || !appPassword || !subject || !body) {
-    $("status").textContent = "Please complete all required fields.";
-    return;
-  }
-  if (recipients.length > 25) {
-    $("status").textContent = "Maximum 25 recipients per batch.";
-    return;
-  }
-  if (!$("consent").checked) {
-    $("status").textContent = "Confirm recipient permission first.";
-    return;
-  }
-
-  running = true;
-  stopRequested = false;
-  $("send").disabled = true;
-  $("stop").disabled = false;
-  $("results").replaceChildren();
-
-  let sent = 0, failed = 0, processed = 0;
-  $("total").textContent = recipients.length;
-  $("sent").textContent = "0";
-  $("failed").textContent = "0";
-  $("remaining").textContent = recipients.length;
-  $("progress").style.width = "0%";
-
-  try {
-    for (let i = 0; i < recipients.length; i += 8) {
-      if (stopRequested) break;
-
-      const response = await fetch("/send-batch", {
+    try {
+      const response = await fetch("/smart-replies", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
-          recipients: recipients.slice(i, i + 8),
-          senderEmail, appPassword, senderName, subject, body,
-          htmlMode: mode === "html",
-          consentConfirmed: $("consent").checked
+          subject,
+          body,
+          htmlMode: mode === "html"
         })
       });
 
+      if (!response.ok) return;
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Request failed.");
 
-      for (const item of data.results || []) {
-        addResult(item);
-        if (item.status === "sent") sent++;
-        else failed++;
-        processed++;
-      }
+      (data.replies || []).forEach(reply => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = reply;
+        button.addEventListener("click", () => {
+          $("body").value += ($("body").value ? "\n\n" : "") + reply;
+          $("previewMessage").textContent = $("body").value;
+        });
+        $("replyButtons").append(button);
+      });
+    } catch (_) {
+      // Suggestions are optional; this does not affect sending.
+    }
+  }
 
-      $("sent").textContent = sent;
-      $("failed").textContent = failed;
-      $("remaining").textContent = recipients.length - processed;
-      $("progress").style.width =
-        Math.round(processed / recipients.length * 100) + "%";
-      $("status").textContent = `Processed ${processed} of ${recipients.length}.`;
+  function schedulePreview() {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(refreshPreview, 300);
+  }
+
+  $("subject").addEventListener("input", schedulePreview);
+  $("body").addEventListener("input", schedulePreview);
+
+  $("stop").addEventListener("click", () => {
+    stopRequested = true;
+    $("status").textContent =
+      "Stop requested. The current batch may finish before stopping.";
+    $("stop").disabled = true;
+  });
+
+  function addResult(item) {
+    const row = document.createElement("div");
+    row.className = "result " + item.status;
+    row.textContent =
+      `${item.status.toUpperCase()} — ${item.email}: ${item.detail || ""}`;
+    $("results").append(row);
+  }
+
+  $("send").addEventListener("click", async () => {
+    if (running) return;
+
+    const recipients = getRecipients();
+    const senderEmail = $("senderEmail").value.trim();
+    const appPassword = $("appPassword").value.trim();
+    const senderName = $("senderName").value.trim();
+    const subject = $("subject").value.trim();
+    const body = $("body").value.trim();
+
+    if (!senderEmail || !appPassword || !subject || !body || !recipients.length) {
+      $("status").textContent = "Complete all required fields first.";
+      return;
+    }
+    if (recipients.length > 25) {
+      $("status").textContent = "Maximum 25 recipients per request.";
+      return;
+    }
+    if (!$("consent").checked) {
+      $("status").textContent = "Confirm recipient permission first.";
+      return;
     }
 
-    $("status").textContent = stopRequested
-      ? `Stopped. SMTP accepted: ${sent}; failed: ${failed}.`
-      : `Finished. SMTP accepted: ${sent}; failed: ${failed}.`;
-  } catch (error) {
-    $("status").textContent = "Error: " + error.message;
-  } finally {
-    running = false;
-    $("send").disabled = false;
-    $("stop").disabled = true;
-  }
-});
+    running = true;
+    stopRequested = false;
+    $("send").disabled = true;
+    $("stop").disabled = false;
+    $("results").replaceChildren();
+
+    let sent = 0;
+    let failed = 0;
+    let processed = 0;
+
+    $("total").textContent = recipients.length;
+    $("sent").textContent = "0";
+    $("failed").textContent = "0";
+    $("remaining").textContent = recipients.length;
+    $("progress").style.width = "0%";
+    $("status").textContent = "Sending...";
+
+    try {
+      for (let start = 0; start < recipients.length; start += 8) {
+        if (stopRequested) break;
+
+        const response = await fetch("/send-batch", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            recipients: recipients.slice(start, start + 8),
+            senderEmail,
+            appPassword,
+            senderName,
+            subject,
+            body,
+            htmlMode: mode === "html",
+            consentConfirmed: $("consent").checked
+          })
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "Sending request failed.");
+        }
+
+        for (const item of data.results || []) {
+          addResult(item);
+          if (item.status === "sent") sent++;
+          else failed++;
+          processed++;
+        }
+
+        $("sent").textContent = sent;
+        $("failed").textContent = failed;
+        $("remaining").textContent = recipients.length - processed;
+        $("progress").style.width =
+          Math.round(processed / recipients.length * 100) + "%";
+        $("status").textContent =
+          `Processed ${processed} of ${recipients.length}.`;
+      }
+
+      $("status").textContent = stopRequested
+        ? `Stopped. SMTP accepted: ${sent}; failed: ${failed}.`
+        : `Finished. SMTP accepted: ${sent}; failed: ${failed}.`;
+    } catch (error) {
+      $("status").textContent = "Error: " + error.message;
+    } finally {
+      running = false;
+      $("send").disabled = false;
+      $("stop").disabled = true;
+    }
+  });
 })();
 </script>
 </body>
