@@ -86,7 +86,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
         <button type="button" class="mode" data-mode="html">HTML</button>
       </div>
       <textarea id="body" placeholder="Write your email message..."></textarea>
-      <small>Keep the message relevant to recipients and use accurate information.</small>
+      <small>Keep your message relevant and accurate.</small>
     </div>
 
     <div class="consent">
@@ -213,7 +213,11 @@ button:disabled{opacity:.55;cursor:not-allowed}
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             recipients: recipients.slice(start, start + 8),
-            senderEmail, appPassword, senderName, subject, body,
+            senderEmail,
+            appPassword,
+            senderName,
+            subject,
+            body,
             htmlMode: mode === "html",
             consentConfirmed: $("consent").checked
           })
@@ -236,8 +240,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
         $("remaining").textContent = recipients.length - processed;
         $("progress").style.width =
           Math.round(processed / recipients.length * 100) + "%";
-        $("status").textContent =
-          `Processed ${processed} of ${recipients.length}.`;
+        $("status").textContent = `Processed ${processed} of ${recipients.length}.`;
       }
 
       $("status").textContent = stopRequested
