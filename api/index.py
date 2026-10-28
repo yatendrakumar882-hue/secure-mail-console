@@ -3,8 +3,10 @@ import os
 import re
 import ssl
 import time
-import smtplib
 import html
+import smtplib
+from urllib.parse import quote
+
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
@@ -20,10 +22,10 @@ handler = app
 
 app.secret_key = os.environ.get("SESSION_SECRET", "")
 app.config.update(
+    MAX_CONTENT_LENGTH=1_000_000,
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.environ.get("VERCEL") == "1",
-    MAX_CONTENT_LENGTH=1_000_000,
 )
 
 LOGIN_PASSWORD = os.environ.get("LOGIN_PASSWORD", "")
@@ -56,60 +58,109 @@ def html_to_text(value):
     value = re.sub(r"(?is)<(script|style).*?>.*?</\1>", "", str(value or ""))
     value = re.sub(r"(?i)<br\s*/?>", "\n", value)
     value = re.sub(r"(?i)</(p|div|li|tr)\s*>", "\n", value)
-    return html.unescape(re.sub(r"<[^>]+>", "", value)).strip()
+    value = re.sub(r"<[^>]+>", "", value)
+    return html.unescape(value).strip()
 
 
-def smart_replies(subject, body, html_mode):
-    text = (subject + " " + (html_to_text(body) if html_mode else body)).lower()
+def get_reply_suggestions(subject, body, html_mode=False):
+    text = (
+        clean_header(subject) + " " +
+        (html_to_text(body) if html_mode else str(body or ""))
+    ).lower()
 
-    if any(x in text for x in ("quote", "quotation", "pricing", "price", "cost")):
+    if any(word in text for word in ("quote", "quotation", "pricing", "price", "cost")):
         return [
-            "Please send the quote",
+            "Yes, please send the quote",
             "Please share the pricing details",
-            "I'll review the details",
+            "I'll review the quote",
         ]
-    if any(x in text for x in ("meeting", "call", "appointment", "schedule")):
+
+    if any(word in text for word in ("meeting", "call", "appointment", "schedule")):
         return [
             "Please share a suitable time",
             "That works for me",
             "Please send the meeting details",
         ]
-    if any(x in text for x in ("website", "web design", "web development")):
+
+    if any(word in text for word in ("website", "web design", "web development")):
         return [
             "Please share more details",
             "I'd like to know more",
             "What are the next steps?",
         ]
+
     return [
-        "Please share more information",
+        "Yes, please share the details",
         "I'm interested in learning more",
         "What are the next steps?",
     ]
 
 
+def build_email_html(body, sender_email, subject, html_mode):
+    if html_mode:
+        content_html = str(body or "")
+    else:
+        content_html = (
+            '<div style="font-family:Arial,sans-serif;font-size:14px;'
+            'line-height:1.6;color:#202124;">'
+            + html.escape(str(body or "")).replace("\n", "<br>")
+            + "</div>"
+        )
+
+    replies = get_reply_suggestions(subject, body, html_mode)
+    mail_subject = quote("Re: " + clean_header(subject), safe="")
+    buttons = []
+
+    for reply in replies:
+        mail_body = quote(reply, safe="")
+        mailto = (
+            f"mailto:{quote(sender_email, safe='@.+-_')}"
+            f"?subject={mail_subject}&body={mail_body}"
+        )
+        buttons.append(
+            '<a href="' + html.escape(mailto, quote=True) + '" '
+            'style="display:inline-block;margin:0 6px 8px 0;padding:10px 13px;'
+            'border:1px solid #dadce0;border-radius:7px;background:#ffffff;'
+            'color:#0b57d0;text-decoration:none;font-family:Arial,sans-serif;'
+            'font-size:14px;line-height:18px;">'
+            + html.escape(reply)
+            + "</a>"
+        )
+
+    return (
+        '<div style="font-family:Arial,sans-serif;color:#202124;">'
+        + content_html
+        + '<div style="margin-top:18px;border-top:1px solid #dadce0;'
+          'padding-top:15px;">'
+        + "".join(buttons)
+        + "</div></div>"
+    )
+
+
 def send_one(recipient, subject, body, sender_name, sender_email,
              app_password, html_mode):
     message = EmailMessage()
-    message["From"] = formataddr((clean_header(sender_name, 100) or sender_email,
-                                  sender_email))
+    message["From"] = formataddr((
+        clean_header(sender_name, 100) or sender_email,
+        sender_email,
+    ))
     message["To"] = recipient
-    # Replies to the message are directed to the sending Gmail account.
     message["Reply-To"] = sender_email
     message["Subject"] = clean_header(subject)
     message["Date"] = formatdate(localtime=True)
     message["Message-ID"] = make_msgid()
 
-    if html_mode:
-        message.set_content(html_to_text(body))
-        message.add_alternative(body, subtype="html")
-    else:
-        message.set_content(body)
-        message.add_alternative(
-            '<div style="font-family:Arial,sans-serif;line-height:1.6;">'
-            + html.escape(body).replace("\n", "<br>")
-            + "</div>",
-            subtype="html",
-        )
+    plain_body = html_to_text(body) if html_mode else str(body or "")
+    replies = get_reply_suggestions(subject, body, html_mode)
+    plain_body += "\n\nQuick reply options:\n" + "\n".join(
+        f"- {reply}" for reply in replies
+    )
+    message.set_content(plain_body)
+
+    message.add_alternative(
+        build_email_html(body, sender_email, subject, html_mode),
+        subtype="html",
+    )
 
     context = ssl.create_default_context()
 
@@ -121,6 +172,7 @@ def send_one(recipient, subject, body, sender_name, sender_email,
                 server.ehlo()
                 server.login(sender_email, app_password)
                 refused = server.send_message(message)
+
         elif SMTP_PORT == 587:
             with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=25) as server:
                 server.ehlo()
@@ -129,17 +181,17 @@ def send_one(recipient, subject, body, sender_name, sender_email,
                 server.login(sender_email, app_password)
                 refused = server.send_message(message)
         else:
-            return False, "Use SMTP_PORT 465 or 587."
+            return False, "Set SMTP_PORT to 465 or 587."
 
         if refused:
             return False, "Recipient rejected by the SMTP server."
 
-        return True, "SMTP accepted the message; inbox placement is not guaranteed."
+        return True, "SMTP accepted the message; Inbox placement is not guaranteed."
 
     except smtplib.SMTPAuthenticationError:
         return False, "Gmail login failed. Check the Gmail address and App Password."
     except smtplib.SMTPRecipientsRefused:
-        return False, "Recipient address rejected by the SMTP server."
+        return False, "Recipient address rejected by SMTP."
     except smtplib.SMTPException as exc:
         return False, f"SMTP error: {str(exc)[:160]}"
     except (OSError, TimeoutError) as exc:
@@ -185,7 +237,7 @@ def index():
 
 
 @app.post("/smart-replies")
-def get_smart_replies():
+def smart_replies():
     if not logged_in():
         return jsonify({"error": "Please log in again."}), 401
 
@@ -197,7 +249,9 @@ def get_smart_replies():
     if not subject or not body:
         return jsonify({"replies": []})
 
-    return jsonify({"replies": smart_replies(subject, body, html_mode)})
+    return jsonify({
+        "replies": get_reply_suggestions(subject, body, html_mode)
+    })
 
 
 @app.post("/send-batch")
@@ -220,7 +274,7 @@ def send_batch():
     if not app.secret_key or len(app.secret_key) < 32:
         return jsonify({"error": "Configure SESSION_SECRET (32+ characters)."}), 500
     if data.get("consentConfirmed") is not True:
-        return jsonify({"error": "Confirm that recipients consented to these emails."}), 400
+        return jsonify({"error": "Confirm recipient permission first."}), 400
     if not EMAIL_RE.fullmatch(sender_email) or not sender_email.endswith("@gmail.com"):
         return jsonify({"error": "Enter a valid @gmail.com sender address."}), 400
     if not app_password:
@@ -255,6 +309,7 @@ def send_batch():
             "status": "sent" if ok else "failed",
             "detail": detail,
         })
+
         if i < len(cleaned) - 1 and MAIL_GAP_SECONDS > 0:
             time.sleep(MAIL_GAP_SECONDS)
 
