@@ -8,7 +8,7 @@
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#f4f6fa;color:#202938;font-family:Arial,sans-serif}
-header{background:white;padding:18px 5%;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e1e6ee}
+header{background:#fff;padding:18px 5%;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e1e6ee}
 header strong{font-size:21px}
 a{color:#1769d2;text-decoration:none}
 main{max-width:1250px;margin:26px auto;padding:0 18px;display:grid;grid-template-columns:1.1fr .9fr;gap:22px}
@@ -22,12 +22,12 @@ textarea{min-height:130px;resize:vertical;line-height:1.5}
 small,.muted{font-size:12px;color:#687386;line-height:1.5}
 .modebar{display:flex;gap:8px;margin-bottom:10px}
 button{font-family:Arial;cursor:pointer}
-.mode,.secondary{border:1px solid #d3dbe6;background:white;padding:8px 12px;border-radius:7px}
+.mode{border:1px solid #d3dbe6;background:#fff;padding:8px 12px;border-radius:7px}
 .mode.active{background:#eaf2ff;border-color:#8bb7ff;color:#1458b4}
 .reply-preview{border:1px solid #dfe4ec;border-radius:9px;padding:15px;margin-top:18px}
 .preview-message{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;font-size:14px}
 .reply-buttons{display:flex;flex-wrap:wrap;gap:7px;margin-top:13px}
-.reply-buttons button{padding:9px 12px;border:1px solid #d4d9e1;border-radius:7px;background:white;color:#1769d2;font-size:13px}
+.reply-buttons button{padding:9px 12px;border:1px solid #d4d9e1;border-radius:7px;background:#fff;color:#1769d2;font-size:13px}
 .reply-buttons button:hover{background:#f1f6ff}
 .consent{display:flex;gap:9px;align-items:flex-start;margin-top:18px}
 .consent label{font-weight:400;line-height:1.5}
@@ -61,11 +61,10 @@ button:disabled{opacity:.55;cursor:not-allowed}
 <section>
   <div class="card">
     <h2>Compose Email</h2>
-
     <div class="grid">
       <div class="field">
         <label for="senderName">Sender name</label>
-        <input id="senderName" placeholder="Your name" maxlength="100">
+        <input id="senderName" maxlength="100" placeholder="Your name">
       </div>
       <div class="field">
         <label for="senderEmail">Gmail address</label>
@@ -76,12 +75,12 @@ button:disabled{opacity:.55;cursor:not-allowed}
     <div class="field">
       <label for="appPassword">Google App Password</label>
       <input id="appPassword" type="password" placeholder="Google App Password">
-      <small>Use your Google App Password, not your normal Gmail password.</small>
+      <small>Use a Google App Password, not your normal Gmail password.</small>
     </div>
 
     <div class="field">
       <label for="subject">Email subject</label>
-      <input id="subject" maxlength="200" placeholder="A clear, accurate subject">
+      <input id="subject" maxlength="200" placeholder="Clear and relevant subject">
     </div>
 
     <div class="field">
@@ -91,19 +90,19 @@ button:disabled{opacity:.55;cursor:not-allowed}
         <button type="button" class="mode" data-mode="html">HTML</button>
       </div>
       <textarea id="body" placeholder="Write your email message..."></textarea>
-      <small>Keep the message relevant to the recipient and avoid unnecessary links.</small>
+      <small>Keep the message relevant to recipients and use accurate information.</small>
     </div>
 
     <div class="reply-preview">
       <strong>Smart Reply Preview</strong>
-      <p class="muted">Suggestions are for your app preview; Gmail generates its own Smart Replies.</p>
+      <p class="muted">These suggestions appear in this app. The email sent below includes custom reply buttons.</p>
       <div id="previewMessage" class="preview-message"></div>
       <div id="replyButtons" class="reply-buttons"></div>
     </div>
 
     <div class="consent">
       <input type="checkbox" id="consent">
-      <label for="consent">I confirm these recipients agreed to receive these emails.</label>
+      <label for="consent">I confirm that these recipients agreed to receive these emails.</label>
     </div>
   </div>
 </section>
@@ -169,9 +168,9 @@ button:disabled{opacity:.55;cursor:not-allowed}
   async function refreshPreview() {
     const subject = $("subject").value.trim();
     const body = $("body").value.trim();
-
     $("previewMessage").textContent = body;
     $("replyButtons").replaceChildren();
+
     if (!subject || !body) return;
 
     try {
@@ -199,7 +198,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
         $("replyButtons").append(button);
       });
     } catch (_) {
-      // Suggestions are optional; this does not affect sending.
+      // Suggestions are optional and do not affect sending.
     }
   }
 
@@ -214,7 +213,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
   $("stop").addEventListener("click", () => {
     stopRequested = true;
     $("status").textContent =
-      "Stop requested. The current batch may finish before stopping.";
+      "Stop requested. The current batch may finish first.";
     $("stop").disabled = true;
   });
 
