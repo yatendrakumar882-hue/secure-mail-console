@@ -3,8 +3,9 @@ import os
 import re
 import ssl
 import time
-import smtplib
 import html
+import smtplib
+from urllib.parse import quote
 from datetime import timedelta
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid
@@ -97,6 +98,45 @@ def suggest_replies(subject, body, html_mode=False):
     ]
 
 
+def build_email_html(body, sender_email, subject, html_mode):
+    if html_mode:
+        message_html = str(body or "")
+    else:
+        message_html = (
+            '<div style="font-family:Arial,sans-serif;font-size:14px;'
+            'line-height:1.6;color:#202124;">'
+            + html.escape(str(body or "")).replace("\n", "<br>")
+            + "</div>"
+        )
+
+    buttons = []
+    for reply in suggest_replies(subject, body, html_mode):
+        mailto = (
+            "mailto:" + quote(sender_email, safe="@.+-_")
+            + "?subject=" + quote("Re: " + clean_header(subject), safe="")
+            + "&body=" + quote(reply, safe="")
+        )
+        buttons.append(
+            '<a href="' + html.escape(mailto, quote=True) + '" '
+            'style="display:inline-block;margin:0 6px 8px 0;'
+            'padding:10px 13px;border:1px solid #dadce0;'
+            'border-radius:7px;background:#fff;color:#0b57d0;'
+            'text-decoration:none;font-family:Arial,sans-serif;'
+            'font-size:14px;line-height:18px;">'
+            + html.escape(reply)
+            + "</a>"
+        )
+
+    return (
+        '<div style="font-family:Arial,sans-serif;color:#202124;">'
+        + message_html
+        + '<div style="margin-top:18px;padding-top:15px;'
+          'border-top:1px solid #dadce0;">'
+        + "".join(buttons)
+        + "</div></div>"
+    )
+
+
 def send_one(recipient, subject, body, sender_name, sender_email,
              app_password, html_mode):
     msg = EmailMessage()
@@ -105,28 +145,17 @@ def send_one(recipient, subject, body, sender_name, sender_email,
         sender_email,
     ))
     msg["To"] = recipient
-    # A normal recipient Reply goes to the authenticated Gmail sender.
     msg["Reply-To"] = sender_email
     msg["Subject"] = clean_header(subject)
     msg["Date"] = formatdate(localtime=True)
     msg["Message-ID"] = make_msgid()
 
-    if html_mode:
-        plain = html_to_text(body)
-        safe_html = str(body or "")
-    else:
-        plain = str(body or "")
-        safe_html = (
-            '<div style="font-family:Arial,sans-serif;line-height:1.6;'
-            'color:#202124;">'
-            + html.escape(plain).replace("\n", "<br>")
-            + "</div>"
-        )
-
-    # Keep the email body simple. Smart-reply suggestions are shown in the app,
-    # not embedded as extra links in the delivered message.
-    msg.set_content(plain)
-    msg.add_alternative(safe_html, subtype="html")
+    plain_body = html_to_text(body) if html_mode else str(body or "")
+    msg.set_content(plain_body)
+    msg.add_alternative(
+        build_email_html(body, sender_email, subject, html_mode),
+        subtype="html",
+    )
 
     context = ssl.create_default_context()
 
@@ -138,7 +167,6 @@ def send_one(recipient, subject, body, sender_name, sender_email,
                 server.ehlo()
                 server.login(sender_email, app_password)
                 refused = server.send_message(msg)
-
         elif SMTP_PORT == 587:
             with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=25) as server:
                 server.ehlo()
@@ -146,35 +174,31 @@ def send_one(recipient, subject, body, sender_name, sender_email,
                 server.ehlo()
                 server.login(sender_email, app_password)
                 refused = server.send_message(msg)
-
         else:
             return False, "SMTP_PORT must be 465 or 587."
 
         if refused:
-            return False, "SMTP server refused the recipient."
+            return False, "Recipient rejected by SMTP server."
 
         return True, (
-            "Gmail SMTP accepted the message. This does not confirm "
-            "delivery to the recipient's Primary Inbox."
+            "Gmail SMTP accepted the message; Primary Inbox delivery "
+            "is not guaranteed."
         )
 
     except smtplib.SMTPAuthenticationError:
-        return False, (
-            "Gmail authentication failed. Check the Gmail address and "
-            "Google App Password."
-        )
+        return False, "Gmail authentication failed. Check the address and App Password."
     except smtplib.SMTPRecipientsRefused:
-        return False, "Recipient rejected by the SMTP server."
+        return False, "Recipient rejected by SMTP server."
     except smtplib.SMTPSenderRefused:
-        return False, "Sender address rejected by the SMTP server."
+        return False, "Sender address rejected by SMTP server."
     except smtplib.SMTPDataError as exc:
-        return False, f"SMTP rejected the message content: {exc.smtp_code}."
+        return False, f"SMTP rejected the message content (code {exc.smtp_code})."
     except smtplib.SMTPConnectError:
-        return False, "Could not connect to the SMTP server."
+        return False, "Could not connect to Gmail SMTP."
     except smtplib.SMTPException as exc:
-        return False, f"SMTP error: {str(exc)[:180]}"
+        return False, f"SMTP error: {str(exc)[:160]}"
     except (OSError, TimeoutError) as exc:
-        return False, f"Network/timeout error: {str(exc)[:180]}"
+        return False, f"Connection/timeout error: {str(exc)[:160]}"
 
 
 @app.get("/health")
@@ -185,12 +209,11 @@ def health():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error = None
-
     if request.method == "POST":
         if len(app.secret_key) < 32:
-            error = "Configure SESSION_SECRET with at least 32 random characters."
+            error = "Set SESSION_SECRET to a random value of at least 32 characters."
         elif not LOGIN_PASSWORD:
-            error = "Configure LOGIN_PASSWORD in Vercel Environment Variables."
+            error = "Set LOGIN_PASSWORD in Vercel Environment Variables."
         elif request.form.get("password", "") == LOGIN_PASSWORD:
             session.clear()
             session["logged_in"] = True
@@ -198,7 +221,6 @@ def login():
             return redirect(url_for("index"))
         else:
             error = "Incorrect password."
-
     return render_template("login.html", error=error)
 
 
@@ -254,7 +276,7 @@ def send_batch():
     if len(app.secret_key) < 32:
         return jsonify({"error": "Configure SESSION_SECRET (32+ characters)."}), 500
     if data.get("consentConfirmed") is not True:
-        return jsonify({"error": "Confirm that recipients agreed to receive the email."}), 400
+        return jsonify({"error": "Confirm recipient permission first."}), 400
     if not EMAIL_RE.fullmatch(sender_email) or not sender_email.endswith("@gmail.com"):
         return jsonify({"error": "Enter a valid @gmail.com sender address."}), 400
     if not app_password:
@@ -290,8 +312,6 @@ def send_batch():
             "status": "sent" if ok else "failed",
             "detail": detail,
         })
-
-        # Do not retry automatically on errors; retrying can duplicate messages.
         if index < len(cleaned) - 1 and MAIL_GAP_SECONDS > 0:
             time.sleep(MAIL_GAP_SECONDS)
 
