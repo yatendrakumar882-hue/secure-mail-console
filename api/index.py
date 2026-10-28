@@ -6,8 +6,8 @@ import time
 import html
 import smtplib
 from datetime import datetime, timedelta
-from urllib.parse import quote
 from zoneinfo import ZoneInfo
+from urllib.parse import quote
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid
 
@@ -65,6 +65,12 @@ def html_to_text(value):
     return html.unescape(value).strip()
 
 
+def get_local_sent_time():
+    now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    display = now.strftime("%a, %b %d, %Y at %I:%M %p")
+    return now, display
+
+
 def get_reply_suggestions(subject, body, html_mode=False):
     content = html_to_text(body) if html_mode else str(body or "")
     text = (clean_header(subject) + " " + content).lower()
@@ -97,50 +103,36 @@ def get_reply_suggestions(subject, body, html_mode=False):
     ]
 
 
-def local_sent_time():
-    try:
-        return datetime.now(ZoneInfo("Asia/Kolkata")).strftime(
-            "%d %b %Y, %I:%M:%S %p IST"
-        )
-    except Exception:
-        return datetime.now().astimezone().strftime("%d %b %Y, %I:%M:%S %p %Z")
-
-
-def build_email_html(body, sender_email, subject, sender_name,
-                     sent_time, html_mode):
+def build_email_html(body, sender_email, sender_name, subject,
+                     sent_display, html_mode):
     if html_mode:
         message_html = str(body or "")
-        template_text = html_to_text(body)
+        original_text = html_to_text(body)
     else:
-        template_text = str(body or "")
+        original_text = str(body or "")
         message_html = (
             '<div style="font-family:Arial,sans-serif;font-size:14px;'
             'line-height:1.6;color:#202124;">'
-            + html.escape(template_text).replace("\n", "<br>")
+            + html.escape(original_text).replace("\n", "<br>")
             + "</div>"
         )
 
-    buttons = []
-    replies = get_reply_suggestions(subject, body, html_mode)
+    display_name = clean_header(sender_name, 100) or sender_email
+    sender_identity = f"{display_name} <{sender_email}>"
 
-    for reply in replies:
-        # These details are inserted into the draft opened by the button.
-        reply_details = (
+    buttons = []
+    for reply in get_reply_suggestions(subject, body, html_mode):
+        # Keep the reply draft short: suggested answer + one quoted header + template.
+        quoted_reply = (
             f"{reply}\n\n"
-            "----- Original email details -----\n"
-            f"Sender Gmail ID: {sender_email}\n"
-            f"Sender name: {sender_name or sender_email}\n"
-            f"Original subject: {subject}\n"
-            f"Sent date/time: {sent_time}\n\n"
-            "Original message template:\n"
-            f"{template_text}\n"
-            "----- End of original email details -----\n"
+            f"On {sent_display} {sender_identity} wrote:\n"
+            f"{original_text}"
         )
 
         mailto = (
             "mailto:" + quote(sender_email, safe="@.+-_")
             + "?subject=" + quote("Re: " + clean_header(subject), safe="")
-            + "&body=" + quote(reply_details, safe="")
+            + "&body=" + quote(quoted_reply, safe="")
         )
 
         buttons.append(
@@ -166,9 +158,9 @@ def build_email_html(body, sender_email, subject, sender_name,
 
 def send_one(recipient, subject, body, sender_name, sender_email,
              app_password, html_mode):
-    sent_time = local_sent_time()
-    msg = EmailMessage()
+    now, sent_display = get_local_sent_time()
 
+    msg = EmailMessage()
     msg["From"] = formataddr((
         clean_header(sender_name, 100) or sender_email,
         sender_email,
@@ -176,19 +168,19 @@ def send_one(recipient, subject, body, sender_name, sender_email,
     msg["To"] = recipient
     msg["Reply-To"] = sender_email
     msg["Subject"] = clean_header(subject)
-    msg["Date"] = formatdate(localtime=True)
+    msg["Date"] = formatdate(time.mktime(now.timetuple()), localtime=True)
     msg["Message-ID"] = make_msgid()
 
-    plain = html_to_text(body) if html_mode else str(body or "")
-    msg.set_content(plain)
+    plain_body = html_to_text(body) if html_mode else str(body or "")
+    msg.set_content(plain_body)
 
     msg.add_alternative(
         build_email_html(
             body=body,
             sender_email=sender_email,
-            subject=subject,
             sender_name=sender_name,
-            sent_time=sent_time,
+            subject=subject,
+            sent_display=sent_display,
             html_mode=html_mode,
         ),
         subtype="html",
@@ -220,8 +212,8 @@ def send_one(recipient, subject, body, sender_name, sender_email,
             return False, "Recipient rejected by SMTP server."
 
         return True, (
-            f"SMTP accepted the message. Send time recorded: {sent_time}. "
-            "Primary Inbox delivery is not guaranteed."
+            f"SMTP accepted the message at {sent_display}. "
+            "This does not confirm Primary Inbox placement."
         )
 
     except smtplib.SMTPAuthenticationError:
@@ -231,7 +223,7 @@ def send_one(recipient, subject, body, sender_name, sender_email,
     except smtplib.SMTPSenderRefused:
         return False, "Sender address rejected by SMTP server."
     except smtplib.SMTPDataError as exc:
-        return False, f"SMTP rejected the message content (code {exc.smtp_code})."
+        return False, f"SMTP rejected message content (code {exc.smtp_code})."
     except smtplib.SMTPConnectError:
         return False, "Could not connect to Gmail SMTP."
     except smtplib.SMTPException as exc:
@@ -334,6 +326,7 @@ def send_batch():
             "status": "sent" if ok else "failed",
             "detail": detail,
         })
+
         if index < len(cleaned) - 1 and MAIL_GAP_SECONDS > 0:
             time.sleep(MAIL_GAP_SECONDS)
 
