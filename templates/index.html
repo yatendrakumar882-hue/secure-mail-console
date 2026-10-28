@@ -24,11 +24,6 @@ small,.muted{font-size:12px;color:#687386;line-height:1.5}
 button{font-family:Arial;cursor:pointer}
 .mode{border:1px solid #d3dbe6;background:#fff;padding:8px 12px;border-radius:7px}
 .mode.active{background:#eaf2ff;border-color:#8bb7ff;color:#1458b4}
-.reply-preview{border:1px solid #dfe4ec;border-radius:9px;padding:15px;margin-top:18px}
-.preview-message{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;font-size:14px}
-.reply-buttons{display:flex;flex-wrap:wrap;gap:7px;margin-top:13px}
-.reply-buttons button{padding:9px 12px;border:1px solid #d4d9e1;border-radius:7px;background:#fff;color:#1769d2;font-size:13px}
-.reply-buttons button:hover{background:#f1f6ff}
 .consent{display:flex;gap:9px;align-items:flex-start;margin-top:18px}
 .consent label{font-weight:400;line-height:1.5}
 .recipient-area{min-height:180px}
@@ -61,6 +56,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
 <section>
   <div class="card">
     <h2>Compose Email</h2>
+
     <div class="grid">
       <div class="field">
         <label for="senderName">Sender name</label>
@@ -75,7 +71,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
     <div class="field">
       <label for="appPassword">Google App Password</label>
       <input id="appPassword" type="password" placeholder="Google App Password">
-      <small>Use a Google App Password, not your normal Gmail password.</small>
+      <small>Use your Google App Password, not your normal Gmail password.</small>
     </div>
 
     <div class="field">
@@ -91,13 +87,6 @@ button:disabled{opacity:.55;cursor:not-allowed}
       </div>
       <textarea id="body" placeholder="Write your email message..."></textarea>
       <small>Keep the message relevant to recipients and use accurate information.</small>
-    </div>
-
-    <div class="reply-preview">
-      <strong>Smart Reply Preview</strong>
-      <p class="muted">These suggestions appear in this app. The email sent below includes custom reply buttons.</p>
-      <div id="previewMessage" class="preview-message"></div>
-      <div id="replyButtons" class="reply-buttons"></div>
     </div>
 
     <div class="consent">
@@ -141,7 +130,6 @@ button:disabled{opacity:.55;cursor:not-allowed}
   let mode = "plain";
   let running = false;
   let stopRequested = false;
-  let previewTimer;
 
   function getRecipients() {
     return [...new Set(
@@ -161,54 +149,8 @@ button:disabled{opacity:.55;cursor:not-allowed}
       document.querySelectorAll(".mode").forEach(item =>
         item.classList.toggle("active", item === button)
       );
-      refreshPreview();
     });
   });
-
-  async function refreshPreview() {
-    const subject = $("subject").value.trim();
-    const body = $("body").value.trim();
-    $("previewMessage").textContent = body;
-    $("replyButtons").replaceChildren();
-
-    if (!subject || !body) return;
-
-    try {
-      const response = await fetch("/smart-replies", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-          subject,
-          body,
-          htmlMode: mode === "html"
-        })
-      });
-
-      if (!response.ok) return;
-      const data = await response.json();
-
-      (data.replies || []).forEach(reply => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.textContent = reply;
-        button.addEventListener("click", () => {
-          $("body").value += ($("body").value ? "\n\n" : "") + reply;
-          $("previewMessage").textContent = $("body").value;
-        });
-        $("replyButtons").append(button);
-      });
-    } catch (_) {
-      // Suggestions are optional and do not affect sending.
-    }
-  }
-
-  function schedulePreview() {
-    clearTimeout(previewTimer);
-    previewTimer = setTimeout(refreshPreview, 300);
-  }
-
-  $("subject").addEventListener("input", schedulePreview);
-  $("body").addEventListener("input", schedulePreview);
 
   $("stop").addEventListener("click", () => {
     stopRequested = true;
@@ -254,10 +196,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
     $("stop").disabled = false;
     $("results").replaceChildren();
 
-    let sent = 0;
-    let failed = 0;
-    let processed = 0;
-
+    let sent = 0, failed = 0, processed = 0;
     $("total").textContent = recipients.length;
     $("sent").textContent = "0";
     $("failed").textContent = "0";
@@ -274,11 +213,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             recipients: recipients.slice(start, start + 8),
-            senderEmail,
-            appPassword,
-            senderName,
-            subject,
-            body,
+            senderEmail, appPassword, senderName, subject, body,
             htmlMode: mode === "html",
             consentConfirmed: $("consent").checked
           })
