@@ -5,8 +5,9 @@ import ssl
 import time
 import html
 import smtplib
+from datetime import datetime, timedelta
 from urllib.parse import quote
-from datetime import timedelta
+from zoneinfo import ZoneInfo
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid
 
@@ -64,11 +65,9 @@ def html_to_text(value):
     return html.unescape(value).strip()
 
 
-def suggest_replies(subject, body, html_mode=False):
-    text = (
-        clean_header(subject) + " " +
-        (html_to_text(body) if html_mode else str(body or ""))
-    ).lower()
+def get_reply_suggestions(subject, body, html_mode=False):
+    content = html_to_text(body) if html_mode else str(body or "")
+    text = (clean_header(subject) + " " + content).lower()
 
     if any(x in text for x in ("quote", "quotation", "pricing", "price", "cost")):
         return [
@@ -98,24 +97,52 @@ def suggest_replies(subject, body, html_mode=False):
     ]
 
 
-def build_email_html(body, sender_email, subject, html_mode):
+def local_sent_time():
+    try:
+        return datetime.now(ZoneInfo("Asia/Kolkata")).strftime(
+            "%d %b %Y, %I:%M:%S %p IST"
+        )
+    except Exception:
+        return datetime.now().astimezone().strftime("%d %b %Y, %I:%M:%S %p %Z")
+
+
+def build_email_html(body, sender_email, subject, sender_name,
+                     sent_time, html_mode):
     if html_mode:
         message_html = str(body or "")
+        template_text = html_to_text(body)
     else:
+        template_text = str(body or "")
         message_html = (
             '<div style="font-family:Arial,sans-serif;font-size:14px;'
             'line-height:1.6;color:#202124;">'
-            + html.escape(str(body or "")).replace("\n", "<br>")
+            + html.escape(template_text).replace("\n", "<br>")
             + "</div>"
         )
 
     buttons = []
-    for reply in suggest_replies(subject, body, html_mode):
+    replies = get_reply_suggestions(subject, body, html_mode)
+
+    for reply in replies:
+        # These details are inserted into the draft opened by the button.
+        reply_details = (
+            f"{reply}\n\n"
+            "----- Original email details -----\n"
+            f"Sender Gmail ID: {sender_email}\n"
+            f"Sender name: {sender_name or sender_email}\n"
+            f"Original subject: {subject}\n"
+            f"Sent date/time: {sent_time}\n\n"
+            "Original message template:\n"
+            f"{template_text}\n"
+            "----- End of original email details -----\n"
+        )
+
         mailto = (
             "mailto:" + quote(sender_email, safe="@.+-_")
             + "?subject=" + quote("Re: " + clean_header(subject), safe="")
-            + "&body=" + quote(reply, safe="")
+            + "&body=" + quote(reply_details, safe="")
         )
+
         buttons.append(
             '<a href="' + html.escape(mailto, quote=True) + '" '
             'style="display:inline-block;margin:0 6px 8px 0;'
@@ -139,7 +166,9 @@ def build_email_html(body, sender_email, subject, html_mode):
 
 def send_one(recipient, subject, body, sender_name, sender_email,
              app_password, html_mode):
+    sent_time = local_sent_time()
     msg = EmailMessage()
+
     msg["From"] = formataddr((
         clean_header(sender_name, 100) or sender_email,
         sender_email,
@@ -150,10 +179,18 @@ def send_one(recipient, subject, body, sender_name, sender_email,
     msg["Date"] = formatdate(localtime=True)
     msg["Message-ID"] = make_msgid()
 
-    plain_body = html_to_text(body) if html_mode else str(body or "")
-    msg.set_content(plain_body)
+    plain = html_to_text(body) if html_mode else str(body or "")
+    msg.set_content(plain)
+
     msg.add_alternative(
-        build_email_html(body, sender_email, subject, html_mode),
+        build_email_html(
+            body=body,
+            sender_email=sender_email,
+            subject=subject,
+            sender_name=sender_name,
+            sent_time=sent_time,
+            html_mode=html_mode,
+        ),
         subtype="html",
     )
 
@@ -167,6 +204,7 @@ def send_one(recipient, subject, body, sender_name, sender_email,
                 server.ehlo()
                 server.login(sender_email, app_password)
                 refused = server.send_message(msg)
+
         elif SMTP_PORT == 587:
             with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=25) as server:
                 server.ehlo()
@@ -174,6 +212,7 @@ def send_one(recipient, subject, body, sender_name, sender_email,
                 server.ehlo()
                 server.login(sender_email, app_password)
                 refused = server.send_message(msg)
+
         else:
             return False, "SMTP_PORT must be 465 or 587."
 
@@ -181,8 +220,8 @@ def send_one(recipient, subject, body, sender_name, sender_email,
             return False, "Recipient rejected by SMTP server."
 
         return True, (
-            "Gmail SMTP accepted the message; Primary Inbox delivery "
-            "is not guaranteed."
+            f"SMTP accepted the message. Send time recorded: {sent_time}. "
+            "Primary Inbox delivery is not guaranteed."
         )
 
     except smtplib.SMTPAuthenticationError:
@@ -209,6 +248,7 @@ def health():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error = None
+
     if request.method == "POST":
         if len(app.secret_key) < 32:
             error = "Set SESSION_SECRET to a random value of at least 32 characters."
@@ -221,6 +261,7 @@ def login():
             return redirect(url_for("index"))
         else:
             error = "Incorrect password."
+
     return render_template("login.html", error=error)
 
 
@@ -235,25 +276,6 @@ def index():
     if not logged_in():
         return redirect(url_for("login"))
     return render_template("index.html")
-
-
-@app.post("/smart-replies")
-def smart_replies():
-    if not logged_in():
-        return jsonify({"error": "Please sign in again."}), 401
-
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict):
-        return jsonify({"error": "Invalid JSON request."}), 400
-
-    subject = clean_header(data.get("subject", ""))
-    body = str(data.get("body", "")).strip()
-    html_mode = data.get("htmlMode") is True
-
-    if not subject or not body:
-        return jsonify({"replies": []})
-
-    return jsonify({"replies": suggest_replies(subject, body, html_mode)})
 
 
 @app.post("/send-batch")
