@@ -12,10 +12,10 @@ import smtplib
 import threading
 
 from datetime import datetime, timezone
+from functools import wraps
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid
-from functools import wraps
 
 from flask import (
     Flask,
@@ -29,22 +29,12 @@ from flask import (
     stream_with_context,
 )
 
-# ------------------------------------------------------------
-# Flask app — keep this at module top level for Vercel
-# ------------------------------------------------------------
-
 app = Flask(__name__)
 
 SESSION_SECRET = os.environ.get("SESSION_SECRET")
 LOGIN_PASSWORD = os.environ.get("LOGIN_PASSWORD")
 
-if not SESSION_SECRET:
-    raise RuntimeError("Missing SESSION_SECRET environment variable.")
-
-if not LOGIN_PASSWORD:
-    raise RuntimeError("Missing LOGIN_PASSWORD environment variable.")
-
-app.secret_key = SESSION_SECRET
+app.secret_key = SESSION_SECRET or secrets.token_hex(32)
 
 app.config.update(
     SESSION_COOKIE_SECURE=True,
@@ -52,10 +42,6 @@ app.config.update(
     SESSION_COOKIE_SAMESITE="Lax",
     PERMANENT_SESSION_LIFETIME=3600,
 )
-
-# ------------------------------------------------------------
-# SMTP configuration
-# ------------------------------------------------------------
 
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 465
@@ -76,10 +62,6 @@ logger = logging.getLogger(__name__)
 _pacing_lock = threading.Lock()
 _last_send_started = 0.0
 
-
-# ------------------------------------------------------------
-# Utility functions
-# ------------------------------------------------------------
 
 def valid_email(address):
     if not isinstance(address, str):
@@ -222,23 +204,21 @@ def send_one_email(
 ):
     try:
         message = build_message(
-            sender_email=sender_email,
-            sender_name=sender_name,
-            recipient=recipient,
-            subject=subject,
-            body=body,
-            is_html=is_html,
+            sender_email,
+            sender_name,
+            recipient,
+            subject,
+            body,
+            is_html,
         )
 
         pace_send_start()
-
-        context = ssl.create_default_context()
 
         with smtplib.SMTP_SSL(
             SMTP_HOST,
             SMTP_PORT,
             timeout=SMTP_TIMEOUT,
-            context=context,
+            context=ssl.create_default_context(),
         ) as server:
             server.login(sender_email, app_password)
             server.send_message(
@@ -289,6 +269,7 @@ def login_required(view):
     def wrapped(*args, **kwargs):
         if not session.get("authenticated"):
             return redirect(url_for("login"))
+
         return view(*args, **kwargs)
 
     return wrapped
@@ -297,10 +278,6 @@ def login_required(view):
 def stream_event(event):
     return json.dumps(event, ensure_ascii=False) + "\n"
 
-
-# ------------------------------------------------------------
-# Routes
-# ------------------------------------------------------------
 
 @app.route("/", methods=["GET"])
 def index():
@@ -318,12 +295,21 @@ def login():
 
         return render_template("login.html")
 
+    if not SESSION_SECRET or not LOGIN_PASSWORD:
+        logger.error("SESSION_SECRET or LOGIN_PASSWORD is missing.")
+
+        return render_template(
+            "login.html",
+            error="Server configuration is incomplete. Contact the administrator.",
+        ), 500
+
     password = request.form.get("password", "")
 
     if secrets.compare_digest(password, LOGIN_PASSWORD):
         session.clear()
         session["authenticated"] = True
         session.permanent = True
+
         return redirect(url_for("index"))
 
     return render_template(
@@ -417,9 +403,7 @@ def send_batch():
             "message": "Sending started.",
         })
 
-        with ThreadPoolExecutor(
-            max_workers=MAX_PARALLEL_SENDS
-        ) as executor:
+        with ThreadPoolExecutor(max_workers=MAX_PARALLEL_SENDS) as executor:
             futures = [
                 executor.submit(
                     send_one_email,
@@ -472,8 +456,5 @@ def send_batch():
     )
 
 
-# ------------------------------------------------------------
-# Vercel Python entrypoint — must remain at module top level
-# ------------------------------------------------------------
-
+# Vercel Python entrypoint: keep at module top level
 handler = app
