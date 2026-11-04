@@ -10,6 +10,7 @@ import secrets
 import logging
 import smtplib
 import threading
+
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from email.message import EmailMessage
@@ -29,7 +30,7 @@ from flask import (
 )
 
 # ------------------------------------------------------------
-# App configuration
+# Flask app — keep this at module top level for Vercel
 # ------------------------------------------------------------
 
 app = Flask(__name__)
@@ -38,18 +39,23 @@ SESSION_SECRET = os.environ.get("SESSION_SECRET")
 LOGIN_PASSWORD = os.environ.get("LOGIN_PASSWORD")
 
 if not SESSION_SECRET:
-    raise RuntimeError("SESSION_SECRET environment variable is required.")
+    raise RuntimeError("Missing SESSION_SECRET environment variable.")
 
 if not LOGIN_PASSWORD:
-    raise RuntimeError("LOGIN_PASSWORD environment variable is required.")
+    raise RuntimeError("Missing LOGIN_PASSWORD environment variable.")
 
 app.secret_key = SESSION_SECRET
+
 app.config.update(
     SESSION_COOKIE_SECURE=True,
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     PERMANENT_SESSION_LIFETIME=3600,
 )
+
+# ------------------------------------------------------------
+# SMTP configuration
+# ------------------------------------------------------------
 
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 465
@@ -67,13 +73,12 @@ EMAIL_RE = re.compile(
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Serialize pacing across worker threads.
-_send_lock = threading.Lock()
+_pacing_lock = threading.Lock()
 _last_send_started = 0.0
 
 
 # ------------------------------------------------------------
-# Helpers
+# Utility functions
 # ------------------------------------------------------------
 
 def valid_email(address):
@@ -89,26 +94,27 @@ def valid_email(address):
     return bool(local and domain and len(local) <= 64)
 
 
-def parse_recipients(raw_recipients):
-    if isinstance(raw_recipients, list):
-        candidates = raw_recipients
-    elif isinstance(raw_recipients, str):
-        candidates = re.split(r"[\s,;]+", raw_recipients)
+def parse_recipients(raw):
+    if isinstance(raw, list):
+        candidates = raw
+    elif isinstance(raw, str):
+        candidates = re.split(r"[\s,;]+", raw)
     else:
         raise ValueError("Recipients must be a list or text.")
 
     recipients = []
     seen = set()
 
-    for candidate in candidates:
-        address = str(candidate).strip()
+    for item in candidates:
+        address = str(item).strip()
+
         if not address:
             continue
 
-        normalized = address.lower()
-
         if not valid_email(address):
             raise ValueError(f"Invalid email address: {address}")
+
+        normalized = address.lower()
 
         if normalized not in seen:
             seen.add(normalized)
@@ -123,51 +129,54 @@ def parse_recipients(raw_recipients):
     return recipients
 
 
-def html_to_plain_text(value):
-    value = re.sub(r"(?i)<\s*br\s*/?\s*>", "\n", value)
-    value = re.sub(r"(?i)</\s*(p|div|li|tr|h[1-6])\s*>", "\n", value)
-    value = re.sub(r"<[^>]+>", " ", value)
-    value = html.unescape(value)
-    value = re.sub(r"[ \t]+\n", "\n", value)
-    value = re.sub(r"\n{3,}", "\n\n", value)
-    return value.strip()
-
-
 def recipient_name(address):
     local_part = address.split("@", 1)[0]
-    cleaned = re.sub(r"[._+-]+", " ", local_part).strip()
-    return cleaned.title() if cleaned else "there"
+    name = re.sub(r"[._+-]+", " ", local_part).strip()
+    return name.title() if name else "there"
 
 
 def personalize_template(template, recipient):
-    name = recipient_name(recipient)
-
     replacements = {
         "{{hi}}": "Hi",
         "{{hello}}": "Hello",
         "{{thanks}}": "Thank you",
-        "{{name}}": name,
+        "{{name}}": recipient_name(recipient),
         "{{email}}": recipient,
         "{{ref_code}}": secrets.token_hex(4).upper(),
     }
 
     result = template
+
     for placeholder, value in replacements.items():
         result = result.replace(placeholder, value)
 
     return result
 
 
+def html_to_plain_text(value):
+    value = re.sub(r"(?i)<\s*br\s*/?\s*>", "\n", value)
+    value = re.sub(
+        r"(?i)</\s*(p|div|li|tr|h[1-6])\s*>",
+        "\n",
+        value,
+    )
+    value = re.sub(r"<[^>]+>", " ", value)
+    value = html.unescape(value)
+    value = re.sub(r"[ \t]+\n", "\n", value)
+    value = re.sub(r"\n{3,}", "\n\n", value)
+
+    return value.strip()
+
+
 def pace_send_start():
-    """Apply a small minimum interval between send attempts."""
     global _last_send_started
 
-    with _send_lock:
+    with _pacing_lock:
         now = time.monotonic()
-        wait_for = SEND_DELAY_SECONDS - (now - _last_send_started)
+        wait_seconds = SEND_DELAY_SECONDS - (now - _last_send_started)
 
-        if wait_for > 0:
-            time.sleep(wait_for)
+        if wait_seconds > 0:
+            time.sleep(wait_seconds)
 
         _last_send_started = time.monotonic()
 
@@ -241,7 +250,7 @@ def send_one_email(
         return {
             "recipient": recipient,
             "success": True,
-            "message": "Accepted by SMTP server",
+            "message": "Accepted by SMTP server.",
         }
 
     except smtplib.SMTPAuthenticationError:
@@ -259,7 +268,7 @@ def send_one_email(
         }
 
     except (smtplib.SMTPException, OSError, ssl.SSLError) as exc:
-        logger.warning("SMTP failure for recipient %s: %s", recipient, exc)
+        logger.warning("SMTP error for %s: %s", recipient, exc)
         return {
             "recipient": recipient,
             "success": False,
@@ -267,7 +276,7 @@ def send_one_email(
         }
 
     except Exception:
-        logger.exception("Unexpected send error for recipient %s", recipient)
+        logger.exception("Unexpected send error for %s", recipient)
         return {
             "recipient": recipient,
             "success": False,
@@ -285,7 +294,7 @@ def login_required(view):
     return wrapped
 
 
-def json_stream_event(event):
+def stream_event(event):
     return json.dumps(event, ensure_ascii=False) + "\n"
 
 
@@ -306,6 +315,7 @@ def login():
     if request.method == "GET":
         if session.get("authenticated"):
             return redirect(url_for("index"))
+
         return render_template("login.html")
 
     password = request.form.get("password", "")
@@ -314,7 +324,7 @@ def login():
         session.clear()
         session["authenticated"] = True
         session.permanent = True
-        return redirect(url_for("index))
+        return redirect(url_for("index"))
 
     return render_template(
         "login.html",
@@ -322,7 +332,7 @@ def login():
     ), 401
 
 
-@app.route("/logout", methods=["POST", "GET"])
+@app.route("/logout", methods=["GET", "POST"])
 def logout():
     session.clear()
     return redirect(url_for("login"))
@@ -344,7 +354,10 @@ def send_batch():
     data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
-        return jsonify({"ok": False, "error": "Invalid JSON request."}), 400
+        return jsonify({
+            "ok": False,
+            "error": "Invalid JSON request.",
+        }), 400
 
     sender_email = str(data.get("gmail", "")).strip()
     app_password = str(data.get("app_password", "")).strip()
@@ -355,27 +368,42 @@ def send_batch():
     consent_confirmed = bool(data.get("consent_confirmed", False))
 
     if not valid_email(sender_email):
-        return jsonify({"ok": False, "error": "Enter a valid Gmail address."}), 400
+        return jsonify({
+            "ok": False,
+            "error": "Enter a valid Gmail address.",
+        }), 400
 
     if not app_password:
-        return jsonify({"ok": False, "error": "Gmail App Password is required."}), 400
+        return jsonify({
+            "ok": False,
+            "error": "Gmail App Password is required.",
+        }), 400
 
     if not subject:
-        return jsonify({"ok": False, "error": "Subject is required."}), 400
+        return jsonify({
+            "ok": False,
+            "error": "Subject is required.",
+        }), 400
 
     if not isinstance(body, str) or not body.strip():
-        return jsonify({"ok": False, "error": "Email body is required."}), 400
+        return jsonify({
+            "ok": False,
+            "error": "Email body is required.",
+        }), 400
 
     if not consent_confirmed:
         return jsonify({
             "ok": False,
-            "error": "Confirm that recipients have consented to receive these emails.",
+            "error": "Confirm recipients have consented to receive these emails.",
         }), 400
 
     try:
         recipients = parse_recipients(data.get("recipients", ""))
     except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({
+            "ok": False,
+            "error": str(exc),
+        }), 400
 
     def generate():
         total = len(recipients)
@@ -383,14 +411,16 @@ def send_batch():
         successes = 0
         failures = 0
 
-        yield json_stream_event({
+        yield stream_event({
             "type": "start",
             "total": total,
             "message": "Sending started.",
         })
 
-        with ThreadPoolExecutor(max_workers=MAX_PARALLEL_SENDS) as executor:
-            futures = {
+        with ThreadPoolExecutor(
+            max_workers=MAX_PARALLEL_SENDS
+        ) as executor:
+            futures = [
                 executor.submit(
                     send_one_email,
                     sender_email,
@@ -400,9 +430,9 @@ def send_batch():
                     subject,
                     body,
                     is_html,
-                ): recipient
+                )
                 for recipient in recipients
-            }
+            ]
 
             for future in as_completed(futures):
                 result = future.result()
@@ -413,7 +443,7 @@ def send_batch():
                 else:
                     failures += 1
 
-                yield json_stream_event({
+                yield stream_event({
                     "type": "progress",
                     "completed": completed,
                     "total": total,
@@ -424,7 +454,7 @@ def send_batch():
                     "message": result["message"],
                 })
 
-        yield json_stream_event({
+        yield stream_event({
             "type": "complete",
             "total": total,
             "success": successes,
@@ -442,5 +472,8 @@ def send_batch():
     )
 
 
-# Vercel Python entry point
+# ------------------------------------------------------------
+# Vercel Python entrypoint — must remain at module top level
+# ------------------------------------------------------------
+
 handler = app
